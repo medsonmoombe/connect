@@ -404,6 +404,7 @@ ALTER TABLE engagements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE engagement_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 
 -- Organizations: Public read, Org member write
 CREATE POLICY "orgs_public_read" ON organizations FOR SELECT USING (true);
@@ -414,75 +415,81 @@ CREATE POLICY "orgs_member_update" ON organizations FOR UPDATE USING (auth.uid()
 CREATE POLICY "users_read_own" ON users FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "users_update_own" ON users FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "users_admin_read" ON users FOR SELECT USING (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'ADMIN')
 );
 
 -- Projects: Read published, Developer read own, Admin read all
 CREATE POLICY "projects_public_read" ON projects FOR SELECT USING (
-    status IN ('validated', 'funded') OR 
+    status IN ('validated', 'funded') OR
     organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())
 );
 CREATE POLICY "projects_developer_insert" ON projects FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'developer' AND organization_id = organization_id)
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'DEVELOPER' AND organization_id = organization_id)
 );
 CREATE POLICY "projects_developer_update" ON projects FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'developer' AND organization_id = organization_id)
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'DEVELOPER' AND organization_id = organization_id)
 );
 CREATE POLICY "projects_admin_full" ON projects FOR ALL USING (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'ADMIN')
 );
 
--- Technical Scores: Advisor/Admin write, Public read validated
-CREATE POLICY "techscores_read" ON technical_scores FOR SELECT USING (
-    EXISTS (SELECT 1 FROM projects WHERE id = project_id AND status IN ('validated', 'funded'))
+-- Project Scores: Read validated projects
+CREATE POLICY "scores_read" ON project_scores FOR SELECT USING (
+    EXISTS (SELECT 1 FROM projects WHERE id = project_id AND (
+        status IN ('validated', 'funded') OR
+        organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())
+    ))
 );
-CREATE POLICY "techscores_insert" ON technical_scores FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role IN ('advisor', 'admin'))
-);
-
--- Capital Scores: Read validated projects
-CREATE POLICY "capscores_read" ON capital_scores FOR SELECT USING (
-    EXISTS (SELECT 1 FROM projects WHERE id = project_id AND status IN ('validated', 'funded'))
+CREATE POLICY "scores_admin_full" ON project_scores FOR ALL USING (
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'ADMIN')
 );
 
--- Match Scores: Read own org's matches
-CREATE POLICY "matches_read" ON match_scores FOR SELECT USING (
+-- Match Results: Read own org's matches
+CREATE POLICY "capital_matches_read" ON capital_match_results FOR SELECT USING (
     project_id IN (SELECT id FROM projects WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())) OR
-    investor_profile_id IN (SELECT id FROM investor_profiles WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
+    capital_partner_id IN (SELECT id FROM capital_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
 );
 
--- Investor Profiles: Read active, Investor write own
-CREATE POLICY "investors_public_read" ON investor_profiles FOR SELECT USING (status = 'active');
-CREATE POLICY "investors_insert" ON investor_profiles FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'investor' AND organization_id = organization_id)
+CREATE POLICY "technical_matches_read" ON technical_match_results FOR SELECT USING (
+    project_id IN (SELECT id FROM projects WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())) OR
+    technical_partner_id IN (SELECT id FROM technical_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
 );
-CREATE POLICY "investors_update" ON investor_profiles FOR UPDATE USING (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'investor' AND organization_id = organization_id)
+
+-- Capital Partners: Read active, Owner write own
+CREATE POLICY "capital_partners_read" ON capital_partners FOR SELECT USING (status = 'active');
+CREATE POLICY "capital_partners_write" ON capital_partners FOR ALL USING (
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'CAPITAL_PARTNER' AND organization_id = organization_id)
+);
+
+-- Technical Partners: Read active, Owner write own
+CREATE POLICY "technical_partners_read" ON technical_partners FOR SELECT USING (status = 'active');
+CREATE POLICY "technical_partners_write" ON technical_partners FOR ALL USING (
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'TECHNICAL_PARTNER' AND organization_id = organization_id)
 );
 
 -- Engagements: Participants only
 CREATE POLICY "engagements_read" ON engagements FOR SELECT USING (
     project_id IN (SELECT id FROM projects WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())) OR
-    investor_profile_id IN (SELECT id FROM investor_profiles WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
-);
-CREATE POLICY "engagements_insert" ON engagements FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM users WHERE id = auth.uid()) -- Add org membership check
+    (counterparty_type = 'CAPITAL' AND counterparty_id IN (SELECT id FROM capital_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))) OR
+    (counterparty_type = 'TECHNICAL' AND counterparty_id IN (SELECT id FROM technical_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())))
 );
 
 -- Messages: Engagement participants
 CREATE POLICY "messages_read" ON messages FOR SELECT USING (
-    engagement_id IN (SELECT id FROM engagements WHERE 
+    engagement_id IN (SELECT id FROM engagements WHERE
         project_id IN (SELECT id FROM projects WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())) OR
-        investor_profile_id IN (SELECT id FROM investor_profiles WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
+        (counterparty_type = 'CAPITAL' AND counterparty_id IN (SELECT id FROM capital_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))) OR
+        (counterparty_type = 'TECHNICAL' AND counterparty_id IN (SELECT id FROM technical_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())))
     )
 );
 CREATE POLICY "messages_insert" ON messages FOR INSERT WITH CHECK (sender_id = auth.uid());
 
 -- Documents: Engagement participants
 CREATE POLICY "documents_read" ON documents FOR SELECT USING (
-    engagement_id IN (SELECT id FROM engagements WHERE 
+    engagement_id IN (SELECT id FROM engagements WHERE
         project_id IN (SELECT id FROM projects WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())) OR
-        investor_profile_id IN (SELECT id FROM investor_profiles WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))
+        (counterparty_type = 'CAPITAL' AND counterparty_id IN (SELECT id FROM capital_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid()))) OR
+        (counterparty_type = 'TECHNICAL' AND counterparty_id IN (SELECT id FROM technical_partners WHERE organization_id IN (SELECT organization_id FROM users WHERE id = auth.uid())))
     )
 );
 CREATE POLICY "documents_insert" ON documents FOR INSERT WITH CHECK (uploader_id = auth.uid());
@@ -1552,23 +1559,22 @@ export const calculateMatches = onRequest(async (req, res) => {
     
     // 1. Get project and scores
     const project = await db.projects.find(projectId)
-    const capitalScore = await db.capitalScores.find(projectId)
-    const technicalScore = await db.technicalScores.find(projectId)
+    const projectScore = await db.projectScores.find(projectId)
     
-    // 2. Get all active investor profiles
-    const investors = await db.investorProfiles.find({ status: 'active' })
+    // 2. Get all active capital partners
+    const partners = await db.capitalPartners.find({ status: 'active' })
     
-    // 3. Calculate matches for each investor
+    // 3. Calculate matches for each partner
     const matches = await Promise.all(
-      investors.map(async (investor) => {
+      partners.map(async (partner) => {
         const capitalCompatibility = calculateCapitalCompatibility({
           projectCapitalRequirement: project.capital_requirement_usd,
           projectStage: project.project_stage,
           projectCategory: project.category_id,
-          investorMinInvestment: investor.minimum_investment_usd,
-          investorMaxInvestment: investor.maximum_investment_usd,
-          investorPreferredStages: investor.preferred_project_stages,
-          investorPreferredCategories: investor.preferred_categories
+          investorMinInvestment: partner.min_ticket_size,
+          investorMaxInvestment: partner.max_ticket_size,
+          investorPreferredStages: partner.preferred_project_stages,
+          investorPreferredCategories: partner.preferred_categories
         })
         
         const technicalCompatibility = calculateTechnicalCompatibility({
@@ -1585,7 +1591,7 @@ export const calculateMatches = onRequest(async (req, res) => {
         )
         
         return {
-          investor_profile_id: investor.id,
+          capital_partner_id: partner.id,
           compatibility_score: overallMatch,
           capital_match_score: capitalCompatibility.matchScore,
           technical_match_score: technicalCompatibility.matchScore,

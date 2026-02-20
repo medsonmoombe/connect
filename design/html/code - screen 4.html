@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Project Details &amp; Deal Workflow - Afri Capital Connect</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#2bee79",
+              "primary-dark": "#1fa855",
+              "background-light": "#f6f8f7",
+              "background-dark": "#102217",
+              "slate-grey": "#37474F",
+              "sky-blue-light": "#E3F2FD",
+              "sky-blue-dark": "#1E88E5",
+            },
+            fontFamily: {
+              "display": ["Inter", "sans-serif"],
+              "body": ["Inter", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+          font-variation-settings:
+          'FILL' 0,
+          'wght' 400,
+          'GRAD' 0,
+          'opsz' 24
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex flex-col font-display">
+<!-- Top Navigation (Reused & Adapted) -->
+<header class="sticky top-0 z-50 flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-slate-800 bg-white dark:bg-[#152e20] px-10 py-3">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-4 text-[#111814] dark:text-white">
+<div class="size-8 text-primary">
+<svg class="h-8 w-8" fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path d="M13.8261 17.4264C16.7203 18.1174 20.2244 18.5217 24 18.5217C27.7756 18.5217 31.2797 18.1174 34.1739 17.4264C36.9144 16.7722 39.9967 15.2331 41.3563 14.1648L24.8486 40.6391C24.4571 41.267 23.5429 41.267 23.1514 40.6391L6.64374 14.1648C8.00331 15.2331 11.0856 16.7722 13.8261 17.4264Z" fill="currentColor"></path>
+<path clip-rule="evenodd" d="M39.998 12.236C39.9944 12.2537 39.9875 12.2845 39.9748 12.3294C39.9436 12.4399 39.8949 12.5741 39.8346 12.7175C39.8168 12.7597 39.7989 12.8007 39.7813 12.8398C38.5103 13.7113 35.9788 14.9393 33.7095 15.4811C30.9875 16.131 27.6413 16.5217 24 16.5217C20.3587 16.5217 17.0125 16.131 14.2905 15.4811C12.0012 14.9346 9.44505 13.6897 8.18538 12.8168C8.17384 12.7925 8.16216 12.767 8.15052 12.7408C8.09919 12.6249 8.05721 12.5114 8.02977 12.411C8.00356 12.3152 8.00039 12.2667 8.00004 12.2612C8.00004 12.261 8 12.2607 8.00004 12.2612C8.00004 12.2359 8.0104 11.9233 8.68485 11.3686C9.34546 10.8254 10.4222 10.2469 11.9291 9.72276C14.9242 8.68098 19.1919 8 24 8C28.8081 8 33.0758 8.68098 36.0709 9.72276C37.5778 10.2469 38.6545 10.8254 39.3151 11.3686C39.9006 11.8501 39.9857 12.1489 39.998 12.236ZM4.95178 15.2312L21.4543 41.6973C22.6288 43.5809 25.3712 43.5809 26.5457 41.6973L43.0534 15.223C43.0709 15.1948 43.0878 15.1662 43.104 15.1371L41.3563 14.1648C43.104 15.1371 43.1038 15.1374 43.104 15.1371L43.1051 15.135L43.1065 15.1325L43.1101 15.1261L43.1199 15.1082C43.1276 15.094 43.1377 15.0754 43.1497 15.0527C43.1738 15.0075 43.2062 14.9455 43.244 14.8701C43.319 14.7208 43.4196 14.511 43.5217 14.2683C43.6901 13.8679 44 13.0689 44 12.2609C44 10.5573 43.003 9.22254 41.8558 8.2791C40.6947 7.32427 39.1354 6.55361 37.385 5.94477C33.8654 4.72057 29.133 4 24 4C18.867 4 14.1346 4.72057 10.615 5.94478C8.86463 6.55361 7.30529 7.32428 6.14419 8.27911C4.99695 9.22255 3.99999 10.5573 3.99999 12.2609C3.99999 13.1275 4.29264 13.9078 4.49321 14.3607C4.60375 14.6102 4.71348 14.8196 4.79687 14.9689C4.83898 15.0444 4.87547 15.1065 4.9035 15.1529C4.91754 15.1762 4.92954 15.1957 4.93916 15.2111L4.94662 15.223L4.95178 15.2312ZM35.9868 18.996L24 38.22L12.0131 18.996C12.4661 19.1391 12.9179 19.2658 13.3617 19.3718C16.4281 20.1039 20.0901 20.5217 24 20.5217C27.9099 20.5217 31.5719 20.1039 34.6383 19.3718C35.082 19.2658 35.5339 19.1391 35.9868 18.996Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<h2 class="text-lg font-bold leading-tight tracking-[-0.015em]">Afri Capital Connect</h2>
+</div>
+<div class="flex items-center gap-9 hidden md:flex">
+<a class="text-slate-600 dark:text-slate-300 hover:text-primary text-sm font-medium leading-normal" href="#">Dashboard</a>
+<a class="text-slate-900 dark:text-white text-sm font-medium leading-normal" href="#">Marketplace</a>
+<a class="text-slate-600 dark:text-slate-300 hover:text-primary text-sm font-medium leading-normal" href="#">Portfolio</a>
+<a class="text-slate-600 dark:text-slate-300 hover:text-primary text-sm font-medium leading-normal" href="#">Network</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden bg-cover bg-center" data-alt="User profile picture" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuADtPNFUvS4tDmvgAVFuQOKDQ__p_-AAr4iGvmO85Zyfizg_gQVSpO5uGetSPmwK8WF2GNWWNTyhdB0-TXflyy7RuLnzvHyIzvp4nxc3wVYPAug5qT8IyyWmLdj0TCRlTWnmXs6kVe2QvEy4qg0hfrGfZlYvGCe8xQmTno8HHf2we3L8tz57sOvUowYN6t86pqd41vLZmkNJZQE9QK6MCeBkepBSEncRERA2wUBZCam5t1cGs5N6fD0lJdt3o7dziM5C5voC98bnd0');"></div>
+</div>
+</header>
+<main class="flex-grow w-full max-w-[1440px] mx-auto px-6 md:px-10 py-6">
+<!-- Breadcrumbs -->
+<nav class="flex items-center gap-2 mb-6 text-sm">
+<a class="text-slate-500 hover:text-primary transition-colors" href="#">Dashboard</a>
+<span class="text-slate-400">/</span>
+<a class="text-slate-500 hover:text-primary transition-colors" href="#">Projects</a>
+<span class="text-slate-400">/</span>
+<span class="text-slate-900 dark:text-slate-100 font-medium">Project Helios</span>
+</nav>
+<!-- Project Header Card -->
+<div class="bg-white dark:bg-[#152e20] rounded-xl border border-slate-100 dark:border-slate-800 p-6 shadow-sm mb-6">
+<div class="flex flex-col md:flex-row md:items-start justify-between gap-6">
+<div class="flex flex-col gap-3">
+<div class="flex items-center gap-3">
+<h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">Project Helios: 50MW Solar Farm</h1>
+<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary-dark dark:text-primary border border-primary/20">
+<span class="material-symbols-outlined text-sm mr-1">verified</span>
+                            Technical Validation
+                        </span>
+</div>
+<div class="flex flex-wrap items-center gap-4 text-slate-500 dark:text-slate-400 text-sm md:text-base">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-lg">bolt</span>
+                            50 MW Capacity
+                        </span>
+<span class="w-1 h-1 rounded-full bg-slate-300"></span>
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-lg">location_on</span>
+                            Lagos, Nigeria
+                        </span>
+<span class="w-1 h-1 rounded-full bg-slate-300"></span>
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-lg">monetization_on</span>
+                            $12M Capital Req.
+                        </span>
+</div>
+</div>
+<div class="flex gap-3 self-start">
+<button class="flex items-center justify-center h-10 px-5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                        Share
+                    </button>
+<button class="flex items-center justify-center h-10 px-5 rounded-lg bg-primary hover:bg-primary/90 text-slate-900 font-bold transition-colors shadow-sm shadow-primary/30">
+                        Invest Now
+                    </button>
+</div>
+</div>
+<!-- Deal Stepper (Timeline) -->
+<div class="mt-10 relative">
+<!-- Progress Bar Background -->
+<div class="absolute top-1/2 left-0 w-full h-1 bg-slate-100 dark:bg-slate-800 -translate-y-1/2 rounded-full -z-10"></div>
+<!-- Active Progress Bar (approx 50%) -->
+<div class="absolute top-1/2 left-0 w-[50%] h-1 bg-gradient-to-r from-primary to-sky-blue-light dark:to-sky-blue-dark -translate-y-1/2 rounded-full -z-10 transition-all duration-500"></div>
+<div class="flex justify-between w-full">
+<!-- Step 1: Initial Match -->
+<div class="flex flex-col items-center gap-2 group cursor-default">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-slate-900 shadow-sm ring-4 ring-white dark:ring-[#152e20]">
+<span class="material-symbols-outlined text-lg font-bold">check</span>
+</div>
+<span class="text-xs font-semibold text-primary dark:text-primary">Initial Match</span>
+</div>
+<!-- Step 2: NDA Signed -->
+<div class="flex flex-col items-center gap-2 group cursor-default">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-slate-900 shadow-sm ring-4 ring-white dark:ring-[#152e20]">
+<span class="material-symbols-outlined text-lg font-bold">check</span>
+</div>
+<span class="text-xs font-semibold text-primary dark:text-primary">NDA Signed</span>
+</div>
+<!-- Step 3: Due Diligence (Active) -->
+<div class="flex flex-col items-center gap-2 group cursor-pointer relative">
+<div class="absolute -inset-4 bg-sky-blue-light/50 dark:bg-sky-blue-dark/20 rounded-full blur-xl animate-pulse"></div>
+<div class="relative w-10 h-10 rounded-full bg-sky-blue-light dark:bg-sky-blue-dark/40 border-2 border-sky-500 flex items-center justify-center text-sky-700 dark:text-sky-200 shadow-md ring-4 ring-white dark:ring-[#152e20]">
+<span class="material-symbols-outlined animate-spin text-lg" style="animation-duration: 3s;">sync</span>
+</div>
+<span class="relative text-sm font-bold text-sky-600 dark:text-sky-300 mt-1">Due Diligence</span>
+</div>
+<!-- Step 4: Term Sheet -->
+<div class="flex flex-col items-center gap-2 group cursor-default">
+<div class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 flex items-center justify-center text-slate-400 ring-4 ring-white dark:ring-[#152e20]">
+<span class="text-xs font-bold">4</span>
+</div>
+<span class="text-xs font-medium text-slate-400">Term Sheet</span>
+</div>
+<!-- Step 5: Closing -->
+<div class="flex flex-col items-center gap-2 group cursor-default">
+<div class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 flex items-center justify-center text-slate-400 ring-4 ring-white dark:ring-[#152e20]">
+<span class="text-xs font-bold">5</span>
+</div>
+<span class="text-xs font-medium text-slate-400">Closing</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Split Pane Workspace -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full min-h-[600px]">
+<!-- Left Pane: Secure Messaging -->
+<section class="lg:col-span-7 flex flex-col bg-white dark:bg-[#152e20] rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/30">
+<h3 class="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500">forum</span>
+                        Secure Messaging
+                    </h3>
+<span class="text-xs text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">End-to-End Encrypted</span>
+</div>
+<!-- Message History -->
+<div class="flex-1 p-6 overflow-y-auto space-y-6 bg-slate-50/30 dark:bg-[#12281c]">
+<!-- System Message -->
+<div class="flex justify-center">
+<div class="bg-slate-100 dark:bg-slate-800 text-slate-500 text-xs py-1 px-3 rounded-full border border-slate-200 dark:border-slate-700">
+                            System: NDA Signed on Oct 12, 2023
+                        </div>
+</div>
+<!-- Received Message -->
+<div class="flex gap-4 max-w-[85%]">
+<div class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center text-slate-600">D</div>
+<div class="flex flex-col gap-1">
+<div class="flex items-baseline gap-2">
+<span class="text-sm font-bold text-slate-900 dark:text-slate-200">Developer</span>
+<span class="text-xs text-slate-400">10:42 AM</span>
+</div>
+<div class="bg-white dark:bg-slate-800 p-3 rounded-tr-xl rounded-br-xl rounded-bl-xl border border-slate-100 dark:border-slate-700 shadow-sm text-slate-700 dark:text-slate-300 text-sm leading-relaxed">
+                                Hello, we have uploaded the latest soil analysis reports as requested in the previous meeting. Please let us know if you need any clarification on the geological data.
+                            </div>
+</div>
+</div>
+<!-- Sent Message -->
+<div class="flex gap-4 max-w-[85%] ml-auto flex-row-reverse">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center text-primary-dark font-bold">I</div>
+<div class="flex flex-col gap-1 items-end">
+<div class="flex items-baseline gap-2">
+<span class="text-xs text-slate-400">10:55 AM</span>
+<span class="text-sm font-bold text-slate-900 dark:text-slate-200">You (Investor)</span>
+</div>
+<div class="bg-primary/10 dark:bg-primary/5 p-3 rounded-tl-xl rounded-bl-xl rounded-br-xl border border-primary/20 shadow-sm text-slate-800 dark:text-slate-200 text-sm leading-relaxed">
+                                Acknowledged. Our engineering team is reviewing the reports now. We should have feedback by EOD tomorrow.
+                            </div>
+<div class="flex items-center gap-1 text-xs text-primary-dark dark:text-primary">
+<span class="material-symbols-outlined text-[14px]">done_all</span>
+                                Read
+                            </div>
+</div>
+</div>
+</div>
+<!-- Input Area -->
+<div class="p-4 bg-white dark:bg-[#152e20] border-t border-slate-100 dark:border-slate-800">
+<form class="flex gap-3">
+<button class="p-2 text-slate-400 hover:text-primary transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-slate-800" type="button">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<input class="flex-1 bg-slate-50 dark:bg-slate-800 border-none rounded-lg px-4 py-2 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-primary/50" placeholder="Type your message..." type="text"/>
+<button class="p-2 bg-primary hover:bg-primary-dark text-slate-900 rounded-lg transition-colors flex items-center justify-center px-4 font-semibold" type="submit">
+<span class="material-symbols-outlined text-lg mr-1">send</span>
+                            Send
+                        </button>
+</form>
+</div>
+</section>
+<!-- Right Pane: Due Diligence Documents -->
+<section class="lg:col-span-5 flex flex-col bg-white dark:bg-[#152e20] rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+<div class="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-500">folder_open</span>
+                        Due Diligence Docs
+                    </h3>
+<button class="text-sm font-medium text-primary hover:text-primary-dark dark:hover:text-primary/80">Download All</button>
+</div>
+<div class="p-2 flex-1 overflow-y-auto">
+<ul class="flex flex-col gap-1">
+<!-- Doc Item 1 -->
+<li class="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="w-10 h-10 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center text-red-500 flex-shrink-0">
+<span class="material-symbols-outlined">picture_as_pdf</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-slate-grey dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white transition-colors">Environmental Impact Assessment.pdf</span>
+<div class="flex items-center gap-2 text-xs text-slate-400">
+<span>2.4 MB</span>
+<span class="w-0.5 h-0.5 rounded-full bg-slate-400"></span>
+<span>Uploaded Oct 14</span>
+</div>
+</div>
+</div>
+<button class="text-slate-300 group-hover:text-primary transition-colors p-1">
+<span class="material-symbols-outlined">download</span>
+</button>
+</li>
+<!-- Doc Item 2 -->
+<li class="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="w-10 h-10 rounded-lg bg-green-50 dark:bg-green-900/20 flex items-center justify-center text-green-600 flex-shrink-0">
+<span class="material-symbols-outlined">table_view</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-slate-grey dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white transition-colors">Financial Model_v3.xlsx</span>
+<div class="flex items-center gap-2 text-xs text-slate-400">
+<span>1.1 MB</span>
+<span class="w-0.5 h-0.5 rounded-full bg-slate-400"></span>
+<span>Uploaded Oct 15</span>
+</div>
+</div>
+</div>
+<button class="text-slate-300 group-hover:text-primary transition-colors p-1">
+<span class="material-symbols-outlined">download</span>
+</button>
+</li>
+<!-- Doc Item 3 -->
+<li class="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="w-10 h-10 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center text-red-500 flex-shrink-0">
+<span class="material-symbols-outlined">picture_as_pdf</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-slate-grey dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white transition-colors">Land Title Deed.pdf</span>
+<div class="flex items-center gap-2 text-xs text-slate-400">
+<span>4.5 MB</span>
+<span class="w-0.5 h-0.5 rounded-full bg-slate-400"></span>
+<span>Uploaded Oct 10</span>
+</div>
+</div>
+</div>
+<button class="text-slate-300 group-hover:text-primary transition-colors p-1">
+<span class="material-symbols-outlined">download</span>
+</button>
+</li>
+<!-- Doc Item 4 -->
+<li class="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+<div class="flex items-center gap-3 overflow-hidden">
+<div class="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center text-blue-500 flex-shrink-0">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-medium text-slate-grey dark:text-slate-200 truncate group-hover:text-slate-900 dark:group-hover:text-white transition-colors">Grid Connection Agreement.docx</span>
+<div class="flex items-center gap-2 text-xs text-slate-400">
+<span>850 KB</span>
+<span class="w-0.5 h-0.5 rounded-full bg-slate-400"></span>
+<span>Uploaded Oct 08</span>
+</div>
+</div>
+</div>
+<button class="text-slate-300 group-hover:text-primary transition-colors p-1">
+<span class="material-symbols-outlined">download</span>
+</button>
+</li>
+</ul>
+</div>
+<div class="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30">
+<button class="w-full flex items-center justify-center gap-2 py-3 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 hover:border-primary hover:bg-primary/5 dark:hover:bg-primary/5 text-slate-500 hover:text-primary transition-all font-medium">
+<span class="material-symbols-outlined">cloud_upload</span>
+                        Upload New Document
+                    </button>
+</div>
+</section>
+</div>
+</main>
+</body></html>

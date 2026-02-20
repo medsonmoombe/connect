@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Afri Capital Connect - Project Dashboard</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<!-- Material Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#2bee79",
+                        "primary-dark": "#22bf61", 
+                        "background-light": "#f6f8f7",
+                        "background-dark": "#102217",
+                        "surface-light": "#ffffff",
+                        "surface-dark": "#1a3324",
+                        "text-main": "#111814",
+                        "text-muted": "#618971",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "2xl": "2rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
+                    }
+                },
+            },
+        }
+    </script>
+<style type="text/tailwindcss">
+        @layer utilities {
+            .glass-panel {
+                @apply bg-white/70 dark:bg-black/30 backdrop-blur-md border border-white/50 dark:border-white/10 shadow-glass;
+            }
+            .text-display {
+                font-family: 'Inter', sans-serif;
+            }
+        }
+        
+        /* Custom Progress Circle */
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-text-main dark:text-slate-100 font-display transition-colors duration-200 min-h-screen flex flex-col">
+<!-- Top Navigation -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-gray-200 dark:border-white/10 px-8 py-4 bg-surface-light dark:bg-background-dark z-50 sticky top-0">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3 text-text-main dark:text-white">
+<div class="size-8 text-primary">
+<svg fill="currentColor" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5z"></path> <!-- Abstract triangle logo -->
+</svg>
+</div>
+<h2 class="text-xl font-bold tracking-tight">Afri Capital Connect</h2>
+</div>
+<label class="hidden md:flex flex-col min-w-64 h-10">
+<div class="flex w-full items-center rounded-xl h-full bg-background-light dark:bg-surface-dark border border-transparent focus-within:border-primary/50 transition-colors">
+<div class="text-text-muted flex items-center justify-center pl-3">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</div>
+<input class="w-full bg-transparent border-none focus:ring-0 text-sm placeholder:text-text-muted text-text-main dark:text-white" placeholder="Search projects, investors..."/>
+</div>
+</label>
+</div>
+<div class="flex items-center gap-6">
+<nav class="hidden lg:flex items-center gap-6">
+<a class="text-text-main dark:text-slate-200 text-sm font-semibold hover:text-primary transition-colors" href="#">Dashboard</a>
+<a class="text-text-muted dark:text-slate-400 text-sm font-medium hover:text-primary transition-colors" href="#">Portfolio</a>
+<a class="text-text-muted dark:text-slate-400 text-sm font-medium hover:text-primary transition-colors" href="#">Marketplace</a>
+<a class="text-text-muted dark:text-slate-400 text-sm font-medium hover:text-primary transition-colors" href="#">Reports</a>
+</nav>
+<div class="flex items-center gap-3 pl-4 border-l border-gray-200 dark:border-white/10">
+<button class="relative p-2 text-text-muted hover:text-text-main dark:hover:text-white transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 size-2 bg-red-500 rounded-full"></span>
+</button>
+<div aria-label="User profile picture" class="size-9 rounded-full bg-gray-200 overflow-hidden ring-2 ring-transparent hover:ring-primary transition-all cursor-pointer" role="img" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDXL_6BYMuOg-RtmrUkvPYIgtFp0GZXw38ZcNLEkH3mnJ-vb_mlcGTS6BDJKkRAmHsuS26ZtttcOM1WsZbS24JSTCbCBKDTrF54nsZfKfQwFtUCSKbkjG58tF6MS_9mst-jxh4f5GECFXfCSIr1hWPCapIsb1N-SDsRI7IzHL2tpGdKXfC1KduSi6d2LJvhexsAtV4LX-JGbfQ-8g2Fn84i-kECexItPmlDX5Bpm2AcQwu3Sz0nTOTg2qBK1EC4Rug8BOjXB-x6pCo'); background-size: cover; background-position: center;"></div>
+</div>
+</div>
+</header>
+<main class="flex-1 px-4 sm:px-8 py-8 w-full max-w-[1400px] mx-auto">
+<!-- Breadcrumb & Actions -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2 text-sm text-text-muted">
+<a class="hover:text-primary" href="#">Portfolio</a>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-text-main dark:text-white font-medium">Solar Phase II</span>
+</div>
+<h1 class="text-3xl font-black tracking-tight text-text-main dark:text-white">Solar Phase II</h1>
+<div class="flex items-center gap-2 text-text-muted text-sm">
+<span class="material-symbols-outlined text-[16px]">location_on</span>
+                    Lagos, Nigeria
+                    <span class="w-1 h-1 rounded-full bg-current mx-1"></span>
+                    Utility Scale Solar
+                </div>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-surface-dark text-text-main dark:text-white font-semibold text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors shadow-sm">
+                    Edit Project
+                </button>
+<button class="px-4 py-2.5 rounded-xl bg-text-main dark:bg-white text-white dark:text-black font-bold text-sm hover:opacity-90 transition-opacity shadow-lg shadow-black/5 flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">share</span>
+                    Share for Review
+                </button>
+</div>
+</div>
+<!-- KPI Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+<div class="bg-surface-light dark:bg-surface-dark p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 group hover:border-primary/30 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-primary/10 rounded-lg text-primary-dark dark:text-primary">
+<span class="material-symbols-outlined">bolt</span>
+</div>
+<span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-white/10 rounded-md text-text-muted">Planned</span>
+</div>
+<p class="text-text-muted dark:text-slate-400 text-sm font-medium">Capacity</p>
+<p class="text-2xl font-bold text-text-main dark:text-white mt-1">50 MW</p>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 group hover:border-primary/30 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-blue-500/10 rounded-lg text-blue-600 dark:text-blue-400">
+<span class="material-symbols-outlined">payments</span>
+</div>
+<span class="text-xs font-semibold px-2 py-1 bg-gray-100 dark:bg-white/10 rounded-md text-text-muted">Est. CapEx</span>
+</div>
+<p class="text-text-muted dark:text-slate-400 text-sm font-medium">Total Investment</p>
+<p class="text-2xl font-bold text-text-main dark:text-white mt-1">$12.5M</p>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 group hover:border-primary/30 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-purple-500/10 rounded-lg text-purple-600 dark:text-purple-400">
+<span class="material-symbols-outlined">trending_up</span>
+</div>
+<span class="text-xs font-semibold px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-md">+2.4%</span>
+</div>
+<p class="text-text-muted dark:text-slate-400 text-sm font-medium">Projected IRR</p>
+<p class="text-2xl font-bold text-text-main dark:text-white mt-1">14.2%</p>
+</div>
+<div class="bg-surface-light dark:bg-surface-dark p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-white/5 group hover:border-primary/30 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<div class="p-2 bg-orange-500/10 rounded-lg text-orange-600 dark:text-orange-400">
+<span class="material-symbols-outlined">schedule</span>
+</div>
+</div>
+<p class="text-text-muted dark:text-slate-400 text-sm font-medium">Est. COD</p>
+<p class="text-2xl font-bold text-text-main dark:text-white mt-1">Q3 2025</p>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Assessment Wizard Panel (Glassmorphism) -->
+<div class="lg:col-span-8 relative">
+<!-- Background decorative blob -->
+<div class="absolute -top-10 -right-10 w-64 h-64 bg-primary/20 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+<div class="absolute -bottom-10 -left-10 w-72 h-72 bg-blue-400/10 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+<div class="glass-panel relative rounded-3xl p-6 sm:p-8 h-full flex flex-col">
+<div class="flex items-center justify-between mb-6">
+<div>
+<h3 class="text-xl font-bold text-text-main dark:text-white">Assessment Wizard</h3>
+<p class="text-sm text-text-muted">Complete these items to boost your Capital Readiness Score</p>
+</div>
+<div class="hidden sm:block">
+<span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary-dark dark:text-primary text-xs font-bold uppercase tracking-wider">
+<span class="size-2 rounded-full bg-primary animate-pulse"></span>
+                                Live Assessment
+                            </span>
+</div>
+</div>
+<div class="flex flex-col md:flex-row gap-8 lg:gap-12 flex-1">
+<!-- Radial Meter Column -->
+<div class="flex flex-col items-center justify-center gap-4 min-w-[200px]">
+<div class="relative size-48">
+<svg class="size-full" viewbox="0 0 100 100">
+<!-- Background circle -->
+<circle class="text-gray-100 dark:text-white/5 stroke-current" cx="50" cy="50" fill="transparent" r="40" stroke-width="8"></circle>
+<!-- Progress circle -->
+<circle class="text-primary progress-ring__circle stroke-current" cx="50" cy="50" fill="transparent" r="40" stroke-dasharray="251.2" stroke-dashoffset="87.92" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<!-- Inner Text -->
+<div class="absolute inset-0 flex flex-col items-center justify-center text-text-main dark:text-white">
+<span class="text-4xl font-black tracking-tight">65%</span>
+<span class="text-xs font-medium text-text-muted uppercase tracking-wide mt-1">Ready</span>
+</div>
+</div>
+<div class="text-center">
+<p class="text-sm font-medium text-text-main dark:text-white">Capital Readiness</p>
+<p class="text-xs text-text-muted mt-1">Next tier at 75%</p>
+</div>
+<button class="w-full mt-2 py-3 px-4 bg-text-main dark:bg-white text-white dark:text-black rounded-xl font-bold text-sm shadow-lg hover:translate-y-[-2px] transition-transform">
+                                Boost Your Score
+                            </button>
+</div>
+<!-- Checklist Column -->
+<div class="flex-1 space-y-4">
+<!-- Item 1: Missing -->
+<div class="flex items-center gap-4 p-4 rounded-xl bg-white/50 dark:bg-black/20 border border-red-100 dark:border-red-900/30 hover:bg-white dark:hover:bg-white/5 transition-colors">
+<div class="p-2 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg">
+<span class="material-symbols-outlined">warning</span>
+</div>
+<div class="flex-1">
+<h4 class="font-semibold text-sm text-text-main dark:text-white">Interconnection Agreement</h4>
+<p class="text-xs text-text-muted">Required for technical due diligence</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox" value=""/>
+<div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 dark:peer-focus:ring-primary/30 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Item 2: Missing -->
+<div class="flex items-center gap-4 p-4 rounded-xl bg-white/50 dark:bg-black/20 border border-orange-100 dark:border-orange-900/30 hover:bg-white dark:hover:bg-white/5 transition-colors">
+<div class="p-2 bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-400 rounded-lg">
+<span class="material-symbols-outlined">folder_open</span>
+</div>
+<div class="flex-1">
+<h4 class="font-semibold text-sm text-text-main dark:text-white">PPA Status Verification</h4>
+<p class="text-xs text-text-muted">Off-taker term sheet pending</p>
+</div>
+<button class="text-xs font-semibold px-3 py-1.5 bg-white dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded-lg hover:border-primary text-text-main dark:text-white transition-colors">
+                                    Upload
+                                </button>
+</div>
+<!-- Item 3: Completed -->
+<div class="flex items-center gap-4 p-4 rounded-xl bg-white/50 dark:bg-black/20 border border-transparent opacity-60 hover:opacity-100 transition-opacity">
+<div class="p-2 bg-primary/20 text-primary-dark dark:text-primary rounded-lg">
+<span class="material-symbols-outlined">check_circle</span>
+</div>
+<div class="flex-1">
+<h4 class="font-semibold text-sm text-text-main dark:text-white line-through decoration-text-muted">Land Rights Secured</h4>
+<p class="text-xs text-text-muted">Verified on Oct 12, 2024</p>
+</div>
+<div class="text-primary font-bold text-sm">Done</div>
+</div>
+<!-- Item 4: Completed -->
+<div class="flex items-center gap-4 p-4 rounded-xl bg-white/50 dark:bg-black/20 border border-transparent opacity-60 hover:opacity-100 transition-opacity">
+<div class="p-2 bg-primary/20 text-primary-dark dark:text-primary rounded-lg">
+<span class="material-symbols-outlined">check_circle</span>
+</div>
+<div class="flex-1">
+<h4 class="font-semibold text-sm text-text-main dark:text-white line-through decoration-text-muted">Resource Assessment</h4>
+<p class="text-xs text-text-muted">Verified on Nov 05, 2024</p>
+</div>
+<div class="text-primary font-bold text-sm">Done</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Milestone Tracker -->
+<div class="lg:col-span-4 flex flex-col gap-6">
+<div class="bg-surface-light dark:bg-surface-dark rounded-3xl p-6 sm:p-8 border border-gray-100 dark:border-white/5 shadow-sm h-full">
+<div class="flex items-center justify-between mb-8">
+<h3 class="text-xl font-bold text-text-main dark:text-white">Milestones</h3>
+<button class="text-primary hover:text-primary-dark dark:hover:text-primary/80 transition-colors">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+<div class="relative pl-4">
+<!-- Vertical Line -->
+<div class="absolute left-[27px] top-4 bottom-4 w-0.5 bg-gray-200 dark:bg-white/10 -z-10"></div>
+<ul class="space-y-8">
+<!-- Step 1: Completed -->
+<li class="relative flex gap-6">
+<div class="flex-shrink-0 size-6 rounded-full bg-primary border-4 border-white dark:border-surface-dark shadow-sm z-10"></div>
+<div class="flex-1 -mt-1">
+<h4 class="text-sm font-bold text-text-main dark:text-white">Site Control</h4>
+<p class="text-xs text-text-muted mt-1">Lease agreement signed for 50 hectares.</p>
+<span class="inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary-dark dark:text-primary">COMPLETED</span>
+</div>
+</li>
+<!-- Step 2: Completed -->
+<li class="relative flex gap-6">
+<div class="flex-shrink-0 size-6 rounded-full bg-primary border-4 border-white dark:border-surface-dark shadow-sm z-10"></div>
+<div class="flex-1 -mt-1">
+<h4 class="text-sm font-bold text-text-main dark:text-white">Feasibility Study</h4>
+<p class="text-xs text-text-muted mt-1">Solar irradiance data analyzed and approved.</p>
+<span class="inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary-dark dark:text-primary">COMPLETED</span>
+</div>
+</li>
+<!-- Step 3: Current -->
+<li class="relative flex gap-6">
+<div class="flex-shrink-0 size-6 rounded-full bg-white dark:bg-surface-dark border-[3px] border-primary shadow-[0_0_0_4px_rgba(43,238,121,0.2)] z-10"></div>
+<div class="flex-1 -mt-1">
+<h4 class="text-sm font-bold text-text-main dark:text-white">Financial Close</h4>
+<p class="text-xs text-text-muted mt-1">Pending final equity commitment.</p>
+<span class="inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">IN PROGRESS</span>
+</div>
+</li>
+<!-- Step 4: Pending -->
+<li class="relative flex gap-6 opacity-50">
+<div class="flex-shrink-0 size-6 rounded-full bg-gray-200 dark:bg-white/20 border-4 border-white dark:border-surface-dark z-10"></div>
+<div class="flex-1 -mt-1">
+<h4 class="text-sm font-bold text-text-main dark:text-white">Construction Start</h4>
+<p class="text-xs text-text-muted mt-1">Expected Q1 2025</p>
+</div>
+</li>
+<!-- Step 5: Pending -->
+<li class="relative flex gap-6 opacity-50">
+<div class="flex-shrink-0 size-6 rounded-full bg-gray-200 dark:bg-white/20 border-4 border-white dark:border-surface-dark z-10"></div>
+<div class="flex-1 -mt-1">
+<h4 class="text-sm font-bold text-text-main dark:text-white">COD (Commercial Operation)</h4>
+<p class="text-xs text-text-muted mt-1">Target: Q3 2025</p>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Activity Table / Extra Info -->
+<div class="mt-8">
+<h3 class="text-lg font-bold text-text-main dark:text-white mb-4">Recent Documents</h3>
+<div class="bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-white/5 rounded-2xl overflow-hidden shadow-sm">
+<div class="overflow-x-auto">
+<table class="w-full text-sm text-left">
+<thead class="bg-gray-50 dark:bg-white/5 text-text-muted uppercase text-xs font-semibold">
+<tr>
+<th class="px-6 py-4">Document Name</th>
+<th class="px-6 py-4">Type</th>
+<th class="px-6 py-4">Date Uploaded</th>
+<th class="px-6 py-4">Status</th>
+<th class="px-6 py-4 text-right">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-gray-100 dark:divide-white/5 text-text-main dark:text-slate-300">
+<tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 font-medium flex items-center gap-3">
+<div class="size-8 rounded bg-red-100 text-red-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">picture_as_pdf</span>
+</div>
+                                    Environmental Impact Assessment (EIA)
+                                </td>
+<td class="px-6 py-4">Regulatory</td>
+<td class="px-6 py-4">Oct 24, 2024</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                        Approved
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-text-muted hover:text-primary transition-colors">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 font-medium flex items-center gap-3">
+<div class="size-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">description</span>
+</div>
+                                    Technical Feasibility Report
+                                </td>
+<td class="px-6 py-4">Technical</td>
+<td class="px-6 py-4">Nov 02, 2024</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                        Approved
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-text-muted hover:text-primary transition-colors">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 font-medium flex items-center gap-3">
+<div class="size-8 rounded bg-yellow-100 text-yellow-600 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">table_chart</span>
+</div>
+                                    Financial Model v3.2
+                                </td>
+<td class="px-6 py-4">Financial</td>
+<td class="px-6 py-4">Nov 15, 2024</td>
+<td class="px-6 py-4">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                                        Under Review
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-text-muted hover:text-primary transition-colors">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</main>
+</body></html>
