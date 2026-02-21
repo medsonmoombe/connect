@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
@@ -48,153 +48,182 @@ export default function SignupPage() {
     }
   };
 
-  const roles: { id: UserRole; label: string; icon: keyof typeof Icons }[] = [
-    { id: 'DEVELOPER', label: 'Project Developer', icon: 'developer' },
-    { id: 'CAPITAL_PARTNER', label: 'Capital Partner', icon: 'investor' },
-    { id: 'TECHNICAL_PARTNER', label: 'Technical Partner', icon: 'partner' },
-    { id: 'GRANT_PROVIDER', label: 'Grant Provider', icon: 'energy' },
-  ];
-
   return (
-    <div className="container relative h-screen flex-col items-center justify-center grid lg:max-w-none lg:grid-cols-2 lg:px-0">
-      <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">
-        <div className="absolute inset-0 bg-[#102217]" />
-        <div className="relative z-20 flex items-center gap-2 text-lg font-bold">
-          <div className="size-8 text-[#2bee79]">
-            <svg fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5z"></path>
-            </svg>
+    <div className="min-h-screen grid lg:grid-cols-2 font-sans overflow-hidden">
+      {/* Visual Side */}
+      <div className="relative hidden lg:flex flex-col bg-text-main p-16 text-white overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-transparent" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] translate-y-1/2 -translate-x-1/2" />
+        
+        <div className="relative z-10 flex flex-col h-full">
+          <Link href="/" className="flex items-center gap-3">
+            <div className="bg-primary p-2 rounded-lg text-primary-content">
+              <Icons.zap className="h-6 w-6" />
+            </div>
+            <span className="text-xl font-bold tracking-tight">Energy Capital Match</span>
+          </Link>
+          
+          <div className="mt-auto max-w-lg">
+            <h2 className="text-5xl font-extrabold tracking-tight leading-[1.1] mb-8">Built for the next generation of Energy</h2>
+            <p className="text-xl text-slate-300 font-medium leading-relaxed opacity-80">Streamlined workflows, AI matching, and secure intelligence for the energy transition.</p>
+            
+            <div className="mt-12 space-y-6">
+              <BenefitItem text="Verified Institutional Partners" />
+              <BenefitItem text="AI-Powered Readiness Scoring" />
+              <BenefitItem text="Secure Virtual Data Rooms" />
+            </div>
           </div>
-          Energy Capital Match
-        </div>
-        <div className="relative z-20 mt-auto">
-          <blockquote className="space-y-2">
-            <p className="text-lg">
-              "Join the network that powers the future of energy. Secure capital and find technical expertise for your infrastructure projects."
-            </p>
-          </blockquote>
         </div>
       </div>
-      <div className="lg:p-8">
-        <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[450px]">
-          <div className="flex flex-col space-y-2 text-center">
-            <h1 className="text-2xl font-semibold tracking-tight">Create an account</h1>
-            <p className="text-sm text-muted-foreground">
-              Choose your role and enter your details to get started
-            </p>
+
+      {/* Form Side */}
+      <div className="flex items-center justify-center p-8 bg-background overflow-y-auto no-scrollbar">
+        <div className="w-full max-w-[440px] space-y-10 py-12">
+          <div className="space-y-4">
+            <h1 className="text-4xl font-extrabold tracking-tight text-text-main">Create Account</h1>
+            <p className="text-meta">Select your role and enter your details to begin</p>
           </div>
-          <div className="grid gap-6">
+
+          <div className="grid gap-8">
             <div className="grid grid-cols-2 gap-4">
-              {roles.map((r) => {
-                const Icon = Icons[r.icon];
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setRole(r.id)}
-                    className={cn(
-                      "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all gap-2",
-                      role === r.id
-                        ? "border-[#2bee79] bg-[#2bee79]/5 text-black"
-                        : "border-gray-200 hover:border-[#2bee79]/50 text-gray-500"
-                    )}
-                  >
-                    <Icon className={cn("size-6", role === r.id ? "text-[#2bee79]" : "text-gray-400")} />
-                    <span className="text-xs font-semibold text-center">{r.label}</span>
-                  </button>
-                );
-              })}
+              <RoleCard 
+                role="DEVELOPER" 
+                currentRole={role} 
+                setRole={setRole} 
+                icon={<Icons.building className="size-5" />} 
+                label="Developer"
+              />
+              <RoleCard 
+                role="CAPITAL_PARTNER" 
+                currentRole={role} 
+                setRole={setRole} 
+                icon={<Icons.dollar className="size-5" />} 
+                label="Capital Partner"
+              />
+              <RoleCard 
+                role="TECHNICAL_PARTNER" 
+                currentRole={role} 
+                setRole={setRole} 
+                icon={<Icons.settings className="size-5" />} 
+                label="Technical Partner"
+              />
+              <RoleCard 
+                role="GRANT_PROVIDER" 
+                currentRole={role} 
+                setRole={setRole} 
+                icon={<Icons.handshake className="size-5" />} 
+                label="Grant Provider"
+              />
             </div>
 
-            <form onSubmit={handleSignup}>
-              <div className="grid gap-4">
-                <div className="grid gap-1">
-                  <Label htmlFor="fullName">Full Name</Label>
-                  <Input
-                    id="fullName"
-                    placeholder="John Doe"
-                    type="text"
-                    autoCapitalize="words"
-                    autoComplete="name"
-                    disabled={isLoading}
-                    value={fullName}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setFullName(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    placeholder="name@example.com"
-                    type="email"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    autoCorrect="off"
-                    disabled={isLoading}
-                    value={email}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    placeholder="Password"
-                    type="password"
-                    autoCapitalize="none"
-                    autoComplete="new-password"
-                    disabled={isLoading}
-                    value={password}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-                {error && <p className="text-sm text-red-500">{error}</p>}
-                <Button disabled={isLoading} className="bg-[#2bee79] hover:bg-[#22bf61] text-black w-full">
-                  {isLoading && (
-                    <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Create Account
-                </Button>
+            <form onSubmit={handleSignup} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-meta ml-1" htmlFor="fullName">Full Name</Label>
+                <Input
+                  id="fullName"
+                  placeholder="John Doe"
+                  disabled={isLoading}
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="h-12 rounded-xl border-gray-100 bg-surface shadow-soft focus:ring-2 focus:ring-primary/20 transition-all"
+                  required
+                />
               </div>
+              <div className="space-y-2">
+                <Label className="text-meta ml-1" htmlFor="email">Work Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="name@company.com"
+                  disabled={isLoading}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="h-12 rounded-xl border-gray-100 bg-surface shadow-soft focus:ring-2 focus:ring-primary/20 transition-all"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-meta ml-1" htmlFor="password">Secure Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  disabled={isLoading}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-12 rounded-xl border-gray-100 bg-surface shadow-soft focus:ring-2 focus:ring-primary/20 transition-all"
+                  required
+                />
+              </div>
+              {error && (
+                <div className="p-4 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-600">
+                  {error}
+                </div>
+              )}
+              <Button disabled={isLoading} className="w-full h-12 bg-primary text-primary-content font-bold rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all mt-4">
+                {isLoading ? <Icons.spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Create Platform Account
+              </Button>
             </form>
+
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
+                <span className="w-full border-t border-gray-100" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">
-                  Or continue with
-                </span>
+                <span className="bg-background px-4 text-meta">Or join with</span>
               </div>
             </div>
+
             <Button
               variant="outline"
               type="button"
               disabled={isLoading}
               onClick={handleGoogleSignup}
-              className="w-full"
+              className="h-12 rounded-xl border-gray-100 bg-surface font-bold text-xs shadow-soft hover:bg-gray-50 transition-all flex gap-3"
             >
-              {isLoading ? (
-                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Icons.google className="mr-2 h-4 w-4" />
-              )}
-              Google
+              <Icons.google className="mr-2 h-4 w-4" /> Google Corporate Account
             </Button>
           </div>
-          <p className="px-8 text-center text-sm text-muted-foreground">
-            <Link
-              href="/login"
-              className="hover:text-primary underline underline-offset-4"
-            >
-              Already have an account? Sign In
+
+          <p className="text-center text-meta">
+            Already have an account?{" "}
+            <Link href="/login" className="text-primary hover:underline">
+              Sign in to dashboard
             </Link>
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BenefitItem({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-4">
+      <div className="size-6 rounded-full bg-primary/20 flex items-center justify-center text-primary mt-1">
+        <Icons.check className="size-3.5" />
+      </div>
+      <p className="text-sm font-bold uppercase tracking-widest text-slate-300">{text}</p>
+    </div>
+  );
+}
+
+function RoleCard({ role, currentRole, setRole, icon, label }: { role: UserRole, currentRole: UserRole, setRole: (r: UserRole) => void, icon: React.ReactNode, label: string }) {
+  const active = currentRole === role;
+  return (
+    <div 
+      onClick={() => setRole(role)}
+      className={cn(
+        "p-4 rounded-2xl border-2 cursor-pointer transition-all flex flex-col items-center gap-3 text-center",
+        active 
+          ? "bg-primary/10 border-primary shadow-lg shadow-primary/5 scale-105" 
+          : "bg-surface border-gray-50 text-text-muted hover:border-primary/50"
+      )}
+    >
+      <div className={cn("size-10 rounded-xl flex items-center justify-center transition-colors", active ? "bg-primary text-primary-content" : "bg-background text-text-muted")}>
+        {icon}
+      </div>
+      <span className={cn("text-[10px] font-bold uppercase tracking-widest leading-none", active ? "text-primary" : "text-text-muted")}>{label}</span>
     </div>
   );
 }

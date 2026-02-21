@@ -1,37 +1,34 @@
 import * as React from 'react';
-import { cn } from '@/lib/utils';
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'default' | 'outline' | 'ghost' | 'link';
+  variant?: 'default' | 'outline' | 'ghost' | 'link' | 'premium';
   size?: 'default' | 'sm' | 'lg' | 'icon';
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'default', size = 'default', ...props }, ref) => {
     const variants = {
-      default: 'bg-primary text-primary-foreground hover:bg-primary/90',
-      outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
-      ghost: 'hover:bg-accent hover:text-accent-foreground',
-      link: 'text-primary underline-offset-4 hover:underline',
+      default: 'bg-green-800 text-white hover:bg-green-700 shadow-md transition-all active:scale-95',
+      premium: 'bg-green-900 text-white hover:bg-green-800 shadow-xl border border-green-700/20 transition-all active:scale-95',
+      outline: 'border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 hover:border-slate-300 transition-all',
+      ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all',
+      link: 'text-green-700 underline-offset-4 hover:underline transition-all',
     };
 
     const sizes = {
-      default: 'h-10 px-4 py-2',
-      sm: 'h-9 rounded-md px-3',
-      lg: 'h-11 rounded-md px-8',
-      icon: 'h-10 w-10',
+      default: 'h-11 px-6 text-sm font-semibold',
+      sm: 'h-9 px-4 text-xs font-semibold',
+      lg: 'h-14 px-10 text-base font-bold',
+      icon: 'h-11 w-11',
     };
+
+    const baseClasses = 'inline-flex items-center justify-center rounded-full disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600';
 
     return (
       <button
-        className={cn(
-          'inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-          variants[variant],
-          sizes[size],
-          className
-        )}
         ref={ref}
+        className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`}
         {...props}
       />
     );
