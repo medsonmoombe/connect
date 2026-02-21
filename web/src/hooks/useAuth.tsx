@@ -34,20 +34,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      console.log('Auth State Changed:', fbUser?.email);
       setFirebaseUser(fbUser);
       
       if (fbUser) {
+        console.log('Fetching user data from Supabase for ID:', fbUser.uid);
         // Fetch user data from Supabase
-        const { data: userData } = await supabase
+        const { data: userData, error: supabaseError } = await supabase
           .from('users')
           .select('*')
           .eq('id', fbUser.uid)
-          .single();
+          .maybeSingle(); // Use maybeSingle to avoid 406/PGRST116 errors when user doesn't exist yet
         
+        if (supabaseError) {
+          console.error('Supabase fetch error:', supabaseError);
+        }
+
         if (userData) {
+          console.log('User data found in Supabase:', userData);
           setUser(userData as User);
+        } else {
+          console.warn('No user data found in Supabase for this Firebase user.');
         }
       } else {
+        console.log('No Firebase user found.');
         setUser(null);
       }
       
@@ -67,14 +77,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (result.user) {
       await updateProfile(result.user, { displayName: fullName });
       
+      console.log('Creating user record in Supabase for:', email, 'Role:', role);
       // Create user record in Supabase
-      await supabase.from('users').insert({
+      const { error: supabaseError } = await supabase.from('users').insert({
         id: result.user.uid,
         email,
         role,
         verification_status: 'PENDING',
         created_at: new Date().toISOString()
       });
+
+      if (supabaseError) {
+        console.error('Error creating user in Supabase:', supabaseError);
+        throw new Error('User created in Firebase but failed to sync with database: ' + supabaseError.message);
+      } else {
+        console.log('Supabase user record created successfully.');
+      }
     }
   };
 

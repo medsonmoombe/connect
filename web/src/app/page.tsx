@@ -14,39 +14,49 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="border-b border-gray-100">
+      <header className="border-b border-gray-100 sticky top-0 bg-white/80 backdrop-blur-md z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <Zap className="h-8 w-8 text-blue-600" />
-              <span className="ml-2 text-xl font-bold text-gray-900">Energy Capital Match</span>
+              <div className="bg-blue-600 p-1.5 rounded-lg mr-2">
+                <Zap className="h-5 w-5 text-white" />
+              </div>
+              <span className="text-xl font-bold text-gray-900 tracking-tight">Energy Capital Match</span>
             </div>
             <nav className="hidden md:flex space-x-8">
-              <Link href="#features" className="text-gray-600 hover:text-gray-900">Features</Link>
-              <Link href="#how-it-works" className="text-gray-600 hover:text-gray-900">How It Works</Link>
-              <Link href="#pricing" className="text-gray-600 hover:text-gray-900">Pricing</Link>
+              <Link href="#features" className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors">Features</Link>
+              <Link href="#how-it-works" className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors">How It Works</Link>
+              <Link href="#pricing" className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors">Pricing</Link>
             </nav>
             <div className="flex items-center space-x-4">
               {loading ? (
-                <div className="h-8 w-20 bg-gray-100 animate-pulse rounded" />
+                <div className="h-9 w-24 bg-gray-100 animate-pulse rounded-lg" />
               ) : user ? (
-                <Link 
-                  href="/dashboard" 
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                >
-                  Dashboard
-                </Link>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => signOut()}
+                    className="text-sm font-medium text-gray-600 hover:text-red-600 transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                  <Link
+                    href="/dashboard"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-medium shadow-sm hover:shadow-md"
+                  >
+                    Dashboard
+                  </Link>
+                </div>
               ) : (
                 <>
-                  <Link href="/login" className="text-gray-600 hover:text-gray-900">Sign In</Link>
-                  <Link 
-                    href="/register" 
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                  <Link href="/login" className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors">Sign In</Link>
+                  <Link
+                    href="/register"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition font-medium shadow-sm hover:shadow-md"
                   >
                     Get Started
                   </Link>

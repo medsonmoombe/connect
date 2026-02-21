@@ -151,6 +151,7 @@ export interface CapitalMatchResult {
   created_at: string;
   // Related data
   capital_partner?: CapitalPartner;
+  project?: Project;
 }
 
 // Technical Match Result

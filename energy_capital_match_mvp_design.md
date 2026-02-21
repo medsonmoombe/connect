@@ -145,7 +145,7 @@ CREATE TABLE organizations (
 
 -- Users
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY, -- Using Firebase UID (String)
     email TEXT UNIQUE NOT NULL,
     full_name TEXT,
     role TEXT NOT NULL CHECK (role IN ('DEVELOPER', 'CAPITAL_PARTNER', 'TECHNICAL_PARTNER', 'GRANT_PROVIDER', 'ADMIN')),
@@ -199,7 +199,7 @@ CREATE TABLE project_documents (
     file_name TEXT NOT NULL,
     file_size_bytes INTEGER,
     mime_type TEXT,
-    uploaded_by UUID REFERENCES users(id),
+    uploaded_by TEXT REFERENCES users(id),
     uploaded_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -300,7 +300,7 @@ CREATE TABLE engagements (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     counterparty_id UUID NOT NULL,
     counterparty_type TEXT NOT NULL CHECK (counterparty_type IN ('CAPITAL', 'TECHNICAL')),
-    initiator_id UUID REFERENCES users(id),
+    initiator_id TEXT REFERENCES users(id),
     state TEXT DEFAULT 'INTRO_SENT' CHECK (state IN ('INTRO_SENT', 'INTRO_ACCEPTED', 'DUE_DILIGENCE', 'TERM_SHEET', 'CONTRACT_SIGNED', 'CAPITAL_COMMITTED', 'CLOSED', 'DROPPED')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -312,7 +312,7 @@ CREATE TABLE engagement_states (
     engagement_id UUID NOT NULL REFERENCES engagements(id) ON DELETE CASCADE,
     from_state TEXT,
     to_state TEXT NOT NULL,
-    changed_by_user_id UUID REFERENCES users(id),
+    changed_by_user_id TEXT REFERENCES users(id),
     notes TEXT,
     changed_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -321,7 +321,7 @@ CREATE TABLE engagement_states (
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     engagement_id UUID NOT NULL REFERENCES engagements(id) ON DELETE CASCADE,
-    sender_id UUID NOT NULL REFERENCES users(id),
+    sender_id TEXT NOT NULL REFERENCES users(id),
     message_body TEXT NOT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -330,7 +330,7 @@ CREATE TABLE messages (
 -- Audit Logs
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id),
+    user_id TEXT REFERENCES users(id),
     action_type TEXT NOT NULL,
     entity_type TEXT NOT NULL,
     entity_id UUID NOT NULL,
@@ -356,7 +356,7 @@ CREATE TABLE interest_expressions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     investor_profile_id UUID NOT NULL REFERENCES investor_profiles(id) ON DELETE CASCADE,
-    expressed_by_user_id UUID REFERENCES users(id),
+    expressed_by_user_id TEXT REFERENCES users(id),
     message TEXT,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
