@@ -1,8 +1,9 @@
 import React from 'react';
 import Link from 'next/link';
-import { 
-  ArrowUpRight, 
-  Shield, 
+import {
+  Icons,
+  ArrowUpRight,
+  Shield,
   Globe, 
   Cpu, 
   Layers, 
@@ -33,18 +34,18 @@ export default function LandingPage() {
       <nav className="fixed w-full z-50 bg-white/70 backdrop-blur-xl border-b border-slate-200/60">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3 group cursor-pointer">
-            <div className="w-10 h-10 bg-green-800 rounded-xl flex items-center justify-center shadow-lg shadow-green-900/10 group-hover:scale-105 transition-transform duration-300">
-              <Shield className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 text-green-700">
+              <Icons.logo className="w-full h-full" />
             </div>
             <span className="text-lg font-bold tracking-tight text-slate-900">
-              Energy Capital <span className="text-green-700 font-extrabold tracking-tighter">Match</span>
+              Afri <span className="text-green-700 font-extrabold tracking-tighter">Connect</span>
             </span>
           </div>
           
           <div className="hidden md:flex items-center gap-10 text-[12px] font-bold text-slate-500 uppercase tracking-wider">
-            <Link href="#platform" className="hover:text-green-700 transition-colors">Platform</Link>
-            <Link href="#marketplace" className="hover:text-green-700 transition-colors">Marketplace</Link>
-            <Link href="#intelligence" className="hover:text-green-700 transition-colors">Intelligence</Link>
+            <Link href="/#platform" className="hover:text-green-700 transition-colors">Platform</Link>
+            <Link href="/#marketplace" className="hover:text-green-700 transition-colors">Marketplace</Link>
+            <Link href="/#intelligence" className="hover:text-green-700 transition-colors">Intelligence</Link>
             <div className="h-4 w-[1px] bg-slate-200" />
             <Link href="/login" className="hover:text-green-700 transition-colors">Login</Link>
             <Link href="/signup">
@@ -57,11 +58,22 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative pt-40 pb-20 md:pt-52 md:pb-40 bg-mesh overflow-hidden">
+      <section className="relative pt-40 pb-20 md:pt-52 md:pb-40 overflow-hidden bg-slate-50/50">
+        {/* Background Image with Overlay */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src="/raphael-cruz-IwY-27ceRCA-unsplash.jpg"
+            alt="Solar Infrastructure Background"
+            className="w-full h-full object-cover opacity-[0.22] mix-blend-multiply"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-50/80 via-transparent to-slate-50/80"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-50/60 via-transparent to-slate-50/60"></div>
+        </div>
+
         <div className="max-w-7xl mx-auto px-6 relative z-10 text-center text-balance">
           <div className="max-w-5xl mx-auto">
             <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-slate-900 leading-[1.15] tracking-tight mb-8">
-              The Intelligence Layer for <span className="text-green-800">Energy Infrastructure</span>
+              The Intelligence Layer for <span className="text-green-800">African Infrastructure</span>
             </h1>
             
             <p className="text-lg md:text-xl text-slate-500 leading-relaxed mb-12 max-w-2xl mx-auto font-medium">
@@ -90,7 +102,7 @@ export default function LandingPage() {
               </div>
               <div className="bg-white/80 backdrop-blur-md border border-white p-6 rounded-[24px] shadow-soft flex flex-col items-center border-green-100 shadow-green-800/5">
                 <div className="text-4xl font-extrabold text-slate-900">450MW+</div>
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Energy Capacity</div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Project Capacity</div>
               </div>
               <div className="bg-white/80 backdrop-blur-md border border-white p-6 rounded-[24px] shadow-soft flex flex-col items-center">
                 <div className="text-4xl font-extrabold text-slate-900">85+</div>
@@ -100,8 +112,6 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Hero Visual Decor */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-green-100/30 rounded-full blur-[100px] -z-10"></div>
       </section>
 
       {/* Features Grid (Three Pillars) */}
@@ -198,9 +208,9 @@ export default function LandingPage() {
             {/* Project Card 1 */}
             <div className="premium-card overflow-hidden group">
               <div className="h-48 relative bg-slate-100">
-                <img 
-                  src="https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=800" 
-                  alt="Sahara Solar"
+                <img
+                  src="https://images.unsplash.com/photo-1566024287286-457247b70310?auto=format&fit=crop&q=80&w=800"
+                  alt="Kafue Solar Park"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />
                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-green-700 border border-green-100 shadow-sm">
@@ -210,9 +220,9 @@ export default function LandingPage() {
               <div className="p-8">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h4 className="text-xl font-bold text-slate-900 mb-1">Sahara Solar Phase I</h4>
+                    <h4 className="text-xl font-bold text-slate-900 mb-1">Kafue Solar Park</h4>
                     <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                      <MapPin className="w-3.5 h-3.5" /> Morocco
+                      <MapPin className="w-3.5 h-3.5" /> Kafue, Zambia
                     </div>
                   </div>
                   <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center text-green-600 border border-green-100">
@@ -235,9 +245,9 @@ export default function LandingPage() {
             {/* Project Card 2 */}
             <div className="premium-card overflow-hidden group border-green-100 shadow-xl">
               <div className="h-48 relative bg-slate-100">
-                <img 
-                  src="https://images.unsplash.com/photo-1466611653911-95282fc3656b?auto=format&fit=crop&q=80&w=800" 
-                  alt="Lake Turkana Wind"
+                <img
+                  src="https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&q=80&w=800"
+                  alt="Lusaka South Solar"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />
                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-green-700 border border-green-100 shadow-sm">
@@ -247,13 +257,13 @@ export default function LandingPage() {
               <div className="p-8">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h4 className="text-xl font-bold text-slate-900 mb-1">Lake Turkana Wind</h4>
+                    <h4 className="text-xl font-bold text-slate-900 mb-1">Lusaka South Solar</h4>
                     <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                      <MapPin className="w-3.5 h-3.5" /> Kenya
+                      <MapPin className="w-3.5 h-3.5" /> Lusaka, Zambia
                     </div>
                   </div>
-                  <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600 border border-blue-100">
-                    <Wind className="w-5 h-5" />
+                  <div className="w-10 h-10 bg-yellow-50 rounded-full flex items-center justify-center text-yellow-600 border border-yellow-100">
+                    <Icons.sun className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-50">
@@ -272,9 +282,9 @@ export default function LandingPage() {
             {/* Project Card 3 */}
             <div className="premium-card overflow-hidden group">
               <div className="h-48 relative bg-slate-100">
-                <img 
-                  src="https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&q=80&w=800" 
-                  alt="Zambezi Hydro"
+                <img
+                  src="https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&q=80&w=800"
+                  alt="Kariba Solar Expansion"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                 />
                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-green-700 border border-green-100 shadow-sm">
@@ -284,13 +294,13 @@ export default function LandingPage() {
               <div className="p-8">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h4 className="text-xl font-bold text-slate-900 mb-1">Zambezi Hydro Exp.</h4>
+                    <h4 className="text-xl font-bold text-slate-900 mb-1">Kariba Solar Expansion</h4>
                     <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                      <MapPin className="w-3.5 h-3.5" /> Zambia
+                      <MapPin className="w-3.5 h-3.5" /> Siavonga, Zambia
                     </div>
                   </div>
-                  <div className="w-10 h-10 bg-cyan-50 rounded-full flex items-center justify-center text-cyan-600 border border-cyan-100">
-                    <Droplet className="w-5 h-5" />
+                  <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center text-orange-600 border border-orange-100">
+                    <Zap className="w-5 h-5" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-50">
@@ -385,12 +395,21 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-40 bg-mesh relative overflow-hidden border-t border-slate-200">
-        <div className="absolute top-0 left-0 w-full h-full bg-green-950/5 -z-10"></div>
+      <section className="py-40 bg-slate-50/50 relative overflow-hidden border-t border-slate-200">
+        {/* Background Image with Overlay */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src="/raphael-cruz-IwY-27ceRCA-unsplash.jpg"
+            alt="Solar Infrastructure Background"
+            className="w-full h-full object-cover opacity-[0.18] mix-blend-multiply"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-50/80 via-transparent to-slate-50/80"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-50/60 via-transparent to-slate-50/60"></div>
+        </div>
         <div className="max-w-4xl mx-auto px-6 text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-green-100 text-green-800 text-[10px] font-bold uppercase tracking-widest mb-10 shadow-sm">
              <Globe className="w-3.5 h-3.5" />
-             Join the Global Network
+             Join the African Network
           </div>
           <h2 className="text-4xl md:text-7xl font-bold text-slate-900 leading-tight mb-10">
             Build the Future <br /> of Energy.
@@ -412,9 +431,6 @@ export default function LandingPage() {
           </div>
         </div>
         
-        {/* Floating Decor Elements for CTA */}
-        <div className="absolute top-1/4 left-10 w-24 h-24 bg-green-100/40 rounded-full blur-2xl -z-10"></div>
-        <div className="absolute bottom-1/4 right-10 w-32 h-32 bg-green-100/60 rounded-full blur-3xl -z-10"></div>
       </section>
 
       {/* Footer */}
@@ -424,9 +440,9 @@ export default function LandingPage() {
             <div className="col-span-2">
                <div className="flex items-center justify-center md:justify-start gap-3 mb-6">
                   <div className="w-8 h-8 bg-green-800 rounded-lg flex items-center justify-center">
-                     <Shield className="w-4 h-4 text-white" />
+                     <Icons.logo className="w-4 h-4 text-white" />
                   </div>
-                  <span className="text-base font-bold text-slate-900 tracking-tight">Energy Capital Match</span>
+                  <span className="text-base font-bold text-slate-900 tracking-tight">Afri Connect</span>
                </div>
                <p className="text-slate-500 max-w-sm mx-auto md:mx-0 leading-relaxed font-medium">
                  The institutional marketplace for energy infrastructure. 
@@ -436,22 +452,22 @@ export default function LandingPage() {
             <div>
                <h5 className="font-bold text-slate-900 mb-6 uppercase tracking-widest text-[10px]">Solutions</h5>
                <ul className="space-y-3 text-slate-500 text-sm font-semibold">
-                  <li><Link href="#" className="hover:text-green-700">Capital Matching</Link></li>
-                  <li><Link href="#" className="hover:text-green-700">Scoring Engine</Link></li>
-                  <li><Link href="#" className="hover:text-green-700">Technical Network</Link></li>
+                  <li><Link href="/#platform" className="hover:text-green-700">Capital Matching</Link></li>
+                  <li><Link href="/#intelligence" className="hover:text-green-700">Scoring Engine</Link></li>
+                  <li><Link href="/#platform" className="hover:text-green-700">Technical Network</Link></li>
                </ul>
             </div>
             <div>
                <h5 className="font-bold text-slate-900 mb-6 uppercase tracking-widest text-[10px]">Company</h5>
                <ul className="space-y-3 text-slate-500 text-sm font-semibold">
-                  <li><Link href="#" className="hover:text-green-700">Methodology</Link></li>
-                  <li><Link href="#" className="hover:text-green-700">Contact Us</Link></li>
-                  <li><Link href="#" className="hover:text-green-700">Regulatory</Link></li>
+                  <li><Link href="/#intelligence" className="hover:text-green-700">Methodology</Link></li>
+                  <li><Link href="/contact" className="hover:text-green-700">Contact Us</Link></li>
+                  <li><Link href="/#intelligence" className="hover:text-green-700">Regulatory</Link></li>
                </ul>
             </div>
           </div>
           <div className="pt-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
-             <div className="text-slate-400 text-xs font-bold uppercase tracking-tighter">© 2026 Energy Capital Match Ltd.</div>
+             <div className="text-slate-400 text-xs font-bold uppercase tracking-tighter">© 2026 Afri Connect Ltd.</div>
              <div className="flex gap-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
                 <Link href="#" className="hover:text-slate-900 transition-colors">Privacy</Link>
                 <Link href="#" className="hover:text-slate-900 transition-colors">Terms</Link>

@@ -14,6 +14,14 @@ export default function DashboardPage() {
       if (!user) {
         router.push('/login');
       } else {
+        // Check for profile completeness (Onboarding)
+        // Admins don't need to complete a company profile to access the dashboard
+        if (!user.company_id && user.role !== 'ADMIN') {
+          console.log('Redirecting to onboarding: Profile incomplete (missing company_id)');
+          router.push('/onboarding');
+          return;
+        }
+
         // Redirect based on role
         switch (user.role) {
           case 'DEVELOPER':

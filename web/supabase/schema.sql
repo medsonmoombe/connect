@@ -168,8 +168,9 @@ CREATE TABLE project_scores (
   documentation_score INTEGER CHECK (documentation_score >= 0 AND documentation_score <= 100),
   governance_score INTEGER CHECK (governance_score >= 0 AND governance_score <= 100),
   financial_transparency_score INTEGER CHECK (financial_transparency_score >= 0 AND financial_transparency_score <= 100),
-  risk_flags JSONB DEFAULT '{}',
-  recommendations JSONB DEFAULT '{}',
+  risk_flags TEXT[],
+  recommendations TEXT[],
+  summary TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

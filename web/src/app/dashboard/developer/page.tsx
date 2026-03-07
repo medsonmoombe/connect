@@ -1,20 +1,64 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import { projectService } from '@/services/projects';
+import { Project } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 
 export default function DeveloperDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
   const router = useRouter();
+  const { user, loading, signOut } = useAuth();
 
-  const handleLogout = () => {
-    // In a real app, you'd call your auth provider's logout method here
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        router.push('/login');
+      } else if (user.role !== 'DEVELOPER' && user.role !== 'ADMIN') {
+        // Redirect if not developer or admin
+        router.push('/dashboard');
+      }
+    }
+  }, [user, loading, router]);
+
+  useEffect(() => {
+    async function fetchProjects() {
+      if (user?.company_id) {
+        try {
+          const data = await projectService.getDeveloperProjects(user.company_id);
+          setProjects(data);
+        } catch (error) {
+          console.error('Error fetching projects:', error);
+        } finally {
+          setLoadingProjects(false);
+        }
+      }
+    }
+
+    if (user) {
+      fetchProjects();
+    }
+  }, [user]);
+
+  const handleLogout = async () => {
+    await signOut();
     router.push('/');
   };
+
+  if (loading || !user) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <Icons.spinner className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-background font-sans overflow-hidden">
@@ -22,12 +66,12 @@ export default function DeveloperDashboard() {
       <aside className="w-72 bg-surface border-r border-gray-100 flex flex-col h-full z-20">
         <div className="p-8">
           <Link href="/" className="flex items-center gap-3">
-            <div className="text-primary">
-              <Icons.zap className="size-8" />
+            <div className="size-10 text-primary">
+              <Icons.logo className="w-full h-full" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-text-main leading-none">ECM Portal</span>
+            <span className="text-xl font-bold tracking-tight text-text-main leading-none">Afri Connect</span>
           </Link>
-          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-2 ml-11">Developer Unit</p>
+          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-2 ml-13">Developer Portal</p>
         </div>
 
         <nav className="flex-grow px-4 space-y-2">
@@ -81,8 +125,8 @@ export default function DeveloperDashboard() {
               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah" alt="User" />
             </div>
             <div className="flex-grow">
-              <p className="text-sm font-bold text-text-main leading-none">Sarah Jenkins</p>
-              <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mt-1">Lead Developer</p>
+              <p className="text-sm font-bold text-text-main leading-none">{user?.full_name || 'Developer'}</p>
+              <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mt-1">{user?.role?.replace('_', ' ')}</p>
             </div>
             <button
               onClick={handleLogout}
@@ -97,67 +141,288 @@ export default function DeveloperDashboard() {
 
       {/* Main Content */}
       <main className="flex-grow overflow-y-auto no-scrollbar p-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto min-h-screen pb-20">
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
               <h1 className="text-4xl font-extrabold tracking-tight text-text-main mb-2">Overview</h1>
-              <p className="text-text-muted font-medium">Welcome back, Sarah. Here's what's happening with your portfolio.</p>
+              <p className="text-text-muted font-medium">Welcome back, {user?.full_name?.split(' ')[0] || 'Partner'}. Here's what's happening with your portfolio.</p>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" className="h-12 px-6 rounded-xl border-gray-200 font-bold text-text-main hover:bg-gray-50">
+              <Button
+                variant="outline"
+                className="h-12 px-6 rounded-xl border-gray-200 font-bold text-text-main hover:bg-gray-50"
+                onClick={() => {
+                  window.print();
+                }}
+              >
+                <Icons.download className="size-4 mr-2" />
                 Generate Report
               </Button>
-              <Button className="h-12 px-6 bg-text-main text-white hover:bg-text-main/90 font-bold rounded-xl shadow-lg transition-all flex gap-2">
-                <Icons.plus className="size-5" />
-                Create New Project
-              </Button>
+              <Link href="/dashboard/developer/submit">
+                <Button className="h-12 px-6 bg-text-main text-white hover:bg-text-main/90 font-bold rounded-xl shadow-lg transition-all flex gap-2">
+                  <Icons.plus className="size-5" />
+                  Create New Project
+                </Button>
+              </Link>
             </div>
           </div>
 
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
-            <StatCard label="Total Projects" value="12" subValue="+2 this month" />
-            <StatCard label="Capital Required" value="$450M" subValue="Across all stages" />
-            <StatCard label="Active Matches" value="28" subValue="Institutional partners" />
-            <StatCard label="Avg. Readiness" value="74/100" subValue="Institutional grade" progress={74} />
+            <StatCard
+              label="Total Projects"
+              value={projects.length.toString()}
+              subValue={projects.length > 0 ? "Active in portfolio" : "No projects yet"}
+            />
+            <StatCard
+              label="Capital Required"
+              value={`$${(projects.reduce((acc, p) => acc + (p.capital_required || 0), 0) / 1000000).toFixed(1)}M`}
+              subValue="Across all stages"
+            />
+            <StatCard label="Active Matches" value="0" subValue="Matches pending" />
+            <StatCard
+              label="Avg. Readiness"
+              value={projects.length > 0 ? `${Math.round(projects.reduce((acc, p) => acc + (p.scores?.capital_readiness_score || 0), 0) / projects.length)}/100` : "N/A"}
+              subValue="Institutional grade"
+              progress={projects.length > 0 ? Math.round(projects.reduce((acc, p) => acc + (p.scores?.capital_readiness_score || 0), 0) / projects.length) : 0}
+            />
           </div>
 
           <div className="grid lg:grid-cols-3 gap-8">
             {/* Active Projects List */}
             <div className="lg:col-span-2 space-y-6">
-              <div className="flex items-center justify-between mb-2 px-2">
-                <h2 className="text-xl font-bold text-text-main">Priority Projects</h2>
-                <Link href="#" className="text-xs font-bold uppercase tracking-widest text-primary hover:underline">View All Projects</Link>
-              </div>
-              
-              <ProjectCard 
-                name="Solar Phase II - Lagos"
-                capacity="50 MW"
-                location="Lagos, Nigeria"
-                capital="$12.5M"
-                stage="READY_TO_BUILD"
-                score={88}
-                matches={12}
-              />
-              <ProjectCard 
-                name="Wind Harmattan Delta"
-                capacity="120 MW"
-                location="Accra, Ghana"
-                capital="$84M"
-                stage="FEASIBILITY"
-                score={62}
-                matches={4}
-              />
-              <ProjectCard 
-                name="Hydro Power Blue Nile"
-                capacity="25 MW"
-                location="Addis Ababa, Ethiopia"
-                capital="$45M"
-                stage="UNDER_CONSTRUCTION"
-                score={94}
-                matches={8}
-              />
+              {activeTab === 'dashboard' && (
+                <>
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Priority Projects</h2>
+                    <button
+                      onClick={() => setActiveTab('projects')}
+                      className="text-xs font-bold uppercase tracking-widest text-primary hover:underline"
+                    >
+                      View All Projects
+                    </button>
+                  </div>
+                  
+                  {loadingProjects ? (
+                    <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
+                      <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+                      <p className="text-sm font-bold text-text-muted">Loading projects...</p>
+                    </div>
+                  ) : projects.length > 0 ? (
+                    projects.slice(0, 3).map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        id={project.id}
+                        name={project.name}
+                        capacity={`${project.project_size_mw} MW`}
+                        location={`${project.location_country}${project.location_region ? `, ${project.location_region}` : ''}`}
+                        capital={`$${(project.capital_required / 1000000).toFixed(1)}M`}
+                        stage={project.project_stage}
+                        score={project.scores?.capital_readiness_score || 0}
+                        matches={0}
+                      />
+                    ))
+                  ) : (
+                    <div className="p-12 text-center bg-surface rounded-2xl border border-dashed border-gray-200">
+                      <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+                        <Icons.folder className="size-6" />
+                      </div>
+                      <h3 className="text-lg font-bold text-text-main mb-2">No Projects Found</h3>
+                      <p className="text-sm text-text-muted mb-6 max-w-xs mx-auto">You haven't registered any infrastructure projects yet. Get started by creating your first one.</p>
+                      <Link href="/dashboard/developer/submit">
+                        <Button className="bg-primary text-primary-content font-bold rounded-xl px-6">
+                          Create Project
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'projects' && (
+                <>
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Project Portfolio</h2>
+                    <span className="text-xs font-bold uppercase tracking-widest text-text-muted">{projects.length} Total</span>
+                  </div>
+                  
+                  {loadingProjects ? (
+                    <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
+                      <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+                      <p className="text-sm font-bold text-text-muted">Loading projects...</p>
+                    </div>
+                  ) : projects.length > 0 ? (
+                    projects.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        id={project.id}
+                        name={project.name}
+                        capacity={`${project.project_size_mw} MW`}
+                        location={`${project.location_country}${project.location_region ? `, ${project.location_region}` : ''}`}
+                        capital={`$${(project.capital_required / 1000000).toFixed(1)}M`}
+                        stage={project.project_stage}
+                        score={project.scores?.capital_readiness_score || 0}
+                        matches={0}
+                        showDelete
+                        onDelete={async () => {
+                          if (confirm('Are you sure you want to delete this project?')) {
+                            try {
+                              await projectService.deleteProject(project.id);
+                              setProjects(projects.filter(p => p.id !== project.id));
+                            } catch (error) {
+                              console.error('Error deleting project:', error);
+                              alert('Failed to delete project');
+                            }
+                          }
+                        }}
+                      />
+                    ))
+                  ) : (
+                    <div className="p-12 text-center bg-surface rounded-2xl border border-dashed border-gray-200">
+                      <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
+                        <Icons.folder className="size-6" />
+                      </div>
+                      <h3 className="text-lg font-bold text-text-main mb-2">No Projects Found</h3>
+                      <p className="text-sm text-text-muted mb-6 max-w-xs mx-auto">You haven't registered any infrastructure projects yet. Get started by creating your first one.</p>
+                      <Link href="/dashboard/developer/submit">
+                        <Button className="bg-primary text-primary-content font-bold rounded-xl px-6">
+                          Create Project
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'analytics' && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Portfolio Analytics</h2>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
+                      <h3 className="text-sm font-bold text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
+                        <Icons.zap className="size-4 text-primary" />
+                        Capacity Distribution (MW)
+                      </h3>
+                      <div className="h-64 flex items-end justify-between gap-4 px-4">
+                        {projects.length > 0 ? projects.map((p, i) => (
+                          <div key={i} className="flex-grow flex flex-col items-center gap-3">
+                            <div
+                              className="w-full bg-primary rounded-t-xl transition-all duration-1000"
+                              style={{ height: `${Math.max((p.project_size_mw / Math.max(...projects.map(p => p.project_size_mw), 1)) * 100, 10)}%` }}
+                            ></div>
+                            <span className="text-[10px] font-bold text-text-muted truncate max-w-[60px] uppercase tracking-tighter">{p.name}</span>
+                          </div>
+                        )) : (
+                          <div className="w-full h-full flex items-center justify-center text-text-muted italic text-sm">No data</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
+                      <h3 className="text-sm font-bold text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
+                        <Icons.dollar className="size-4 text-primary" />
+                        Capital Requirements
+                      </h3>
+                      <div className="space-y-6">
+                        {projects.length > 0 ? projects.map((p, i) => (
+                          <div key={i} className="space-y-2">
+                            <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                              <span className="text-text-main truncate max-w-[150px]">{p.name}</span>
+                              <span className="text-primary">${(p.capital_required / 1000000).toFixed(1)}M</span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary/40"
+                                style={{ width: `${(p.capital_required / projects.reduce((acc, p) => acc + p.capital_required, 0)) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        )) : (
+                          <div className="w-full h-24 flex items-center justify-center text-text-muted italic text-sm">No data</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'dataroom' && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Centralized Data Room</h2>
+                    <Button variant="outline" size="sm" className="rounded-xl border-gray-200">
+                      <Icons.plus className="size-4 mr-2" /> Upload Document
+                    </Button>
+                  </div>
+                  <div className="p-12 text-center bg-surface rounded-[32px] border border-dashed border-gray-200">
+                    <div className="size-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-400">
+                      <Icons.shieldCheck className="size-8" />
+                    </div>
+                    <h3 className="text-xl font-bold text-text-main mb-2">Secure Repository</h3>
+                    <p className="text-sm text-text-muted mb-8 max-w-md mx-auto">Manage all your project documents, NDAs, and technical studies in one institutional-grade secure environment.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+                       <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-soft">
+                          <Icons.fileText className="size-6 text-primary mb-4" />
+                          <h4 className="text-sm font-bold text-text-main mb-1 uppercase tracking-widest">Active NDAs</h4>
+                          <p className="text-xs text-text-muted font-medium">3 Secure Agreements</p>
+                       </div>
+                       <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-soft">
+                          <Icons.briefcase className="size-6 text-primary mb-4" />
+                          <h4 className="text-sm font-bold text-text-main mb-1 uppercase tracking-widest">Technical</h4>
+                          <p className="text-xs text-text-muted font-medium">12 Project Files</p>
+                       </div>
+                       <div className="p-6 bg-white border border-gray-100 rounded-2xl shadow-soft">
+                          <Icons.pieChart className="size-6 text-primary mb-4" />
+                          <h4 className="text-sm font-bold text-text-main mb-1 uppercase tracking-widest">Financials</h4>
+                          <p className="text-xs text-text-muted font-medium">4 Models Verified</p>
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'messages' && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Engagement Inbox</h2>
+                  </div>
+                  <div className="bg-white border border-gray-100 rounded-[32px] shadow-soft overflow-hidden">
+                    <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
+                       <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">3 New Inquiries</span>
+                       <button className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Mark all as read</button>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      <EngagementItem
+                        title="Connection Request: GreenGrowth Capital"
+                        description="Interested in Kafue Solar Park expansion project. Seeking technical specs."
+                        time="2h ago"
+                        isNew
+                      />
+                      <EngagementItem
+                        title="Document Viewed: Project Helios"
+                        description="Nordic Power Fund accessed the Financial Model v4.xlsx."
+                        time="5h ago"
+                        isNew
+                      />
+                      <EngagementItem
+                        title="System Alert: AI Scoring Update"
+                        description="Lusaka South Solar readiness score improved to 92.1% based on new documents."
+                        time="Yesterday"
+                        isNew
+                      />
+                      <EngagementItem
+                        title="NDA Signed: Silicon Ventures"
+                        description="Standard institutional NDA has been countersigned and is now active."
+                        time="2 days ago"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Sidebar Widgets */}
@@ -191,17 +456,20 @@ export default function DeveloperDashboard() {
               </div>
 
               {/* Data Room Activity */}
-              <div className="p-8 rounded-2xl bg-primary text-primary-content shadow-xl shadow-primary/20">
-                <div className="flex items-center gap-3 mb-6">
-                  <Icons.shieldCheck className="size-6" />
-                  <h3 className="text-lg font-bold">Data Room Security</h3>
-                </div>
-                <p className="text-sm font-medium opacity-90 mb-6 leading-relaxed">
-                  Your project documents are currently protected by institutional-grade encryption and access control.
-                </p>
-                <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest bg-white/20 p-4 rounded-xl">
-                  <span>Pending Requests</span>
-                  <span className="size-6 rounded-full bg-white text-primary flex items-center justify-center">3</span>
+              <div className="p-8 rounded-3xl bg-primary text-white shadow-xl shadow-primary/20 relative overflow-hidden group">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-50"></div>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Icons.shieldCheck className="size-6 text-white" />
+                    <h3 className="text-lg font-bold">Data Room Security</h3>
+                  </div>
+                  <p className="text-sm font-medium text-white/90 mb-6 leading-relaxed">
+                    Your project documents are currently protected by institutional-grade encryption and access control.
+                  </p>
+                  <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest bg-white/10 border border-white/10 p-4 rounded-2xl">
+                    <span>Pending Requests</span>
+                    <span className="size-6 rounded-full bg-white text-primary flex items-center justify-center font-bold shadow-lg">3</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -228,7 +496,7 @@ function SidebarItem({ icon, label, active, onClick, badge }: { icon: React.Reac
       </div>
       <span className="text-sm flex-grow text-left">{label}</span>
       {badge && (
-        <span className="size-5 rounded-full bg-primary text-[10px] font-black text-primary-content flex items-center justify-center">
+        <span className="size-5 rounded-full bg-primary text-[10px] font-black text-white border border-white/20 flex items-center justify-center shadow-sm">
           {badge}
         </span>
       )}
@@ -251,7 +519,7 @@ function StatCard({ label, value, subValue, progress }: { label: string, value: 
   );
 }
 
-function ProjectCard({ name, capacity, location, capital, stage, score, matches }: { name: string, capacity: string, location: string, capital: string, stage: string, score: number, matches: number }) {
+function ProjectCard({ id, name, capacity, location, capital, stage, score, matches, showDelete, onDelete }: { id: string, name: string, capacity: string, location: string, capital: string, stage: string, score: number, matches: number, showDelete?: boolean, onDelete?: () => void }) {
   return (
     <div className="p-6 rounded-2xl bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -282,13 +550,49 @@ function ProjectCard({ name, capacity, location, capital, stage, score, matches 
               <span className="text-sm font-bold text-primary">{score}%</span>
             </div>
           </div>
-          <Link href={`/projects/1`}>
-            <Button size="icon" variant="ghost" className="rounded-xl hover:bg-primary/10 hover:text-primary">
-              <Icons.chevronRight className="size-5" />
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            {showDelete && (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={onDelete}
+                className="rounded-xl hover:bg-error/10 hover:text-error h-10 w-10"
+              >
+                <Icons.trash className="size-4" />
+              </Button>
+            )}
+            <Link href={`/projects/${id}`}>
+              <Button size="icon" variant="ghost" className="rounded-xl hover:bg-primary/10 hover:text-primary h-10 w-10">
+                <Icons.chevronRight className="size-5" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function EngagementItem({ title, description, time, isNew }: { title: string, description: string, time: string, isNew?: boolean }) {
+  return (
+    <div className={cn(
+      "p-6 hover:bg-slate-50 transition-colors cursor-pointer group flex items-start gap-6",
+      isNew && "bg-primary/5"
+    )}>
+      <div className={cn(
+        "size-10 rounded-xl flex items-center justify-center shrink-0 border border-gray-100",
+        isNew ? "bg-white text-primary" : "bg-gray-50 text-text-muted"
+      )}>
+        <Icons.messageSquare className="size-5" />
+      </div>
+      <div className="flex-grow">
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="text-sm font-bold text-text-main">{title}</h4>
+          <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{time}</span>
+        </div>
+        <p className="text-xs text-text-muted font-medium leading-relaxed max-w-2xl">{description}</p>
+      </div>
+      {isNew && <div className="size-2 rounded-full bg-primary mt-2"></div>}
     </div>
   );
 }

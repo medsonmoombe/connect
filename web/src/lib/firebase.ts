@@ -1,6 +1,7 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getAuth, Auth } from 'firebase/auth';
+import { getAuth, Auth, setPersistence, inMemoryPersistence } from 'firebase/auth';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
+import { getFunctions, Functions } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -12,9 +13,10 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase only on the client side
-let app: FirebaseApp;
-let auth: Auth;
-let storage: FirebaseStorage;
+let app: FirebaseApp | undefined;
+let auth: Auth | undefined;
+let storage: FirebaseStorage | undefined;
+let functions: Functions | undefined;
 
 if (typeof window !== 'undefined') {
   if (!getApps().length) {
@@ -24,7 +26,20 @@ if (typeof window !== 'undefined') {
   }
   auth = getAuth(app);
   storage = getStorage(app);
+  functions = getFunctions(app);
 }
 
-export { auth, storage };
+/**
+ * Create a secondary Firebase app instance for administrative tasks
+ * that shouldn't affect the main app's authentication state.
+ */
+export const createAdminAuth = async () => {
+  const adminApp = initializeApp(firebaseConfig, 'AdminProvisioning');
+  const adminAuth = getAuth(adminApp);
+  // Ensure this auth instance doesn't persist or interfere with the main app
+  await setPersistence(adminAuth, inMemoryPersistence);
+  return { adminAuth, adminApp };
+};
+
+export { auth, storage, functions };
 export default app;

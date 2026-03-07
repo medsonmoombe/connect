@@ -5,19 +5,31 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const { signIn } = useAuth();
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate login
-    setTimeout(() => {
+    setError(null);
+    
+    try {
+      await signIn(email, password);
+      // Redirect to the main dashboard logic which handles role-based routing
+      router.push('/dashboard');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.message || 'Invalid email or password. Please try again.');
+    } finally {
       setIsLoading(false);
-      router.push('/dashboard/developer'); // Default redirect for demo
-    }, 1500);
+    }
   };
 
   return (
@@ -32,11 +44,11 @@ export default function LoginPage() {
       <div className="w-full max-w-[480px] z-10">
         <div className="flex justify-center mb-12">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-12 h-12 bg-green-800 rounded-2xl flex items-center justify-center shadow-lg shadow-green-900/10 group-hover:scale-105 transition-transform">
-              <Icons.shield className="w-6 h-6 text-white" />
+            <div className="w-12 h-12 flex items-center justify-center group-hover:scale-105 transition-transform text-green-800">
+              <Icons.logo className="w-full h-full" />
             </div>
             <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Energy Capital <span className="text-green-700">Match</span>
+              Afri <span className="text-green-700">Connect</span>
             </span>
           </Link>
         </div>
@@ -47,6 +59,13 @@ export default function LoginPage() {
             <p className="text-slate-500 font-medium">Access your energy infrastructure projects and capital matching dashboard.</p>
           </div>
 
+          {error && (
+            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-100 flex items-center gap-3 text-red-600 text-sm font-medium animate-in fade-in slide-in-from-top-2">
+              <Icons.alertTriangle className="size-5 shrink-0" />
+              <p>{error}</p>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1" htmlFor="email">
@@ -55,6 +74,8 @@ export default function LoginPage() {
               <input
                 id="email"
                 type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com"
                 required
                 className="w-full h-14 px-5 rounded-2xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium"
@@ -72,6 +93,8 @@ export default function LoginPage() {
               <input
                 id="password"
                 type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
                 className="w-full h-14 px-5 rounded-2xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium"

@@ -30,6 +30,27 @@ export const companiesApi = {
     return handleResponse(response);
   },
 
+  async getAdminAll(filters?: {
+    search?: string;
+    type?: string;
+  }): Promise<ApiResponse<Company[]>> {
+    let query = supabase
+      .from('companies')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (filters?.type && filters.type !== 'ALL') {
+      query = query.eq('type', filters.type);
+    }
+
+    if (filters?.search) {
+      query = query.ilike('name', `%${filters.search}%`);
+    }
+
+    const response = await query;
+    return handleResponse(response);
+  },
+
   async getById(id: string): Promise<ApiResponse<Company>> {
     const response = await supabase.from('companies').select('*').eq('id', id).single();
     return handleResponse(response);
@@ -45,7 +66,7 @@ export const companiesApi = {
     return handleResponse(response);
   },
 
-  async delete(id: string): Promise<ApiResponse<void>> {
+  async delete(id: string): Promise<ApiResponse<null>> {
     const response = await supabase.from('companies').delete().eq('id', id);
     return handleResponse(response);
   },
@@ -110,6 +131,27 @@ export const projectsApi = {
     };
   },
 
+  async getAdminAll(filters?: {
+    search?: string;
+    status?: string;
+  }): Promise<ApiResponse<Project[]>> {
+    let query = supabase
+      .from('projects')
+      .select('*, developer:companies!developer_id(*)')
+      .order('created_at', { ascending: false });
+
+    if (filters?.status && filters.status !== 'ALL') {
+      query = query.eq('project_stage', filters.status);
+    }
+
+    if (filters?.search) {
+      query = query.ilike('name', `%${filters.search}%`);
+    }
+
+    const response = await query;
+    return handleResponse(response);
+  },
+
   async getById(id: string): Promise<ApiResponse<Project>> {
     const response = await supabase
       .from('projects')
@@ -129,7 +171,7 @@ export const projectsApi = {
     return handleResponse(response);
   },
 
-  async delete(id: string): Promise<ApiResponse<void>> {
+  async delete(id: string): Promise<ApiResponse<null>> {
     const response = await supabase.from('projects').delete().eq('id', id);
     return handleResponse(response);
   },
@@ -291,4 +333,66 @@ export const messagesApi = {
     const response = await supabase.from('messages').insert(message).select().single();
     return handleResponse(response);
   },
+};
+
+// Onboarding API
+export const onboardingApi = {
+  async completeUserProfile(userId: string, data: { full_name: string }): Promise<ApiResponse<User>> {
+    const response = await supabase
+      .from('users')
+      .update(data)
+      .eq('id', userId)
+      .select()
+      .single();
+    return handleResponse(response);
+  },
+
+  async setupCompany(userId: string, companyData: Partial<Company>): Promise<ApiResponse<{ user: User; company: Company }>> {
+    // 1. Create the company
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .insert(companyData)
+      .select()
+      .single();
+
+    if (companyError) return { error: companyError.message };
+
+    // 2. Link user to the company
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .update({ company_id: company.id })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (userError) return { error: userError.message };
+
+    return { data: { user: user as User, company: company as Company } };
+  },
+
+  async joinCompany(userId: string, companyId: string): Promise<ApiResponse<User>> {
+    const response = await supabase
+      .from('users')
+      .update({ company_id: companyId })
+      .eq('id', userId)
+      .select()
+      .single();
+    return handleResponse(response);
+  },
+
+  async saveRolePreferences(role: UserRole, companyId: string, data: any): Promise<ApiResponse<any>> {
+    let table = '';
+    if (role === 'CAPITAL_PARTNER') table = 'capital_partners';
+    else if (role === 'TECHNICAL_PARTNER') table = 'technical_partners';
+    
+    if (!table) return { message: 'No specific preferences needed for this role' };
+
+    const response = await supabase
+      .from(table)
+      .upsert({ company_id: companyId, ...data })
+      .select()
+      .single();
+    
+    return handleResponse(response);
+  }
 };

@@ -23,6 +23,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, role: UserRole) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    const unsubscribe = onAuthStateChanged(auth as any, async (fbUser) => {
       console.log('Auth State Changed:', fbUser?.email);
       setFirebaseUser(fbUser);
       
@@ -68,11 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    await signInWithEmailAndPassword(auth as any, email, password);
   };
 
   const signUp = async (email: string, password: string, fullName: string, role: UserRole) => {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
+    const result = await createUserWithEmailAndPassword(auth as any, email, password);
     
     if (result.user) {
       await updateProfile(result.user, { displayName: fullName });
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
+    const result = await signInWithPopup(auth as any, provider);
     
     if (result.user) {
       // Check if user exists in Supabase
@@ -122,19 +123,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await firebaseSignOut(auth);
+    await firebaseSignOut(auth as any);
     setUser(null);
   };
 
+  const refreshUser = async () => {
+    if (firebaseUser) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', firebaseUser.uid)
+        .maybeSingle();
+      
+      if (userData) {
+        setUser(userData as User);
+      }
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ 
-      firebaseUser, 
-      user, 
-      loading, 
-      signIn, 
-      signUp, 
-      signInWithGoogle, 
-      signOut 
+    <AuthContext.Provider value={{
+      firebaseUser,
+      user,
+      loading,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      signOut,
+      refreshUser
     }}>
       {children}
     </AuthContext.Provider>

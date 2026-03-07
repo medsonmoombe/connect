@@ -27,7 +27,7 @@ export interface User {
   id: string;
   email: string;
   role: UserRole;
-  company_id: string;
+  company_id?: string;
   verification_status: 'PENDING' | 'VERIFIED' | 'REJECTED';
   created_at: string;
   full_name?: string;
@@ -102,8 +102,9 @@ export interface ProjectScore {
   documentation_score: number;
   governance_score: number;
   financial_transparency_score: number;
-  risk_flags: Record<string, unknown>;
-  recommendations: Record<string, unknown>;
+  risk_flags: string[];
+  recommendations: string[];
+  summary?: string;
   created_at: string;
 }
 

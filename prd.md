@@ -40,7 +40,58 @@ Energy Capital Match solves the critical problem of fragmentation and inefficien
     *   Number of projects reaching "Capital Committed" or "Closed" status.
     *   Total value of deals closed through the platform.
 
+### 1.6. Product Scope & Non-Scope
+
+**In Scope:**
+*   **Capital Matchmaking:** Bidirectional discovery between projects and capital.
+*   **Engagement Workflow:** Structured state machine for deal progression.
+*   **AI Scoring:** Automated document analysis and readiness assessment.
+*   **Secure Document Exchange:** Encrypted data rooms with audit trails.
+*   **Admin Moderation:** Manual verification and quality control tools.
+
+**Out of Scope:**
+*   **Broker-Dealer Services:** The platform does not facilitate securities transactions or provide investment advice.
+*   **Custody of Funds:** No handling of project capital, escrow, or payouts.
+*   **Automated Capital Transfers:** All financial transactions occur offline or via third-party providers.
+*   **Legal Contract Drafting:** The platform provides structure, but not legal counsel or custom contract generation.
+*   **Equity Issuance:** No management of cap tables or share issuance.
+
+### 1.7. Platform Governance Model
+
+*   **Marketplace Model:** Curated marketplace. All projects and organizations must be verified by an Admin before becoming visible to the wider network.
+*   **Validation Process Ownership:** The "Admin" role holds final authority on the `validated` status of any entity.
+*   **Moderation Authority:** Admins can suspend users, archive projects, or terminate engagements in case of TOS violations.
+*   **Ranking Visibility Rules:** Matching scores are visible only to the matched parties. Global rankings are not public.
+*   **Admin Override Powers:** Admins can manually adjust scores or force state transitions if technical errors or disputes occur.
+
 ## 2. USER ROLES & PERMISSIONS MATRIX
+
+### 2.1 Role Hierarchy & Organizational Structure
+
+*   **Organization-Centric:** Users belong to exactly one Organization. All projects and engagements are owned by the Organization, not the individual.
+*   **Role Mutability:** An Organization can have exactly one primary role (e.g., Developer OR Capital Partner). Switching roles requires Admin approval and may invalidate existing data.
+*   **Capital Partner/Developer Duality:** Capital Partners cannot submit projects for funding within the same organization profile. They must create a separate Developer organization if they also develop projects.
+*   **Role Upgrade/Downgrade:** Transitions between roles (e.g., Technical Partner to Capital Partner) are handled via manual Admin intervention.
+*   **Org Deletion Rules:** Organizations cannot be deleted if they have active engagements. They must be archived, preserving the audit trail.
+
+### 2.2 Data Visibility Matrix (Expanded)
+
+| Object | State | Visibility Rule |
+| :--- | :--- | :--- |
+| **Project** | `draft` | Owner Org only. |
+| **Project** | `submitted` | Owner Org and Admin only. |
+| **Project** | `under_review` | Owner Org and Admin only. |
+| **Project** | `validated` | Owner, Admin, and matched Partners (top 5). |
+| **Project** | `rejected` | Owner Org and Admin only. |
+| **Project** | `archived` | Owner Org and Admin only. |
+| **Engagement** | Any | Participants and Admin only. |
+| **Document** | Project-level | Owner Org + Admin. Matched Partners only after Engagement starts. |
+| **Document** | Engagement-level | Engagement participants + Admin only. |
+| **Matches** | Active | Visible only to the two specific parties matched. |
+
+*   **Signed URL Rules:** All document links expire after 15 minutes. Access requires a valid session token with permission for the specific document ID.
+
+### 2.3 Permissions Table
 
 This matrix defines the core permissions for each user role. C=Create, R=Read, U=Update, D=Delete.
 
@@ -87,24 +138,39 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
     *   Platform Analytics
     *   Dispute Resolution
 
-## 3. CORE PRODUCT MODULES
+## 3. CONTROLLED TAXONOMY SPECIFICATION
+
+### 3.1 Controlled Vocabulary & Reference Tables
+
+All system logic must reference these enums to ensure deterministic matching.
+
+*   **Sector:** `SOLAR`, `WIND`, `HYDRO`, `BIOMASS`, `GEOTHERMAL`, `STORAGE`, `GRID_INFRA`.
+*   **Technology:** `PHOTOVOLTAIC`, `CONCENTRATED_SOLAR`, `ONSHORE_WIND`, `RUN_OF_RIVER`, `LITHIUM_ION`, `VANADIUM_FLOW`.
+*   **Service Categories:** `EPC`, `O_M`, `FEASIBILITY_STUDY`, `ENVIRONMENTAL_IMPACT`, `LEGAL_ADVISORY`, `FINANCIAL_ADVISORY`.
+*   **Governance Preferences:** `BOARD_SEAT_REQUIRED`, `OBSERVER_ONLY`, `NO_INTERVENTION`, `VETO_RIGHTS`.
+*   **Risk Levels:** `LOW` (Proven tech, signed PPA), `MEDIUM` (Proven tech, merchant risk), `HIGH` (Emerging tech or frontier market).
+*   **Capital Structures:** `EQUITY`, `PROFIT_SHARING`, `LEASING`, `GRANT`.
+*   **Project Stages:** `CONCEPT`, `PRE_FEASIBILITY`, `FEASIBILITY`, `PERMITTING`, `FINANCIAL_CLOSE`, `CONSTRUCTION`, `OPERATIONAL`.
+*   **Engagement States:** `INTRO_SENT`, `INTRO_ACCEPTED`, `DUE_DILIGENCE`, `TERM_SHEET`, `CONTRACT_SIGNED`, `CAPITAL_COMMITTED`, `CLOSED`, `DROPPED`.
+
+## 4. CORE PRODUCT MODULES
 
 ### A. User Onboarding & Verification
 
 **Functional Requirements:**
-*   Users must be able to sign up using an email/password combination or Google OAuth.
+*   Users must be able to sign up using an email/password combination using an admin provided token or setup key (this can be chosen by the admin and is there to prevent unauthorized users from signing up to the platform).
 *   During signup, users must select their primary role (Developer, Capital Partner, etc.).
 *   After signup, users are guided to create their individual profile and a corresponding company profile.
 *   Admin users must be able to verify company profiles to grant full platform access. Unverified users will have limited access.
 
 **Required Fields:**
 *   **User:** `full_name`, `email`, `password`, `role`.
-*   **Company:** `name`, `type`, `country`, `website`.
+*   **Company:** `name`, `type`, `country`, `details`.
 
 **Validation Rules:**
 *   Email must be unique and in a valid format.
 *   Password must be at least 8 characters long.
-*   Company website must be a valid URL.
+*   Company details must be at minimum 30 characters long.
 
 **Backend Logic:**
 *   Create a new user record in Firebase Authentication.
@@ -170,6 +236,17 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 *   Projects must have a clear status (`draft`, `submitted`, `validated`, etc.).
 *   All monetary fields will be in Zambian Kwacha (ZMW) for the MVP.
 
+**Project Lifecycle State Machine:**
+
+| From State | To State | Triggered By | Preconditions | Postconditions |
+| :--- | :--- | :--- | :--- | :--- |
+| `None` | `draft` | Developer | User is authenticated. | Project ID created. |
+| `draft` | `submitted` | Developer | All required fields filled; min. docs uploaded. | Admin notified; project locked. |
+| `submitted` | `under_review` | Admin | Review started by Admin. | None. |
+| `under_review` | `validated` | Admin | Content verified; scoring complete. | Matchmaking triggered. |
+| `under_review` | `rejected` | Admin | Invalid content or missing data. | Developer notified. |
+| `validated` | `archived` | Developer/Admin | Deal closed or project withdrawn. | Removed from marketplace. |
+
 **Required Fields:**
 *   `name`, `technology_type`, `location_country` (Default: "Zambia"), `location_region` (Zambian provinces), `project_size_mw`, `capital_required_zmw`, `project_stage`, `target_financial_close_date`, `target_cod`.
 
@@ -178,6 +255,7 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 *   The project is associated with the developer's organization.
 *   Initial status is set to `draft`.
 *   A "submit for review" action changes the status and triggers a notification to the Admin.
+*   **Post-Validation Trigger:** Upon moving to `validated`, the `calculate_matches` job is queued for this specific project ID.
 
 **UI Screens Required:**
 *   "Create Project" multi-step form/wizard.
@@ -193,6 +271,7 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 
 **Database Tables Impacted:**
 *   `projects`
+*   `project_status_history` (New: to track lifecycle transitions)
 
 ### D. Capital Structure Selection
 
@@ -231,27 +310,42 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 *   Developers must upload a set of required documents for their project to be considered "complete".
 *   Uploaded documents will be analyzed by the AI Scoring Engine.
 *   A secure data room will be created for each engagement, where participants can share sensitive documents.
-*   Access to documents must be strictly controlled using signed URLs.
+*   Access to documents must be strictly controlled using short-lived signed URLs.
 
-**Required Document Types:**
-*   Pitch Deck, Financial Model, Technical Report, Environmental Permits, etc.
+**Technical Specifications:**
+*   **Allowed Formats:** `.PDF`, `.DOCX`, `.XLSX`, `.PPTX`, `.PNG`, `.JPG`.
+*   **Max File Size:** 50MB per file.
+*   **Virus Scanning:** All uploads must be scanned by Google Cloud Anti-Virus (or similar) before becoming available.
+*   **Document Classifications:**
+    *   `PUBLIC`: Visible to any verified user (e.g., Pitch Deck).
+    *   `RESTRICTED`: Visible only to matched partners after Introduction is Accepted.
+    *   `CONFIDENTIAL`: Visible only within specific engagements.
+
+**Required Documents by Project Stage:**
+*   `CONCEPT`: Pitch Deck.
+*   `FEASIBILITY`: Pitch Deck + Feasibility Study + Technical Report.
+*   `PERMITTING`: All above + Land Permits + Environmental Impact Assessment (EIA).
 
 **Backend Logic:**
-*   Files are uploaded to Google Cloud Storage.
-*   A record is created in the `project_documents` table with a reference to the GCS URL.
-*   When a user requests a document, the backend generates a short-lived signed URL for secure access.
+*   Files are uploaded to a private bucket in Google Cloud Storage.
+*   A record is created in the `project_documents` table with a reference to the GCS path.
+*   **Data Room Access:** For each engagement, a dedicated subfolder/permission set is established. Participants can only view documents shared within that specific `engagement_id`.
+*   **Download Audit Logging:** Every document access event must be logged in the `document_access_logs` table (User ID, Document ID, Timestamp, Action).
 
 **UI Screens Required:**
-*   File upload component in the "Create/Edit Project" form.
+*   File upload component in the "Create/Edit Project" form with category selection.
 *   A "Data Room" view within an active engagement.
+*   Document preview/viewer (e.g., PDF.js).
 
 **API Endpoints Required:**
 *   `POST /api/projects/{projectId}/documents` (to upload)
 *   `GET /api/documents/{documentId}/download` (to get a signed URL)
+*   `DELETE /api/documents/{documentId}` (soft-delete only)
 
 **Database Tables Impacted:**
 *   `project_documents`
-*   `documents` (for engagement-specific files)
+*   `engagement_documents` (New)
+*   `document_access_logs` (New)
 
 ### F. Capital Readiness Scoring
 
@@ -468,11 +562,30 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 *   `audit_logs`
 *   Aggregated views/queries on core tables.
 
-## 4. MATCHING SYSTEM SPECIFICATION
+## 5. MATCHING SYSTEM SPECIFICATION
 
 The matching system is designed to compute a compatibility score between projects and capital/technical partners.
 
-### 4.1. Capital Matching Score (0–100)
+### 5.1. Matching Eligibility Rules
+
+Before a match is even calculated, these rules must be satisfied:
+*   **Project Status:** Must be `validated`.
+*   **Organization Status:** Both parties must be `verified`.
+*   **Sector Overlap:** Partner must have the project's sector in their `sector_focus`.
+*   **Currency Match:** Both must operate in `ZMW` (for MVP).
+
+### 5.2. Match Recalculation Triggers
+
+| Trigger Event | Scope of Recalculation |
+| :--- | :--- |
+| Project moved to `validated` | Recalculate all partners against this project. |
+| Partner profile updated | Recalculate all validated projects against this partner. |
+| Partner becomes `verified` | Recalculate all validated projects against this partner. |
+| Admin manual trigger | Full system recalculation or specific ID range. |
+
+*   **Version Control:** Scores are versioned in `match_results_history`. Stale matches are marked as `inactive` but not deleted.
+
+### 5.3. Capital Matching Score (0–100)
 
 *   **Weight Distribution:**
     *   Capital Range Overlap: 30%
@@ -481,107 +594,98 @@ The matching system is designed to compute a compatibility score between project
     *   Governance Preference Alignment: 15%
     *   Sector Match: 10%
     *   Geographic Match: 10%
-*   **Recalculation Triggers:**
-    *   A new project is `validated`.
-    *   A new Capital Partner becomes `active`.
-    *   A developer or capital partner significantly updates their profile.
-*   **Pseudocode:**
-    ```
-    FUNCTION calculate_capital_match(project, partner):
-      score = 0
-      // 1. Capital Range Overlap
-      IF project.capital_required BETWEEN partner.min_ticket AND partner.max_ticket:
-        score += 30
-      // 2. Structure Compatibility
-      IF project.capital_structure IN partner.preferred_structures:
-        score += 20
-      // 3. Risk Alignment
-      IF project.risk_level == partner.risk_tolerance:
-        score += 15
-      // 4. Governance Alignment
-      IF project.governance_preference == partner.governance_preference:
-        score += 15
-      // 5. Sector Match
-      IF project.sector IN partner.sector_focus:
-        score += 10
-      // 6. Geographic Match
-      IF project.region IN partner.geographic_focus:
-        score += 10
-      RETURN score
-    ```
 
-### 4.2. Technical Matching Score (0–100)
+**Deterministic Formula:**
+`MatchScore = (CapitalScore * 0.3) + (StructureScore * 0.2) + (RiskScore * 0.15) + (GovScore * 0.15) + (SectorScore * 0.1) + (GeoScore * 0.1)`
 
-*   **Weight Distribution:**
-    *   Service Category Match: 25%
-    *   Sector Experience Match: 20%
-    *   MW Size Compatibility: 20%
-    *   Geographic Coverage: 15%
-    *   Timeline Availability: 10% (Post-MVP)
-    *   Track Record Strength: 10%
-*   **Pseudocode:**
-    ```
-    FUNCTION calculate_technical_match(project, partner):
-      score = 0
-      // 1. Service Match (assumes project.required_services)
-      IF ANY(service IN partner.service_categories FOR service IN project.required_services):
-        score += 25
-      // 2. Sector Match
-      IF project.sector IN partner.sector_experience:
-        score += 20
-      // 3. Size Compatibility
-      IF project.size_mw BETWEEN partner.min_mw AND partner.max_mw:
-        score += 20
-      // 4. Geographic Match
-      IF project.region IN partner.regions_operated:
-        score += 15
-      // 5. Track Record (simple proxy)
-      IF partner.total_mw_delivered > 100:
-        score += 10
-      RETURN score
-    ```
+*   **CapitalScore:** 100 if project `capital_required` is within `[min, max]`. 50 if within 20% of range. 0 otherwise.
+*   **StructureScore:** 100 if project `capital_structure` matches partner's list. 0 otherwise.
+*   **RiskScore/GovScore:** 100 if exact match. 50 if partial (e.g., Partner accepts Board Seat, Developer offers Observer).
 
-## 5. SCORING ENGINE SPECIFICATION
+### 5.4. Match Explanation JSON Contract
+
+Matches must include a breakdown for transparency:
+```json
+{
+  "match_id": "uuid",
+  "project_id": "uuid",
+  "partner_id": "uuid",
+  "total_score": 85,
+  "breakdown": {
+    "capital_overlap": { "score": 30, "detail": "100% within range" },
+    "structure": { "score": 20, "detail": "EQUITY structure accepted" },
+    "risk": { "score": 15, "detail": "MEDIUM risk alignment" },
+    "governance": { "score": 10, "detail": "BOARD_SEAT requested vs OBSERVER offered" },
+    "sector": { "score": 10, "detail": "SOLAR sector match" },
+    "geography": { "score": 0, "detail": "No specific province overlap" }
+  },
+  "calculated_at": "ISO8601"
+}
+```
+
+## 6. SCORING ENGINE SPECIFICATION
 
 The scoring engine provides a quantitative measure of a project's viability and readiness.
 
-### 5.1. Capital Readiness Score (0-100)
+### 6.1. Deterministic Capital Readiness Formula (0-100)
 
-*   **Weight Distribution:**
-    *   Documentation Completeness: 20%
-    *   Governance Clarity: 20%
-    *   Financial Transparency: 20%
-    *   Risk Disclosure Quality: 15%
-    *   Developer Track Record: 15%
-    *   AI Risk Analysis: 10%
-*   **AI Integration (Gemini API):**
-    *   A Cloud Function sends the text content of uploaded documents to the Gemini API.
-    *   The prompt asks the AI to rate clarity, identify risks, and check for missing information.
-*   **Input/Output JSON Schema (for AI):**
-    *   **Input:** `{ "documents": [{ "type": "PITCH_DECK", "content": "..." }] }`
-    *   **Output:**
-        ```json
-        {
-          "total_score": 85,
-          "breakdown": {
-            "clarity": 90,
-            "completeness": 80
-          },
-          "risk_flags": [
-            "High reliance on a single off-taker",
-            "Aggressive timeline assumptions"
-          ],
-          "recommendations": [
-            "Provide a more detailed financial model.",
-            "Clarify the land acquisition status."
-          ]
-        }
-        ```
-*   **Error Handling:**
-    *   The system will implement a retry-with-backoff mechanism for API calls.
-    *   If the AI analysis fails after 3 retries, the AI portion of the score is omitted, and an alert is sent to an Admin.
+`ReadinessScore = (DataCompleteness * 0.2) + (GovClarity * 0.2) + (FinancialTransparency * 0.2) + (RiskQuality * 0.15) + (TrackRecord * 0.15) + (AIScore * 0.1)`
 
-## 6. DATABASE ARCHITECTURE
+*   **Missing Data Penalty:** Any missing "Required" field results in a 5% deduction from the final score.
+*   **Normalization:** Final score is rounded to the nearest integer.
+
+### 6.2. AI Prompt Contract Definition (Gemini Flash)
+
+*   **Prompt Template:**
+    ```text
+    Role: Senior Infrastructure Project Analyst
+    Task: Analyze the attached {document_type} for project {project_name}.
+    Criteria: Check for [Clarity, Transparency, Risk Factors, Data Consistency].
+    Response Format: Strictly JSON.
+    ```
+*   **Parameters:**
+    *   **Temperature:** 0.1 (to ensure deterministic outputs).
+    *   **Max Tokens:** 2048.
+    *   **Retry Policy:** Exponential backoff, 3 retries max.
+    *   **Fallback:** If AI fails, the `AIScore` component defaults to 0 and an Admin flag `ai_failed_id` is set to true.
+
+### 6.3. AI Scoring JSON Schema
+
+**Input:**
+```json
+{
+  "request_id": "uuid",
+  "project_id": "uuid",
+  "documents": [
+    {
+      "id": "doc_uuid",
+      "type": "PITCH_DECK",
+      "gcs_path": "path/to/doc.pdf"
+    }
+  ]
+}
+```
+
+**Output:**
+```json
+{
+  "project_id": "uuid",
+  "total_ai_score": 85,
+  "dimensions": {
+    "clarity": 90,
+    "completeness": 80,
+    "consistency": 85
+  },
+  "risk_signals": [
+    {"level": "HIGH", "category": "FINANCIAL", "text": "Reliance on single off-taker"}
+  ],
+  "recommendations": [
+    "Clarify land acquisition status"
+  ]
+}
+```
+
+## 7. DATABASE ARCHITECTURE
 
 The database will be a PostgreSQL instance managed by Supabase.
 
@@ -589,60 +693,194 @@ The database will be a PostgreSQL instance managed by Supabase.
 *   **Indexing Strategy:** Indexes are created on foreign keys and frequently queried columns (e.g., `status`, `project_stage`, `capital_requirement_zmw`) to ensure query performance.
 *   **Row Level Security (RLS):** RLS is enabled on all tables holding sensitive data. Policies are defined in the design document and restrict data access based on the authenticated user's role and organization, ensuring users can only see and modify data they own or are permitted to view.
 
-## 7. BACKEND ARCHITECTURE
+## 7. DATABASE ARCHITECTURE
 
-*   **API Route Structure:** The backend uses Next.js API Routes. Routes are organized by resource (e.g., `/api/projects`, `/api/users`).
-*   **Service Layer Separation:** Business logic is abstracted into a service layer, separate from the API route handlers, to improve modularity and testability.
-*   **Background Jobs:** Google Cloud Functions will be used for asynchronous tasks like sending emails, running the scoring engine, and recalculating matches.
-*   **Logging & Audit Trail:** An `audit_logs` table records all critical mutations (Create, Update, Delete) and state changes, capturing who made the change and when.
+The database is a PostgreSQL instance managed by Supabase.
 
-## 8. FRONTEND ARCHITECTURE
+### 7.1. Entity Relationship Specification
 
-*   **Folder Structure:** The frontend follows the standard Next.js 14 App Router structure (`/app`). Reusable components are located in `/components`, business logic in `/lib`, and state management in `/hooks`.
-*   **Component Architecture:** The UI is built with React and Tailwind CSS, using a combination of shadcn/ui for primitives and custom-built components for specialized UI patterns.
-*   **State Management:** A combination of React Server Components for data fetching and React Context/Hooks for managing client-side state (like the authenticated user).
-*   **Role-Based Routing:** A middleware (`/middleware.ts`) checks the user's role and protects routes, redirecting them if they lack the necessary permissions.
+| Entity | Primary Key | Foreign Keys | Cardinality |
+| :--- | :--- | :--- | :--- |
+| `organizations` | `id` | - | 1:M with `users`, `projects`. |
+| `users` | `id` | `org_id` | M:1 with `organizations`. |
+| `projects` | `id` | `org_id` | M:1 with `organizations`. |
+| `match_results` | `id` | `project_id`, `partner_org_id` | M:M relationship proxy. |
+| `engagements` | `id` | `project_id`, `developer_org_id`, `partner_org_id` | M:M relationship proxy. |
+| `messages` | `id` | `engagement_id`, `sender_id` | M:1 with `engagements`. |
 
-## 9. ENGAGEMENT WORKFLOW STATE MACHINE
+### 7.2. Data Retention & Deletion Policy
 
-The state machine governs the lifecycle of a deal on the platform.
+*   **Soft Delete:** All core entities (`organizations`, `projects`, `engagements`) use a `deleted_at` timestamp. Data is hidden from the UI but preserved for audit.
+*   **Hard Delete:** Only possible for `notifications` and temporary `logs` after 90 days.
+*   **Cascade Rules:** Deleting an organization marks all associated users and projects as `archived`.
 
-*   **Allowed States:**
-    *   `INTRO_SENT`
-    *   `INTRO_ACCEPTED`
-    *   `DUE_DILIGENCE`
-    *   `TERM_SHEET`
-    *   `CONTRACT_SIGNED`
-    *   `CAPITAL_COMMITTED`
-    *   `CLOSED`
-    *   `DROPPED` (can be entered from any state)
-*   **Transition Rules:** Transitions are linear and enforced by the backend. For example, a deal cannot move to `TERM_SHEET` without first being in `DUE_DILIGENCE`.
-*   **Triggers:** State transitions are triggered by user actions in the UI (e.g., clicking "Accept Introduction").
-*   **Notification Triggers:** Every state change triggers an in-app and email notification to all participants in the engagement.
+### 7.3. Indexing Strategy
 
-## 10. SECURITY & COMPLIANCE
+*   **B-Tree Indexes:** `projects(status)`, `projects(capital_required_zmw)`, `organizations(role)`, `match_results(total_score)`.
+*   **Compound Indexes:** `messages(engagement_id, created_at)` for fast chat loading.
 
-*   **Authentication:** Handled by Firebase Auth (JWT-based).
-*   **Authorization:** Enforced at multiple levels:
-    *   Route-level via Next.js middleware.
-    *   API-level via checks within each route handler.
-    *   Database-level via Supabase RLS policies.
-*   **Document Storage:** All sensitive documents are stored in a private Google Cloud Storage bucket. Access is granted only through short-lived signed URLs generated by the backend, preventing direct, unauthorized access.
-*   **Input Sanitization:** All user input is validated and sanitized on the backend to prevent XSS and other injection attacks.
+## 8. BACKEND ARCHITECTURE
 
-## 5. SCORING ENGINE SPECIFICATION
+### 8.1. API Route Structure
 
-## 6. DATABASE ARCHITECTURE
+All API routes are served under `/api/v1/*`.
+*   **Authentication Middleware:** Validates Firebase JWT.
+*   **RBAC Middleware:** Checks `user.role` against a route-level permission map.
 
-## 7. BACKEND ARCHITECTURE
+### 8.2. Service Layer Separation
 
-## 8. FRONTEND ARCHITECTURE
+To avoid "fat" route handlers:
+*   `MatchingService`: Logic for scoring and match persistence.
+*   `ScoringService`: Orchestration of rule-based and AI scoring.
+*   `EngagementService`: State machine transition enforcement.
+*   `DocumentService`: Signed URL generation and audit logging.
 
-## 9. ENGAGEMENT WORKFLOW STATE MACHINE
+### 8.3. Background Jobs (Cloud Functions)
 
-## 10. SECURITY & COMPLIANCE
+*   `onProjectSubmitted`: Triggers `ScoringService`.
+*   `onScoringComplete`: Triggers `MatchingService`.
+*   `dailyMatchRecap`: Sends email digests to active partners.
 
-## 11. PHASED DEVELOPMENT PLAN
+## 9. FRONTEND ARCHITECTURE
+
+### 9.1. Component Architecture
+
+*   **Primitives:** Based on `shadcn/ui` (Tailwind + Radix UI).
+*   **Complex Patterns:**
+    *   `EntityGrid`: Reusable card-based project/partner browser.
+    *   `EngagementFlow`: Visual stepper for deal states.
+    *   `DataRoomManager`: Folder-based document interface.
+
+### 9.2. State Management
+
+*   **Server State:** `React Query` for all API data (caching, invalidation).
+*   **Auth State:** `useAuth` custom hook wrapping Firebase Context.
+*   **Local State:** `Zustand` for complex UI states (e.g., active filters).
+
+### 9.3. Role-Based Routing
+
+*   **Next.js Middleware:** Intercepts every request.
+*   **Path Mapping:**
+    *   `/dashboard/developer/*` -> Restricted to `DEVELOPER`.
+    *   `/dashboard/investor/*` -> Restricted to `CAPITAL_PARTNER`.
+    *   `/admin/*` -> Restricted to `ADMIN`.
+
+## 10. ENGAGEMENT WORKFLOW STATE MACHINE
+
+### 10.1. Engagement Constraints
+
+*   **Multiple Engagements:** A project can have multiple concurrent engagements with different partners.
+*   **Partner Limits:** A capital partner can engage with multiple projects simultaneously.
+*   **Reopening:** Once an engagement is `CLOSED` or `DROPPED`, it cannot be reopened. A new engagement must be initiated.
+*   **Exclusivity:** Not supported in MVP. All deals are non-exclusive by default.
+
+### 10.2. State Transition Contract
+
+| From State | To State | Triggered By | Preconditions | Postconditions |
+| :--- | :--- | :--- | :--- | :--- |
+| `INTRO_SENT` | `INTRO_ACCEPTED` | Partner | None. | Data room access granted. |
+| `INTRO_ACCEPTED` | `DUE_DILIGENCE` | Any | NDA signed (Offline/MVP). | Developer notified. |
+| `DUE_DILIGENCE` | `TERM_SHEET` | Partner | Minimum docs viewed. | Developer must accept. |
+| `TERM_SHEET` | `CONTRACT_SIGNED` | Any | Draft uploaded. | None. |
+| `CONTRACT_SIGNED`| `CLOSED` | Admin | Manual verification of deal. | Platform fee recorded. |
+| `*` | `DROPPED` | Any | Reason code provided. | Participation ended. |
+
+## 11. MESSAGING SYSTEM
+
+### 11.1. Technical Specifications
+
+*   **Architecture:** Real-time updates via Supabase Realtime (WebSockets).
+*   **RLS Enforcement:** `messages` table allows `SELECT` and `INSERT` only if `auth.uid` is a participant in `engagements`.
+*   **Ordering:** Strict chronological order based on `created_at`.
+*   **Edit/Delete Policy:** Users can delete their own messages within 5 minutes. No edits allowed (for audit integrity).
+*   **Attachments:** Supported via link generation from the Data Room. Direct file uploads in chat are converted to Data Room entries.
+
+## 12. SECURITY & DATA GOVERNANCE
+
+### 12.1. Data Classification Model
+
+*   **Category 1: Public** (User names, project titles).
+*   **Category 2: Private** (Email addresses, phone numbers).
+*   **Category 3: Restricted** (Match scores, internal AI notes).
+*   **Category 4: Confidential** (Financial models, PII, NDA documents).
+
+### 12.2. Audit Log Specification
+
+Every state mutation in the database is logged in the `audit_trail` table:
+*   `actor_id`: UUID of the user.
+*   `action`: `CREATE`, `UPDATE`, `DELETE`, `TRANSITION`.
+*   `entity_type`: e.g., `PROJECT`, `ENGAGEMENT`.
+*   `payload_before`: JSON.
+*   `payload_after`: JSON.
+*   `ip_address`: Captured for security.
+
+### 12.3. Rate Limiting Rules
+
+*   **API Calls:** 100 requests / minute / IP.
+*   **AI Scoring:** 5 requests / hour / Project ID.
+*   **Document Uploads:** 20 files / hour / User.
+*   **Auth Requests:** 5 attempts / 10 minutes (Firebase default).
+
+## 13. API CONTRACT STANDARDIZATION
+
+### 13.1. Response Standard
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": { "timestamp": "...", "version": "v1" }
+}
+```
+
+**Failure Response:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ENTITY_NOT_FOUND",
+    "message": "Project with ID 123 does not exist.",
+    "trace_id": "req-987"
+  }
+}
+```
+
+**HTTP Status Codes:**
+*   `200 OK`: Successful read/update.
+*   `201 Created`: Successful creation.
+*   `400 Bad Request`: Validation failure.
+*   `401 Unauthorized`: No valid token.
+*   `403 Forbidden`: Role mismatch or ownership violation.
+*   `429 Too Many Requests`: Rate limit hit.
+
+## 14. FAILURE & RECOVERY STRATEGY
+
+### 14.1. Core System Resilience
+
+*   **AI Scoring Failure:** If Gemini Flash returns an error or timeout, the system saves a `SCORING_PENDING_RETRY` status. After 3 failures, an Admin is notified for manual scoring or override.
+*   **Partial Uploads:** Large files use multipart uploads. Stale chunks are cleaned up after 24 hours.
+*   **Race Conditions:** State transitions use optimistic locking or database-level transactions with `SERIALIZABLE` isolation.
+*   **Cloud Function Failure:** All background jobs use an idempotent "idempotency key" and dead-letter queues (DLQ) for failed events.
+
+## 15. LEGAL & REGULATORY POSITIONING
+
+### 15.1. Disclaimers
+
+*   **Non-Broker-Dealer:** Energy Capital Match is an information facilitator only.
+*   **No Financial Advice:** The readiness scores are for internal reference and do not constitute investment recommendations.
+*   **Data Sovereignty:** All Zambian project data is handled in compliance with local data protection acts.
+*   **Liability:** The platform is not responsible for the outcome of any engagement or the accuracy of user-provided data.
+
+## 16. VERSIONING & MIGRATION STRATEGY
+
+### 16.1. Strategy
+
+*   **Schema Versioning:** Managed via Supabase Migrations (`/supabase/migrations`). Every migration must be non-destructive (e.g., allow NULLs for new columns initially).
+*   **Feature Flags:** Uses `GrowthBook` or simple database flags to enable/disable modules (like Technical Matching) for specific user cohorts.
+*   **Backward Compatibility:** API V1 is guaranteed for 12 months after V2 launch. Deprecation notices sent via Admin dashboard.
+
+## 17. PHASED DEVELOPMENT PLAN
 
 The project will be developed in seven distinct phases. A detailed breakdown of each phase, including deliverables, dependencies, and testing criteria, is located in the `build_plan.md` document.
 
@@ -654,7 +892,7 @@ The project will be developed in seven distinct phases. A detailed breakdown of 
 *   **Phase 6: Admin & analytics** - Build the necessary tools for platform oversight.
 *   **Phase 7: Hardening, performance & production launch** - Final testing, optimization, and go-live.
 
-## 12. NON-FUNCTIONAL REQUIREMENTS
+## 18. NON-FUNCTIONAL REQUIREMENTS
 
 *   **Performance:**
     *   API response times should be < 200ms for 95% of requests.
@@ -668,7 +906,7 @@ The project will be developed in seven distinct phases. A detailed breakdown of 
     *   Implement error tracking and logging (e.g., Sentry, Logtail).
 *   **Backup & Disaster Recovery:** Supabase provides automated daily backups. A formal disaster recovery plan will be documented prior to launch.
 
-## 13. MVP VS POST-MVP ROADMAP
+## 19. MVP VS POST-MVP ROADMAP
 
 ### MVP (Launch Version - Zambia Focus)
 *   All core modules defined in this PRD, with a focus on the Zambia market.
@@ -693,7 +931,3 @@ The project will be developed in seven distinct phases. A detailed breakdown of 
 *   Build a mobile application.
 *   Develop a B2B API for partners to integrate with the platform.
 *   Become the definitive source for energy project intelligence in emerging markets.
-
-## 12. NON-FUNCTIONAL REQUIREMENTS
-
-## 13. MVP VS POST-MVP ROADMAP
