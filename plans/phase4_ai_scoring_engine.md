@@ -6,7 +6,7 @@ Afri Connect requires an AI-driven vetting system to analyze project documents (
 ## Architecture
 - **Backend**: Google Cloud Function (Node.js)
   - Reasons: Native integration with Google Gemini, easy access to Firebase Storage where documents are stored.
-- **AI Model**: Google Gemini 1.5 Flash (Multimodal)
+- **AI Model**: Google Gemini 3 Flash (Multimodal)
   - Multimodal capabilities allow direct analysis of PDF/Image documents.
 - **Database**: Supabase
   - Store scores in `project_scores` table.

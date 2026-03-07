@@ -92,15 +92,15 @@ export default function ProjectSubmissionPage() {
       });
 
       // 3. Upload Documents
-      const documentUrls: string[] = [];
+      const documentPaths: string[] = [];
       for (const item of selectedFiles) {
-        const { file_url } = await storageService.uploadProjectDocument(
+        const { file_url, storage_path } = await storageService.uploadProjectDocument(
           project.id,
           item.file,
           item.type
         );
         
-        documentUrls.push(file_url);
+        documentPaths.push(storage_path);
 
         await projectService.addProjectDocument({
           project_id: project.id,
@@ -115,7 +115,7 @@ export default function ProjectSubmissionPage() {
           const scoreProject = httpsCallable(functions, 'scoreProject');
           const scoringResponse: any = await scoreProject({ 
             projectId: project.id, 
-            documentUrls 
+            documentPaths 
           });
 
           if (scoringResponse.data?.success) {

@@ -8,7 +8,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 /**
  * Cloud Function to score a project using Gemini AI.
- * Expects { projectId, documentUrls: [] }
+ * Expects { projectId, documentPaths: [] }
+ * documentPaths should be the paths within the Firebase Storage bucket
  */
 exports.scoreProject = functions.https.onCall(async (data, context) => {
   // Check authentication
@@ -19,28 +20,51 @@ exports.scoreProject = functions.https.onCall(async (data, context) => {
     );
   }
 
-  const { projectId, documentUrls } = data;
+  const { projectId, documentPaths } = data;
 
-  if (!projectId || !documentUrls || !Array.isArray(documentUrls)) {
+  if (!projectId || !documentPaths || !Array.isArray(documentPaths)) {
     throw new functions.https.HttpsError(
       "invalid-argument",
-      "Missing projectId or documentUrls."
+      "Missing projectId or documentPaths."
     );
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+    // 1. Fetch and convert documents to Base64 for Gemini
+    const bucket = admin.storage().bucket();
+    const documentParts = await Promise.all(
+      documentPaths.map(async (path) => {
+        try {
+          const [fileBuffer] = await bucket.file(path).download();
+          return {
+            inlineData: {
+              data: fileBuffer.toString("base64"),
+              mimeType: "application/pdf", // Default to PDF for infra docs
+            },
+          };
+        } catch (err) {
+          console.error(`Error downloading file ${path}:`, err);
+          return null;
+        }
+      })
+    );
 
-    // 1. Prepare parts for Gemini (text prompt + documents)
-    // Note: In a production environment, you'd fetch the files from Firebase Storage 
-    // and convert them to base64 or pass them as URI if Gemini supports it directly for your tier.
-    // For this MVP, we are assuming text extraction or direct PDF analysis via GenAI SDK.
-    
+    // Filter out failed downloads
+    const validParts = documentParts.filter((part) => part !== null);
+
+    if (validParts.length === 0) {
+      throw new Error("No valid documents found for analysis.");
+    }
+
+    // 2. Initialize Gemini with JSON mode
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      generationConfig: { responseMimeType: "application/json" }
+    });
+
     const prompt = `
       You are an expert institutional infrastructure investor. 
-      Analyze the following project documents for a project with ID: ${projectId}.
-      
-      Documents provided (URLs): ${documentUrls.join(", ")}
+      Analyze the attached project documents for a project with ID: ${projectId}.
 
       Evaluate the project based on the following criteria and weights:
       1. Financial Transparency & Viability (30%) - Focus on IRR, debt/equity, and unit economics.
@@ -50,34 +74,30 @@ exports.scoreProject = functions.https.onCall(async (data, context) => {
       5. Documentation Completeness (10%) - Quality and presence of key diligence docs.
       6. AI Risk Score (10%) - Your independent check for inconsistencies or red flags.
 
-      Output a structured JSON response with the following format:
+      Output a structured JSON response exactly matching this schema:
       {
-        "total_score": number (0-100),
+        "total_score": number,
         "breakdown": {
-          "financials": number (0-100),
-          "track_record": number (0-100),
-          "risk": number (0-100),
-          "governance": number (0-100),
-          "documentation": number (0-100),
-          "ai_penalty": number (0-100)
+          "financials": number,
+          "track_record": number,
+          "risk": number,
+          "governance": number,
+          "documentation": number,
+          "ai_penalty": number
         },
-        "risk_flags": [string],
-        "recommendations": [string],
+        "risk_flags": string[],
+        "recommendations": string[],
         "summary": string
       }
     `;
 
-    const result = await model.generateContent(prompt);
+    // 3. Generate Content (Prompt + Document Parts)
+    const result = await model.generateContent([prompt, ...validParts]);
     const response = await result.response;
     const text = response.text();
     
-    // Clean up JSON if LLM adds markdown blocks
-    const jsonStr = text.replace(/```json|```/g, "").trim();
-    const scoringResult = JSON.parse(jsonStr);
+    const scoringResult = JSON.parse(text);
 
-    // 2. Save result to Supabase or return to frontend
-    // In the full flow, this function will write directly to the Supabase 'project_scores' table.
-    
     return {
       success: true,
       data: scoringResult
