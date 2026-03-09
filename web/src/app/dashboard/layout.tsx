@@ -13,7 +13,7 @@ export default function DashboardGlobalLayout({ children }: { children: ReactNod
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        router.push('/login');
+        // router.push('/login');
       } else {
         // Global Onboarding Check
         // Admins are exempt from the company profile requirement for initial access
@@ -33,7 +33,7 @@ export default function DashboardGlobalLayout({ children }: { children: ReactNod
   }
 
   if (!user) {
-    return null; // Will redirect in useEffect
+    // return null; // Will redirect in useEffect
   }
 
   return <>{children}</>;

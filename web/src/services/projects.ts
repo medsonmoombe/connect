@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
-import { Project, ProjectTechRequirements, ProjectDocument } from '@/types';
+import { Project, ProjectTechRequirements, ProjectDocument, CapitalMatchResult, TechnicalMatchResult, CapitalPartner, TechnicalPartner } from '@/types';
+import { calculateCapitalMatchScore, calculateTechnicalMatchScore } from '@/lib/scoring';
 
 export const projectService = {
   /**
@@ -13,7 +14,123 @@ export const projectService = {
       .single();
 
     if (error) throw error;
+    
+    // Trigger initial matching
+    await this.runMatchingEngine(data.id);
+    
     return data as Project;
+  },
+
+  /**
+   * Run the matching engine for a project
+   */
+  async runMatchingEngine(projectId: string) {
+    try {
+      // 1. Fetch project details
+      const project = await this.getProjectDetails(projectId);
+      if (!project) return;
+
+      // 2. Fetch all partners
+      const { data: capitalPartners } = await supabase.from('capital_partners').select('*, company:companies(*)');
+      const { data: technicalPartners } = await supabase.from('technical_partners').select('*, company:companies(*)');
+
+      // 3. Calculate and save capital matches
+      if (capitalPartners) {
+        const capitalMatches = capitalPartners.map(partner => 
+          calculateCapitalMatchScore(project, partner as CapitalPartner)
+        );
+        
+        // Save to Supabase (upsert)
+        for (const match of capitalMatches) {
+          await supabase.from('capital_match_results').upsert({
+            project_id: projectId,
+            capital_partner_id: match.capital_partner_id,
+            compatibility_score: match.compatibility_score,
+            score_breakdown: match.score_breakdown
+          }, { onConflict: 'project_id,capital_partner_id' });
+        }
+      }
+
+      // 4. Calculate and save technical matches
+      if (technicalPartners) {
+        const technicalMatches = technicalPartners.map(partner => 
+          calculateTechnicalMatchScore(project, partner as TechnicalPartner)
+        );
+        
+        // Save to Supabase (upsert)
+        for (const match of technicalMatches) {
+          await supabase.from('technical_match_results').upsert({
+            project_id: projectId,
+            technical_partner_id: match.technical_partner_id,
+            compatibility_score: match.compatibility_score,
+            score_breakdown: match.score_breakdown
+          }, { onConflict: 'project_id,technical_partner_id' });
+        }
+      }
+    } catch (err) {
+      console.error('Error running matching engine:', err);
+    }
+  },
+
+  /**
+   * Get match results for a project
+   */
+  async getProjectMatches(projectId: string) {
+    const { data: capitalMatches, error: capError } = await supabase
+      .from('capital_match_results')
+      .select(`
+        *,
+        capital_partner:capital_partners(
+          *,
+          company:companies(*)
+        )
+      `)
+      .eq('project_id', projectId)
+      .order('compatibility_score', { ascending: false });
+
+    const { data: technicalMatches, error: techError } = await supabase
+      .from('technical_match_results')
+      .select(`
+        *,
+        technical_partner:technical_partners(
+          *,
+          company:companies(*)
+        )
+      `)
+      .eq('project_id', projectId)
+      .order('compatibility_score', { ascending: false });
+
+    if (capError) throw capError;
+    if (techError) throw techError;
+
+    return {
+      capital: capitalMatches as CapitalMatchResult[],
+      technical: technicalMatches as TechnicalMatchResult[]
+    };
+  },
+
+  /**
+   * Get recommended projects for a partner
+   */
+  async getRecommendedProjects(partnerId: string, type: 'CAPITAL' | 'TECHNICAL') {
+    const table = type === 'CAPITAL' ? 'capital_match_results' : 'technical_match_results';
+    const partnerIdField = type === 'CAPITAL' ? 'capital_partner_id' : 'technical_partner_id';
+
+    const { data, error } = await supabase
+      .from(table)
+      .select(`
+        *,
+        project:projects(
+          *,
+          developer:companies(*)
+        )
+      `)
+      .eq(partnerIdField, partnerId)
+      .order('compatibility_score', { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+    return data;
   },
 
   /**

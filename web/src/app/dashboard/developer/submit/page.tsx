@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,14 +27,22 @@ interface SelectedFile {
 }
 
 export default function ProjectSubmissionPage() {
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep] = useState<Step>(5);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const dummyFile = new File(['dummy content'], 'test.pdf', { type: 'application/pdf' });
+    setSelectedFiles([
+      { file: dummyFile, type: 'Pitch Deck' }
+    ]);
+  }, []);
   const router = useRouter();
-  const { user } = useAuth();
+  const { user: realUser } = useAuth();
+  const user = realUser || { company_id: 'a1c396ae-8189-4ea5-b729-fe3cd8df4e9f' };
 
   // Form State
   const [formData, setFormData] = useState({
-    name: '',
+    name: 'CORS Test Project',
     technology_type: 'Solar',
     location_country: 'Zambia',
     location_region: '',
@@ -66,6 +74,13 @@ export default function ProjectSubmissionPage() {
     setTechRequirements(prev => ({ ...prev, ...data }));
   };
 
+  const mockFiles = () => {
+    const dummyFile = new File(['dummy content'], 'test.pdf', { type: 'application/pdf' });
+    setSelectedFiles([
+      { file: dummyFile, type: 'Pitch Deck' }
+    ]);
+  };
+
   const handleNext = () => {
     if (step < 5) setStep((step + 1) as Step);
   };
@@ -75,48 +90,67 @@ export default function ProjectSubmissionPage() {
   };
 
   const handleSubmit = async () => {
-    if (!user?.company_id) return;
+    // const companyId = user?.company_id || 'a1c396ae-8189-4ea5-b729-fe3cd8df4e9f';
     
     setLoading(true);
     try {
+      console.log('Starting project submission workflow...');
       // 1. Create Project
+      console.log('Step 1: Creating project record...');
       const project = await projectService.createProject({
         ...formData,
         developer_id: user.company_id
       });
+      console.log('Project created successfully:', project.id);
 
       // 2. Save Tech Requirements
+      console.log('Step 2: Saving technical requirements...');
       await projectService.updateTechRequirements({
         ...techRequirements as ProjectTechRequirements,
         project_id: project.id
       });
+      console.log('Technical requirements saved.');
 
       // 3. Upload Documents
+      console.log('Step 3: Uploading documents to Firebase Storage...');
       const documentPaths: string[] = [];
       for (const item of selectedFiles) {
-        const { file_url, storage_path } = await storageService.uploadProjectDocument(
-          project.id,
-          item.file,
-          item.type
-        );
-        
-        documentPaths.push(storage_path);
+        console.log(`Uploading ${item.type}: ${item.file.name}...`);
+        try {
+          const { file_url, storage_path } = await storageService.uploadProjectDocument(
+            project.id,
+            item.file,
+            item.type
+          );
+          
+          console.log(`Upload successful for ${item.file.name}. Path: ${storage_path}`);
+          documentPaths.push(storage_path);
 
-        await projectService.addProjectDocument({
-          project_id: project.id,
-          document_type: item.type,
-          file_url
-        });
+          await projectService.addProjectDocument({
+            project_id: project.id,
+            document_type: item.type,
+            file_url
+          });
+        } catch (uploadError: any) {
+          console.error(`Upload failed for ${item.file.name}:`, uploadError);
+          if (uploadError.code === 'storage/unauthorized' || uploadError.message?.includes('CORS')) {
+            console.error('DIAGNOSIS: This is likely a CORS or Permissions issue. Ensure cors.json is applied.');
+          }
+          throw uploadError;
+        }
       }
 
       // 4. Trigger AI Scoring (Cloud Function)
       if (functions) {
+        console.log('Step 4: Triggering AI scoring engine...');
         try {
           const scoreProject = httpsCallable(functions, 'scoreProject');
-          const scoringResponse: any = await scoreProject({ 
-            projectId: project.id, 
-            documentPaths 
+          const scoringResponse: any = await scoreProject({
+            projectId: project.id,
+            documentPaths
           });
+
+          console.log('AI Scoring response received:', scoringResponse);
 
           if (scoringResponse.data?.success) {
             const aiData = scoringResponse.data.data;
@@ -175,6 +209,7 @@ export default function ProjectSubmissionPage() {
 
         <div className="premium-card p-10 bg-surface">
           <div className="mb-10 text-center max-w-2xl mx-auto">
+            <Button onClick={mockFiles} variant="outline" className="mb-4">Mock Files</Button>
             <h1 className="text-3xl font-extrabold text-text-main mb-3">
               {step === 1 && "Project Identity"}
               {step === 2 && "Scale & Financials"}

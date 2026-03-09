@@ -8,7 +8,8 @@
         ".git",
         "firebase-debug.log",
         "firebase-project.json"
-      ]
+      ],
+      "runtime": "nodejs20"
     }
   ]
 }

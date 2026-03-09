@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { projectService } from '@/services/projects';
-import { Project } from '@/types';
+import { Project, CapitalMatchResult, TechnicalMatchResult } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
+import { MatchingSection } from '@/components/MatchingSection';
 
 export default function ProjectDetailsPage() {
   const params = useParams();
@@ -15,6 +16,8 @@ export default function ProjectDetailsPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeStage, setActiveStage] = useState(1);
+  const [capitalMatches, setCapitalMatches] = useState<CapitalMatchResult[]>([]);
+  const [technicalMatches, setTechnicalMatches] = useState<TechnicalMatchResult[]>([]);
 
   useEffect(() => {
     async function fetchProject() {
@@ -24,6 +27,11 @@ export default function ProjectDetailsPage() {
           setProject(data);
           // Set stage based on project_stage enum if needed, for now just 1
           setActiveStage(data.project_stage === 'FEASIBILITY' ? 1 : data.project_stage === 'PRE_CONSTRUCTION' ? 2 : 3);
+          
+          // Fetch matches
+          const matches = await projectService.getProjectMatches(params.id as string);
+          setCapitalMatches(matches.capital);
+          setTechnicalMatches(matches.technical);
         } catch (error) {
           console.error('Error fetching project:', error);
         } finally {
@@ -292,6 +300,12 @@ export default function ProjectDetailsPage() {
               </div>
             </div>
           </div>
+
+          <MatchingSection 
+            projectId={project.id} 
+            capitalMatches={capitalMatches} 
+            technicalMatches={technicalMatches} 
+          />
         </div>
       </main>
     </div>

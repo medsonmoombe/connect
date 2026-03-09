@@ -160,10 +160,11 @@ export function calculateCapitalMatchScore(
   score += riskAlignment * CAPITAL_MATCH_WEIGHTS.risk_tolerance_alignment;
 
   // Governance Preference Alignment (15%)
-  // Would be calculated from project governance terms and partner preference
+  const governanceAlignment = calculateGovernanceAlignment(project.governance_terms, partner.governance_preference);
+  score += governanceAlignment * CAPITAL_MATCH_WEIGHTS.governance_preference_alignment;
 
   // Sector Match (10%)
-  const sectorMatch = 80; // Would be calculated from technology type and sector focus
+  const sectorMatch = partner.sector_focus.includes(project.technology_type) ? 100 : 50;
   score += sectorMatch * CAPITAL_MATCH_WEIGHTS.sector_match;
 
   // Geographic Match (10%)
@@ -178,11 +179,12 @@ export function calculateCapitalMatchScore(
     capital_partner_id: partner.id,
     compatibility_score: compatibilityScore,
     score_breakdown: {
-      capital_range_overlap: Math.round(capitalOverlap * CAPITAL_MATCH_WEIGHTS.capital_range_overlap),
-      structure_compatibility: Math.round(structureMatch * CAPITAL_MATCH_WEIGHTS.structure_compatibility),
-      risk_tolerance_alignment: Math.round(riskAlignment * CAPITAL_MATCH_WEIGHTS.risk_tolerance_alignment),
-      sector_match: Math.round(sectorMatch * CAPITAL_MATCH_WEIGHTS.sector_match),
-      geographic_match: Math.round(geoMatch * CAPITAL_MATCH_WEIGHTS.geographic_match),
+      capital_range_overlap: Math.round(capitalOverlap * 100),
+      structure_compatibility: Math.round(structureMatch),
+      risk_tolerance_alignment: Math.round(riskAlignment),
+      governance_preference_alignment: Math.round(governanceAlignment),
+      sector_match: Math.round(sectorMatch),
+      geographic_match: Math.round(geoMatch),
     },
     created_at: new Date().toISOString(),
   };
@@ -197,22 +199,29 @@ function calculateCapitalOverlap(projectCapital: number, minTicket: number, maxT
   }
   
   if (projectCapital < minTicket) {
-    return Math.max(0, 100 - ((minTicket - projectCapital) / minTicket) * 100);
+    // Within 20% of min ticket is still a good match
+    const diff = minTicket - projectCapital;
+    if (diff / minTicket < 0.2) return 80;
+    return Math.max(0, 100 - (diff / minTicket) * 100);
   }
   
   // projectCapital > maxTicket
-  return Math.max(0, 100 - ((projectCapital - maxTicket) / maxTicket) * 100);
+  const diff = projectCapital - maxTicket;
+  if (diff / maxTicket < 0.2) return 80;
+  return Math.max(0, 100 - (diff / maxTicket) * 100);
 }
 
 // Calculate Risk Alignment
 function calculateRiskAlignment(riskDisclosures: string | undefined, riskTolerance: string): number {
   if (!riskDisclosures) return 50;
   
+  // Logic: Partners with higher risk tolerance match better with projects that have disclosed risks
+  // This is a simplified proxy
   switch (riskTolerance) {
     case 'LOW':
-      return 80;
+      return 60;
     case 'MEDIUM':
-      return 90;
+      return 80;
     case 'HIGH':
       return 100;
     default:
@@ -220,32 +229,43 @@ function calculateRiskAlignment(riskDisclosures: string | undefined, riskToleran
   }
 }
 
+// Calculate Governance Alignment
+function calculateGovernanceAlignment(governanceTerms: string | undefined, preference: string): number {
+  if (!governanceTerms) return 50;
+  
+  const terms = governanceTerms.toLowerCase();
+  
+  if (preference === 'ACTIVE_ROLE' && (terms.includes('active') || terms.includes('management'))) return 100;
+  if (preference === 'BOARD_SEAT' && (terms.includes('board') || terms.includes('seat'))) return 100;
+  if (preference === 'PASSIVE' && (terms.includes('passive') || terms.includes('no control'))) return 100;
+  
+  return 70; // Partial match
+}
+
 // Technical Matching Algorithm Weights
 const TECHNICAL_MATCH_WEIGHTS = {
   service_category_match: 0.25,
   sector_experience_match: 0.20,
   mw_size_compatibility: 0.20,
-  geographic_coverage: 0.15,
-  timeline_availability: 0.10,
-  track_record_strength: 0.10,
+  geographic_track_record: 0.35,
 };
 
 // Calculate Technical Match Score
 export function calculateTechnicalMatchScore(
   project: Project,
-  partner: TechnicalPartner,
-  requiredServices?: string[]
+  partner: TechnicalPartner
 ): TechnicalMatchResult {
   let score = 0;
 
   // Service Category Match (25%)
-  const serviceMatch = requiredServices && requiredServices.length > 0
+  const requiredServices = project.tech_requirements?.required_services || [];
+  const serviceMatch = requiredServices.length > 0
     ? calculateServiceMatch(requiredServices, partner.service_categories)
     : 80;
   score += serviceMatch * TECHNICAL_MATCH_WEIGHTS.service_category_match;
 
   // Sector Experience Match (20%)
-  const sectorExpMatch = 80; // Would be calculated from technology type and sector experience
+  const sectorExpMatch = partner.sector_experience.includes(project.technology_type) ? 100 : 50;
   score += sectorExpMatch * TECHNICAL_MATCH_WEIGHTS.sector_experience_match;
 
   // MW Size Compatibility (20%)
@@ -256,17 +276,11 @@ export function calculateTechnicalMatchScore(
   );
   score += mwCompatibility * TECHNICAL_MATCH_WEIGHTS.mw_size_compatibility;
 
-  // Geographic Coverage (15%)
-  const geoCoverage = partner.regions_operated.includes(project.location_country) ? 100 : 50;
-  score += geoCoverage * TECHNICAL_MATCH_WEIGHTS.geographic_coverage;
-
-  // Timeline Availability (10%)
-  const timelineAvail = 80; // Would be calculated from partner's current workload
-  score += timelineAvail * TECHNICAL_MATCH_WEIGHTS.timeline_availability;
-
-  // Track Record Strength (10%)
+  // Geography & Track Record (35%)
+  const geoMatch = partner.regions_operated.includes(project.location_country) ? 100 : 60;
   const trackRecord = calculateTrackRecordScore(partner);
-  score += trackRecord * TECHNICAL_MATCH_WEIGHTS.track_record_strength;
+  const geoTrackRecordMatch = (geoMatch * 0.6) + (trackRecord * 0.4);
+  score += geoTrackRecordMatch * TECHNICAL_MATCH_WEIGHTS.geographic_track_record;
 
   const compatibilityScore = Math.round(score);
 
@@ -276,12 +290,10 @@ export function calculateTechnicalMatchScore(
     technical_partner_id: partner.id,
     compatibility_score: compatibilityScore,
     score_breakdown: {
-      service_category_match: Math.round(serviceMatch * TECHNICAL_MATCH_WEIGHTS.service_category_match),
-      sector_experience_match: Math.round(sectorExpMatch * TECHNICAL_MATCH_WEIGHTS.sector_experience_match),
-      mw_size_compatibility: Math.round(mwCompatibility * TECHNICAL_MATCH_WEIGHTS.mw_size_compatibility),
-      geographic_coverage: Math.round(geoCoverage * TECHNICAL_MATCH_WEIGHTS.geographic_coverage),
-      timeline_availability: Math.round(timelineAvail * TECHNICAL_MATCH_WEIGHTS.timeline_availability),
-      track_record_strength: Math.round(trackRecord * TECHNICAL_MATCH_WEIGHTS.track_record_strength),
+      service_category_match: Math.round(serviceMatch),
+      sector_experience_match: Math.round(sectorExpMatch),
+      mw_size_compatibility: Math.round(mwCompatibility),
+      geographic_track_record: Math.round(geoTrackRecordMatch),
     },
     created_at: new Date().toISOString(),
   };

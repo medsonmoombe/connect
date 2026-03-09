@@ -11,13 +11,22 @@ export const storageService = {
     // Create a path: projects/{projectId}/{timestamp}_{filename}
     const timestamp = Date.now();
     const storagePath = `projects/${projectId}/${timestamp}_${file.name}`;
+    console.log(`DEBUG: Storage instance bucket: ${storage.app.options.storageBucket}`);
     const storageRef = ref(storage, storagePath);
 
     // Upload
-    await uploadBytes(storageRef, file);
+    console.log(`Uploading to: ${storagePath}`);
+    try {
+      await uploadBytes(storageRef, file);
+      console.log('uploadBytes successful');
+    } catch (error) {
+      console.error('Error in uploadBytes:', error);
+      throw error;
+    }
 
     // Get URL
     const downloadURL = await getDownloadURL(storageRef);
+    console.log(`Download URL obtained: ${downloadURL.substring(0, 50)}...`);
 
     return {
       file_url: downloadURL,

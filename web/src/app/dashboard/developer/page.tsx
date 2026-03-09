@@ -5,15 +5,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { projectService } from '@/services/projects';
-import { Project } from '@/types';
+import { engagementService } from '@/lib/engagement';
+import { Project, Engagement } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
+import { getStateLabel } from '@/lib/engagement';
 
 export default function DeveloperDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [projects, setProjects] = useState<Project[]>([]);
+  const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingEngagements, setLoadingEngagements] = useState(true);
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
 
@@ -29,21 +33,26 @@ export default function DeveloperDashboard() {
   }, [user, loading, router]);
 
   useEffect(() => {
-    async function fetchProjects() {
+    async function fetchData() {
       if (user?.company_id) {
         try {
-          const data = await projectService.getDeveloperProjects(user.company_id);
-          setProjects(data);
+          const [projData, engData] = await Promise.all([
+            projectService.getDeveloperProjects(user.company_id),
+            engagementService.getCompanyEngagements(user.company_id)
+          ]);
+          setProjects(projData);
+          setEngagements(engData);
         } catch (error) {
-          console.error('Error fetching projects:', error);
+          console.error('Error fetching dashboard data:', error);
         } finally {
           setLoadingProjects(false);
+          setLoadingEngagements(false);
         }
       }
     }
 
     if (user) {
-      fetchProjects();
+      fetchData();
     }
   }, [user]);
 
@@ -180,7 +189,7 @@ export default function DeveloperDashboard() {
               value={`$${(projects.reduce((acc, p) => acc + (p.capital_required || 0), 0) / 1000000).toFixed(1)}M`}
               subValue="Across all stages"
             />
-            <StatCard label="Active Matches" value="0" subValue="Matches pending" />
+            <StatCard label="Active Engagements" value={engagements.length.toString()} subValue="In milestone room" />
             <StatCard
               label="Avg. Readiness"
               value={projects.length > 0 ? `${Math.round(projects.reduce((acc, p) => acc + (p.scores?.capital_readiness_score || 0), 0) / projects.length)}/100` : "N/A"}
@@ -392,33 +401,28 @@ export default function DeveloperDashboard() {
                   </div>
                   <div className="bg-white border border-gray-100 rounded-[32px] shadow-soft overflow-hidden">
                     <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
-                       <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">3 New Inquiries</span>
-                       <button className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Mark all as read</button>
+                       <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{engagements.length} Active Engagements</span>
+                       <button className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">View Milestone Room</button>
                     </div>
                     <div className="divide-y divide-gray-50">
-                      <EngagementItem
-                        title="Connection Request: GreenGrowth Capital"
-                        description="Interested in Kafue Solar Park expansion project. Seeking technical specs."
-                        time="2h ago"
-                        isNew
-                      />
-                      <EngagementItem
-                        title="Document Viewed: Project Helios"
-                        description="Nordic Power Fund accessed the Financial Model v4.xlsx."
-                        time="5h ago"
-                        isNew
-                      />
-                      <EngagementItem
-                        title="System Alert: AI Scoring Update"
-                        description="Lusaka South Solar readiness score improved to 92.1% based on new documents."
-                        time="Yesterday"
-                        isNew
-                      />
-                      <EngagementItem
-                        title="NDA Signed: Silicon Ventures"
-                        description="Standard institutional NDA has been countersigned and is now active."
-                        time="2 days ago"
-                      />
+                      {loadingEngagements ? (
+                        <div className="p-8 text-center"><Icons.spinner className="size-5 animate-spin mx-auto text-primary" /></div>
+                      ) : engagements.length > 0 ? (
+                        engagements.map((eng) => (
+                          <Link key={eng.id} href={`/dashboard/engagements/${eng.id}`}>
+                            <EngagementItem
+                              title={eng.project?.name || 'Project'}
+                              description={`Milestone: ${getStateLabel(eng.status)}`}
+                              time={new Date(eng.updated_at || eng.created_at).toLocaleDateString()}
+                              isNew={eng.status === 'INTRO_SENT'}
+                            />
+                          </Link>
+                        ))
+                      ) : (
+                        <div className="p-12 text-center text-sm text-text-muted italic">
+                          No active engagements yet. Express interest in matches to start.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

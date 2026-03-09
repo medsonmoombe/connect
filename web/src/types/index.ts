@@ -17,7 +17,7 @@ export type RiskTolerance = 'LOW' | 'MEDIUM' | 'HIGH';
 export type GovernancePreference = 'PASSIVE' | 'BOARD_SEAT' | 'ACTIVE_ROLE';
 
 // Engagement Status
-export type EngagementStatus = 'INTRO_SENT' | 'INTRO_ACCEPTED' | 'DUE_DILIGENCE' | 'TERM_SHEET' | 'CONTRACT_SIGNED' | 'CAPITAL_COMMITTED' | 'CLOSED' | 'DROPPED';
+export type EngagementStatus = 'INTRO_SENT' | 'INTRO_ACCEPTED' | 'NDA_SIGNED' | 'DUE_DILIGENCE' | 'TERM_SHEET' | 'CLOSED' | 'DROPPED' | 'CONTRACT_SIGNED' | 'CAPITAL_COMMITTED';
 
 // Counterparty Type
 export type CounterpartyType = 'CAPITAL' | 'TECHNICAL';

@@ -99,6 +99,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       href: "/dashboard/admin/projects",
     },
     {
+      icon: <Icons.messageSquare className="size-5" />,
+      label: "Milestone Pipelines",
+      href: "/dashboard/admin/engagements",
+    },
+    {
       icon: <Icons.building className="size-5" />,
       label: "All Companies",
       href: "/dashboard/admin/companies",
