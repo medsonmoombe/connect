@@ -23,12 +23,11 @@ export function MatchingSection({ projectId, capitalMatches, technicalMatches }:
   const handleExpressInterest = async (partnerId: string, type: 'CAPITAL' | 'TECHNICAL') => {
     setSendingId(partnerId);
     try {
-      await engagementService.createEngagement({
-        project_id: projectId,
-        counterparty_id: partnerId,
-        counterparty_type: type,
-        status: 'INTRO_SENT'
-      });
+      await engagementService.requestIntroduction(
+        projectId,
+        partnerId,
+        type
+      );
       setSentIds([...sentIds, partnerId]);
     } catch (error) {
       console.error('Error expressing interest:', error);
@@ -68,7 +67,9 @@ export function MatchingSection({ projectId, capitalMatches, technicalMatches }:
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {matches.map((match) => {
-          const partner = activeTab === 'CAPITAL' ? match.capital_partner : (match as TechnicalMatchResult).technical_partner;
+          const partner = activeTab === 'CAPITAL' 
+            ? (match as CapitalMatchResult).capital_partner 
+            : (match as TechnicalMatchResult).technical_partner;
           if (!partner) return null;
           
           const isSent = sentIds.includes(partner.id);

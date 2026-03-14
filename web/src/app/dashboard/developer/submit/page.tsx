@@ -96,7 +96,9 @@ export default function ProjectSubmissionPage() {
     try {
       console.log('Starting project submission workflow...');
       // 1. Create Project
+      console.log("Hello");
       console.log('Step 1: Creating project record...');
+      console.log(formData);
       const project = await projectService.createProject({
         ...formData,
         developer_id: user.company_id

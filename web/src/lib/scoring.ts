@@ -53,16 +53,16 @@ export function calculateCapitalReadinessScore(
   );
 
   // Generate risk flags
-  const risk_flags: Record<string, unknown> = {};
-  if (!project.governance_terms) risk_flags.missing_governance = true;
-  if (!project.risk_disclosures) risk_flags.missing_risk_disclosure = true;
-  if (aiAnalysis?.risk_flags) risk_flags.ai_flags = aiAnalysis.risk_flags;
+  const risk_flags: string[] = [];
+  if (!project.governance_terms) risk_flags.push('missing_governance');
+  if (!project.risk_disclosures) risk_flags.push('missing_risk_disclosure');
+  if (aiAnalysis?.risk_flags) risk_flags.push(...aiAnalysis.risk_flags);
 
   // Generate recommendations
-  const recommendations: Record<string, unknown> = {};
-  if (!project.governance_terms) recommendations.add_governance_terms = true;
-  if (!project.risk_disclosures) recommendations.add_risk_disclosures = true;
-  if (documentationScore < 60) recommendations.complete_documentation = true;
+  const recommendations: string[] = [];
+  if (!project.governance_terms) recommendations.push('add_governance_terms');
+  if (!project.risk_disclosures) recommendations.push('add_risk_disclosures');
+  if (documentationScore < 60) recommendations.push('complete_documentation');
 
   return {
     id: '',

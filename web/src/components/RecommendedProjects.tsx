@@ -21,12 +21,11 @@ export function RecommendedProjects({ partnerId, partnerType, matches }: Recomme
   const handleExpressInterest = async (projectId: string) => {
     setSendingId(projectId);
     try {
-      await engagementService.createEngagement({
-        project_id: projectId,
-        counterparty_id: partnerId,
-        counterparty_type: partnerType,
-        status: 'INTRO_SENT'
-      });
+      await engagementService.requestIntroduction(
+        projectId,
+        partnerId,
+        partnerType
+      );
       setSentIds([...sentIds, projectId]);
     } catch (error) {
       console.error('Error expressing interest:', error);
