@@ -123,8 +123,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await firebaseSignOut(auth as any);
-    setUser(null);
+    try {
+      console.log('Initiating global sign out...');
+      await firebaseSignOut(auth as any);
+      await supabase.auth.signOut();
+      setUser(null);
+      setFirebaseUser(null);
+      
+      // Force a full page reload to clear any remaining in-memory state
+      window.location.href = '/login';
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Fallback redirect
+      window.location.href = '/login';
+    }
   };
 
   const refreshUser = async () => {

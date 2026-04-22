@@ -6,7 +6,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Icons } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
 import { ReactNode } from 'react';
-import { companiesApi, projectsApi } from '@/services/api';
+import { companiesApi, projectsApi, auditLogsApi } from '@/services/api';
+import { AuditLog } from '@/types';
 
 interface StatCardProps {
   title: string;
@@ -43,14 +44,16 @@ export default function AdminDashboardPage() {
     companies: 0,
     capital: '$0'
   });
+  const [activities, setActivities] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStats() {
       try {
-        const [companiesRes, projectsRes] = await Promise.all([
+        const [companiesRes, projectsRes, auditRes] = await Promise.all([
           companiesApi.getAll(),
-          projectsApi.getAdminAll()
+          projectsApi.getAdminAll(),
+          auditLogsApi.getAll()
         ]);
 
         const projectsCount = projectsRes.data?.length || 0;
@@ -58,13 +61,15 @@ export default function AdminDashboardPage() {
         const totalCapital = projectsRes.data?.reduce((acc, p) => acc + (p.capital_required || 0), 0) || 0;
 
         setStats({
-          users: 1284, // Placeholder as we don't have a count all users yet
+          users: 1284, // Placeholder
           projects: projectsCount,
           companies: companiesCount,
           capital: totalCapital > 1000000000 
             ? `$${(totalCapital / 1000000000).toFixed(1)}B` 
             : `$${(totalCapital / 1000000).toFixed(0)}M`
         });
+
+        setActivities(auditRes.data || []);
       } catch (err) {
         console.error('Error fetching admin stats:', err);
       } finally {
@@ -73,6 +78,27 @@ export default function AdminDashboardPage() {
     }
     fetchStats();
   }, []);
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    return date.toLocaleDateString();
+  };
+
+  const getActionLabel = (log: AuditLog) => {
+    switch (log.action_type) {
+      case 'PROJECT_VIEW': return 'viewed project';
+      case 'USER_VERIFIED': return 'verified user';
+      case 'USER_REJECTED': return 'rejected user';
+      case 'TRANSITION': return 'transitioned engagement';
+      default: return log.action_type.toLowerCase().replace(/_/g, ' ');
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -137,34 +163,28 @@ export default function AdminDashboardPage() {
             </Link>
           </div>
           <div className="divide-y divide-slate-50">
-            {[
-              { user: "Sarah Jenkins", action: "published a new project", target: "Solar Array X", time: "2 mins ago", status: "success" },
-              { user: "Capital Global", action: "requested verification", target: "Entity Profile", time: "15 mins ago", status: "pending" },
-              { user: "Admin", action: "provisioned new user", target: "Michael Ross", time: "1 hour ago", status: "info" },
-              { user: "EcoPower Ltd", action: "updated data room", target: "Wind Farm B", time: "3 hours ago", status: "success" },
-              { user: "Mark Thompson", action: "failed login attempt", target: "Security Alert", time: "5 hours ago", status: "error" },
-            ].map((activity, i) => (
-              <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+            {loading ? (
+              <div className="p-12 text-center"><Icons.spinner className="size-6 animate-spin mx-auto text-green-800" /></div>
+            ) : activities.length > 0 ? activities.slice(0, 8).map((log, i) => (
+              <div key={log.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className="size-10 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs">
-                    {activity.user.substring(0, 2).toUpperCase()}
+                  <div className="size-10 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs uppercase">
+                    {log.user?.full_name?.substring(0, 2) || 'AD'}
                   </div>
                   <div>
                     <p className="text-sm">
-                      <span className="font-bold text-slate-900">{activity.user}</span>
-                      <span className="text-slate-500 mx-1">{activity.action}</span>
-                      <span className="font-medium text-green-700">{activity.target}</span>
+                      <span className="font-bold text-slate-900">{log.user?.full_name || 'System'}</span>
+                      <span className="text-slate-500 mx-1">{getActionLabel(log)}</span>
+                      <span className="font-medium text-green-700">{log.entity_type}</span>
                     </p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-0.5">{activity.time}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-0.5">{formatTime(log.timestamp)}</p>
                   </div>
                 </div>
-                <div className={`size-2 rounded-full ${
-                  activity.status === 'success' ? 'bg-green-500' : 
-                  activity.status === 'error' ? 'bg-red-500' : 
-                  activity.status === 'pending' ? 'bg-amber-500' : 'bg-blue-500'
-                }`} />
+                <div className="size-2 rounded-full bg-green-500" />
               </div>
-            ))}
+            )) : (
+              <div className="p-12 text-center text-slate-400 italic">No recent activity.</div>
+            )}
           </div>
         </div>
 

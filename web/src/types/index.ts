@@ -1,8 +1,8 @@
 // User Roles
-export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'GRANT_PROVIDER' | 'ADMIN';
+export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'ADMIN';
 
 // Company Types
-export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL' | 'GRANT';
+export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL';
 
 // Project Stages
 export type ProjectStage = 'FEASIBILITY' | 'PRE_CONSTRUCTION' | 'READY_TO_BUILD' | 'UNDER_CONSTRUCTION' | 'OPERATIONAL';

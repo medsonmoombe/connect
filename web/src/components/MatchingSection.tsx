@@ -9,11 +9,12 @@ import { engagementService } from '@/lib/engagement';
 
 interface MatchingSectionProps {
   projectId: string;
+  projectTechnology?: string;
   capitalMatches: CapitalMatchResult[];
   technicalMatches: TechnicalMatchResult[];
 }
 
-export function MatchingSection({ projectId, capitalMatches, technicalMatches }: MatchingSectionProps) {
+export function MatchingSection({ projectId, projectTechnology, capitalMatches, technicalMatches }: MatchingSectionProps) {
   const [activeTab, setActiveTab] = useState<'CAPITAL' | 'TECHNICAL'>('CAPITAL');
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<string[]>([]);
@@ -75,13 +76,23 @@ export function MatchingSection({ projectId, capitalMatches, technicalMatches }:
           const isSent = sentIds.includes(partner.id);
           const isSending = sendingId === partner.id;
 
+          // Anonymization logic for Capital Partners to protect platform moat
+          const isAnonymized = activeTab === 'CAPITAL';
+          const displayName = isAnonymized 
+            ? `${(partner as any).preferred_structures?.[0] || 'Institutional'} Partner`
+            : partner.company?.name;
+          
+          const displayDescription = isAnonymized
+            ? `Verified ${(partner as any).risk_tolerance?.toLowerCase() || 'institutional'} scale investor targeting ${projectTechnology || 'renewable'} infrastructure projects across ${(partner as any).geographic_focus?.slice(0, 2).join(' & ') || 'Sub-Saharan Africa'}.`
+            : partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.';
+
           return (
             <div key={match.id} className="bg-surface border border-gray-100 rounded-[32px] p-6 shadow-soft hover:shadow-medium transition-all group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-bl-[100px] -z-10 group-hover:bg-primary/10 transition-colors"></div>
               
               <div className="flex items-start justify-between mb-6">
                 <div className="h-14 w-14 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center overflow-hidden">
-                  {partner.company?.logo_url ? (
+                  {partner.company?.logo_url && !isAnonymized ? (
                     <img src={partner.company.logo_url} alt={partner.company.name} className="h-10 w-10 object-contain" />
                   ) : (
                     <Icons.building className="size-6 text-primary" />
@@ -93,8 +104,8 @@ export function MatchingSection({ projectId, capitalMatches, technicalMatches }:
                 </div>
               </div>
 
-              <h3 className="text-xl font-bold text-text-main mb-1 group-hover:text-primary transition-colors">{partner.company?.name}</h3>
-              <p className="text-sm text-text-muted font-medium mb-6 line-clamp-2">{partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.'}</p>
+              <h3 className="text-xl font-bold text-text-main mb-1 group-hover:text-primary transition-colors">{displayName}</h3>
+              <p className="text-sm text-text-muted font-medium mb-6 line-clamp-2">{displayDescription}</p>
 
               <div className="space-y-3 mb-8">
                 <div className="flex items-center gap-3 text-xs font-bold text-text-main">
@@ -106,7 +117,7 @@ export function MatchingSection({ projectId, capitalMatches, technicalMatches }:
                 {activeTab === 'CAPITAL' ? (
                   <div className="flex items-center gap-3 text-xs font-bold text-text-main">
                     <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center"><DollarSign className="size-3 text-primary" /></div>
-                    ${((partner as any).min_ticket_size / 1000000).toFixed(0)}M - ${((partner as any).max_ticket_size / 1000000).toFixed(0)}M
+                    K{((partner as any).min_ticket_size / 1000000).toFixed(0)}M - K{((partner as any).max_ticket_size / 1000000).toFixed(0)}M
                   </div>
                 ) : (
                   <div className="flex items-center gap-3 text-xs font-bold text-text-main">

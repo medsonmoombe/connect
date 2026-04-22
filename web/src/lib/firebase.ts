@@ -26,7 +26,7 @@ if (typeof window !== 'undefined') {
   }
   auth = getAuth(app);
   storage = getStorage(app);
-  functions = getFunctions(app);
+  functions = getFunctions(app, process.env.NEXT_PUBLIC_FIREBASE_REGION || 'us-central1');
 }
 
 /**

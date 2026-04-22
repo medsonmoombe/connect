@@ -1,14 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { projectService } from '@/services/projects';
-import { Project, CapitalMatchResult, TechnicalMatchResult } from '@/types';
+import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectDocument } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send } from '@/components/ui/icons';
+import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send, Trash2 } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { MatchingSection } from '@/components/MatchingSection';
+import { storage, functions } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { httpsCallable } from 'firebase/functions';
+import { useAuth } from '@/hooks/useAuth';
+import { engagementService } from '@/lib/engagement';
+import { auditLogsApi } from '@/services/api';
 
 export default function ProjectDetailsPage() {
   const params = useParams();
@@ -18,6 +24,198 @@ export default function ProjectDetailsPage() {
   const [activeStage, setActiveStage] = useState(1);
   const [capitalMatches, setCapitalMatches] = useState<CapitalMatchResult[]>([]);
   const [technicalMatches, setTechnicalMatches] = useState<TechnicalMatchResult[]>([]);
+  const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showOverride, setShowOverride] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isPartner, setIsPartner] = useState(false);
+  const [hasNda, setHasNda] = useState(false);
+
+  useEffect(() => {
+    async function checkPermissions() {
+      if (project && user) {
+        const owner = project.developer_id === user.company_id || user.role === 'ADMIN';
+        setIsOwner(owner);
+
+        if (!owner && user.company_id) {
+          const engagements = await engagementService.getCompanyEngagements(user.company_id);
+          const projectEng = engagements.find(e => e.project_id === project.id);
+          if (projectEng) {
+            setIsPartner(true);
+            setHasNda(projectEng.status !== 'INTRO_SENT' && projectEng.status !== 'INTRO_ACCEPTED');
+          }
+        }
+      }
+    }
+    checkPermissions();
+  }, [project, user]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !project) return;
+
+    setUploading(true);
+    try {
+      const storageRef = ref(storage!, `projects/${project.id}/${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+
+      const newDoc = await projectService.addProjectDocument({
+        project_id: project.id,
+        document_type: file.name,
+        file_url: url
+      });
+
+      setProject({
+        ...project,
+        documents: [...(project.documents || []), newDoc]
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      alert('Failed to upload document');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteDocument = async (docId: string, fileUrl: string) => {
+    if (!confirm('Are you sure you want to delete this document?')) return;
+
+    try {
+      // Delete from Storage
+      const storageRef = ref(storage!, fileUrl);
+      await deleteObject(storageRef);
+
+      // Delete from DB
+      await projectService.deleteProjectDocument(docId);
+
+      setProject({
+        ...project!,
+        documents: project!.documents?.filter(d => d.id !== docId)
+      });
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Failed to delete document');
+    }
+  };
+
+  const runAIAnalysis = async () => {
+    if (!project || !project.documents || project.documents.length === 0) {
+      alert('Please upload documents first');
+      return;
+    }
+
+    setAnalyzing(true);
+    try {
+      console.log('Starting AI Analysis for project:', project.id);
+      const scoreProject = httpsCallable(functions!, 'scoreProject');
+      
+      const documentPaths = project.documents
+        .map(d => {
+          try {
+            const url = new URL(d.file_url);
+            const pathPart = url.pathname.split('/o/')[1];
+            return pathPart ? decodeURIComponent(pathPart.split('?')[0]) : null;
+          } catch (e) {
+            console.warn('Failed to parse document URL:', d.file_url);
+            return null;
+          }
+        })
+        .filter((p): p is string => p !== null);
+
+      console.log('Sending document paths to AI:', documentPaths);
+
+      if (documentPaths.length === 0) {
+        throw new Error('No valid document paths found. Ensure documents are uploaded to Firebase Storage.');
+      }
+
+      const projectId = project.id;
+      if (!projectId) {
+        throw new Error('Project ID is missing from the current state.');
+      }
+
+      const payload = { projectId, documentPaths };
+      console.log('Final Cloud Function Payload:', JSON.stringify(payload, null, 2));
+
+      const result = await scoreProject(payload);
+      console.log('Raw Cloud Function Result:', result.data);
+
+      const responseData = result.data as any;
+      if (!responseData.success || !responseData.data) {
+        throw new Error('AI failed to generate a valid scoring result.');
+      }
+
+      const scoringData = responseData.data;
+      console.log('Extracted Scoring Data:', scoringData);
+
+      // Validate structure before saving
+      if (!scoringData.breakdown) {
+        console.error('Missing breakdown in AI response:', scoringData);
+        throw new Error('AI response is missing the detailed scoring breakdown.');
+      }
+
+      // Extract scores with defaults to prevent crashes and ensure they are integers for Supabase
+      const regulatory = Math.round(scoringData.breakdown.regulatory?.score ?? 0);
+      const financial = Math.round(scoringData.breakdown.financial?.score ?? 0);
+      const developer = Math.round(scoringData.breakdown.developer?.score ?? 0);
+      const totalScore = Math.round(scoringData.total_score ?? (regulatory + financial + developer));
+
+      // Update in DB
+      const updatedScores = await projectService.saveProjectScores({
+        project_id: project.id,
+        capital_readiness_score: totalScore,
+        regulatory_score: regulatory,
+        financial_score: financial,
+        developer_score: developer,
+        breakdown: scoringData.breakdown,
+        risk_flags: (scoringData.risk_signals || []).map((s: any) => `${s.level}: ${s.text}`),
+        recommendations: scoringData.recommendations || [],
+        summary: scoringData.summary || 'Analysis complete.'
+      });
+
+      setProject({
+        ...project,
+        scores: updatedScores
+      });
+
+      // Trigger matching refresh
+      await projectService.runMatchingEngine(project.id);
+      const matches = await projectService.getProjectMatches(project.id);
+      setCapitalMatches(matches.capital);
+      setTechnicalMatches(matches.technical);
+
+    } catch (error) {
+      console.error('AI Analysis error:', error);
+      alert('Failed to run AI analysis');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleManualOverride = async (category: string, score: number) => {
+    if (!project || !project.scores) return;
+
+    const newScores = { ...project.scores };
+    if (category === 'regulatory') newScores.regulatory_score = score;
+    if (category === 'financial') newScores.financial_score = score;
+    if (category === 'developer') newScores.developer_score = score;
+
+    // Recalculate total
+    newScores.capital_readiness_score = Math.round(
+      (newScores.regulatory_score || 0) + 
+      (newScores.financial_score || 0) + 
+      (newScores.developer_score || 0)
+    );
+
+    try {
+      const updated = await projectService.saveProjectScores(newScores);
+      setProject({ ...project, scores: updated });
+    } catch (error) {
+      console.error('Override error:', error);
+    }
+  };
 
   useEffect(() => {
     async function fetchProject() {
@@ -41,6 +239,24 @@ export default function ProjectDetailsPage() {
     }
     fetchProject();
   }, [params.id]);
+
+  useEffect(() => {
+    async function logView() {
+      if (project && user && project.developer_id !== user.company_id && user.role !== 'ADMIN') {
+        try {
+          await auditLogsApi.create({
+            user_id: user.id,
+            action_type: 'PROJECT_VIEW',
+            entity_type: 'PROJECT',
+            entity_id: project.id
+          });
+        } catch (error) {
+          console.error('Error logging project view:', error);
+        }
+      }
+    }
+    logView();
+  }, [project, user]);
 
   if (loading) {
     return (
@@ -154,61 +370,140 @@ export default function ProjectDetailsPage() {
               </div>
 
               {/* AI Scoring Analysis */}
-              {project.scores && (
-                <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-                  <h3 className="text-xl font-bold text-text-main mb-8 flex items-center gap-3">
+              <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
+                <div className="flex items-center justify-between mb-8">
+                  <h3 className="text-xl font-bold text-text-main flex items-center gap-3">
                     <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
                       <Icons.zap className="size-4" />
                     </div>
                     AI Readiness Insights
                   </h3>
-                  
-                  <div className="grid md:grid-cols-2 gap-8 mb-10">
-                    <div className="space-y-6">
-                      <ScoreMetric label="Financial Transparency" score={project.scores.financial_transparency_score} />
-                      <ScoreMetric label="Governance Clarity" score={project.scores.governance_score} />
-                      <ScoreMetric label="Documentation Quality" score={project.scores.documentation_score} />
+                  {(isOwner || user?.role === 'ADMIN') && project.scores && (
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-9 px-4 rounded-xl border-gray-200"
+                        onClick={() => setShowOverride(!showOverride)}
+                      >
+                        {showOverride ? 'Close Override' : 'Manual Override'}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        className="h-9 px-4 bg-primary text-white rounded-xl shadow-lg"
+                        onClick={runAIAnalysis}
+                        disabled={analyzing}
+                      >
+                        {analyzing ? <Icons.spinner className="size-3 animate-spin mr-2" /> : <Icons.zap className="size-3 mr-2" />}
+                        Re-run AI Analysis
+                      </Button>
                     </div>
-                    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                      <h4 className="text-xs font-black text-text-muted uppercase tracking-widest mb-4">AI Executive Summary</h4>
-                      <p className="text-sm text-text-main leading-relaxed italic">
-                        "{project.scores.summary || "No summary available."}"
+                  )}
+                </div>
+                
+                {project.scores ? (
+                  <>
+                    {showOverride && (
+                      <div className="mb-10 p-6 bg-slate-50 rounded-3xl border border-slate-200 animate-in fade-in slide-in-from-top-4">
+                        <h4 className="text-sm font-bold text-text-main mb-4">Manual Score Adjustment</h4>
+                        <div className="grid md:grid-cols-3 gap-6">
+                          <OverrideSlider label="Regulatory" value={project.scores.regulatory_score || 0} max={40} onChange={(v) => handleManualOverride('regulatory', v)} />
+                          <OverrideSlider label="Financial" value={project.scores.financial_score || 0} max={35} onChange={(v) => handleManualOverride('financial', v)} />
+                          <OverrideSlider label="Developer" value={project.scores.developer_score || 0} max={25} onChange={(v) => handleManualOverride('developer', v)} />
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="grid md:grid-cols-3 gap-6 mb-10">
+                      <ScorePillar 
+                        label="Regulatory" 
+                        score={project.scores.regulatory_score || 0} 
+                        max={40} 
+                        color="bg-blue-600"
+                        details={project.scores.breakdown?.regulatory?.details}
+                      />
+                      <ScorePillar 
+                        label="Financial" 
+                        score={project.scores.financial_score || 0} 
+                        max={35} 
+                        color="bg-green-600"
+                        details={project.scores.breakdown?.financial?.details}
+                      />
+                      <ScorePillar 
+                        label="Developer" 
+                        score={project.scores.developer_score || 0} 
+                        max={25} 
+                        color="bg-amber-600"
+                        details={project.scores.breakdown?.developer?.details}
+                      />
+                    </div>
+
+                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 mb-10">
+                      <h4 className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-4 flex items-center gap-2">
+                        <Icons.zap className="size-3 text-primary" />
+                        Strategic Executive Summary
+                      </h4>
+                      <p className="text-sm text-text-main leading-relaxed font-medium italic">
+                        "{project.scores.summary || "Project analysis in progress. Our AI is evaluating the documentation stack for institutional alignment."}"
                       </p>
                     </div>
-                  </div>
 
-                  <div className="grid md:grid-cols-2 gap-8">
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-black text-error uppercase tracking-widest flex items-center gap-2">
-                        <Icons.shieldCheck className="size-3" />
-                        Risk Flags
-                      </h4>
-                      <ul className="space-y-2">
-                        {project.scores.risk_flags?.map((flag, i) => (
-                          <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-error/5 p-3 rounded-xl border border-error/10">
-                            <span className="size-1.5 rounded-full bg-error mt-1.5 shrink-0" />
-                            {flag}
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="grid md:grid-cols-2 gap-8">
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-black text-error uppercase tracking-widest flex items-center gap-2">
+                          <Icons.shieldCheck className="size-3" />
+                          Risk Flags
+                        </h4>
+                        <ul className="space-y-2">
+                          {project.scores.risk_flags?.map((flag, i) => (
+                            <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-error/5 p-3 rounded-xl border border-error/10">
+                              <span className="size-1.5 rounded-full bg-error mt-1.5 shrink-0" />
+                              {flag}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-black text-primary uppercase tracking-widest flex items-center gap-2">
+                          <Icons.zap className="size-3" />
+                          Strategic Recommendations
+                        </h4>
+                        <ul className="space-y-2">
+                          {project.scores.recommendations?.map((rec, i) => (
+                            <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
+                              <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                              {rec}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-black text-primary uppercase tracking-widest flex items-center gap-2">
-                        <Icons.zap className="size-3" />
-                        Strategic Recommendations
-                      </h4>
-                      <ul className="space-y-2">
-                        {project.scores.recommendations?.map((rec, i) => (
-                          <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
-                            <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-                            {rec}
-                          </li>
-                        ))}
-                      </ul>
+                  </>
+                ) : (
+                  <div className="p-12 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
+                    <div className="size-16 bg-white rounded-full flex items-center justify-center mx-auto mb-6 text-primary shadow-sm">
+                      <Icons.zap className="size-8" />
                     </div>
+                    <h4 className="text-xl font-black text-text-main mb-2">No Analysis Found</h4>
+                    <p className="text-sm text-text-muted max-w-sm mx-auto mb-8 font-medium">
+                      Upload your feasibility studies and technical specs to the Data Room, then run the AI Scrutiny engine to generate institutional readiness scores.
+                    </p>
+                    <Button 
+                      onClick={runAIAnalysis}
+                      disabled={analyzing || !project.documents || project.documents.length === 0}
+                      className="h-14 px-10 bg-primary text-white font-black rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 transition-all"
+                    >
+                      {analyzing ? <Icons.spinner className="size-5 animate-spin mr-2" /> : <Icons.zap className="size-5 mr-2" />}
+                      Start AI Scrutiny
+                    </Button>
+                    {!project.documents || project.documents.length === 0 && (
+                      <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-4">
+                        * Upload documents to enable analysis
+                      </p>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Data Room / Documents */}
               <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
@@ -219,21 +514,62 @@ export default function ProjectDetailsPage() {
                     </div>
                     Secure Data Room
                   </h3>
-                  <Button variant="outline" className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200">
-                    <Download className="size-3 mr-2" /> Download All
-                  </Button>
+                  <div className="flex gap-2">
+                    {isOwner && (
+                      <>
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          className="hidden" 
+                          onChange={handleFileUpload}
+                          accept=".pdf,.doc,.docx"
+                        />
+                        <Button 
+                          variant="outline" 
+                          className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploading}
+                        >
+                          {uploading ? <Icons.spinner className="size-3 animate-spin mr-2" /> : <Icons.plus className="size-3 mr-2" />}
+                          Upload Document
+                        </Button>
+                      </>
+                    )}
+                    {(isOwner || hasNda) && (
+                      <Button variant="outline" className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200">
+                        <Download className="size-3 mr-2" /> Download All
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid gap-4">
-                  {project.documents && project.documents.length > 0 ? (
-                    project.documents.map((doc, i) => (
-                      <DocumentItem key={i} name={doc.document_type} size="N/A" date={new Date(doc.uploaded_at).toLocaleDateString()} />
-                    ))
+                  {(isOwner || hasNda) ? (
+                    project.documents && project.documents.length > 0 ? (
+                      project.documents.map((doc, i) => (
+                        <DocumentItem 
+                          key={i} 
+                          name={doc.document_type} 
+                          size="N/A" 
+                          date={new Date(doc.uploaded_at).toLocaleDateString()}
+                          canDelete={isOwner}
+                          onDelete={() => handleDeleteDocument(doc.id, doc.file_url)}
+                        />
+                      ))
+                    ) : (
+                      <div className="p-10 text-center border border-dashed border-gray-200 rounded-2xl">
+                        <p className="text-sm font-bold text-text-muted uppercase tracking-widest">No documents uploaded yet</p>
+                      </div>
+                    )
                   ) : (
-                    <div className="p-10 text-center border border-dashed border-gray-200 rounded-2xl">
-                      <p className="text-sm font-bold text-text-muted uppercase tracking-widest">No documents uploaded yet</p>
-                      <Button variant="ghost" className="mt-4 text-primary font-bold text-xs uppercase tracking-widest">
-                        Upload First Document
-                      </Button>
+                    <div className="p-10 text-center bg-slate-50 rounded-2xl border border-gray-100">
+                       <Icons.lock className="size-8 mx-auto text-text-muted mb-4" />
+                       <h4 className="text-sm font-bold text-text-main mb-2">Documentation Locked</h4>
+                       <p className="text-xs text-text-muted max-w-xs mx-auto mb-6">Access to the full data room is restricted until an NDA has been signed by both parties.</p>
+                       {!isPartner && (
+                         <Button className="h-10 px-6 bg-primary text-white rounded-xl shadow-lg font-bold">
+                           Request Introduction
+                         </Button>
+                       )}
                     </div>
                   )}
                 </div>
@@ -260,9 +596,11 @@ export default function ProjectDetailsPage() {
                       <span className="text-lg font-bold">3</span>
                    </div>
                 </div>
-                <Button className="w-full h-12 rounded-xl bg-primary text-primary-content font-bold mt-8 hover:scale-105 transition-all">
-                  View Detailed Analytics
-                </Button>
+                <Link href={`/projects/${project.id}/analytics`}>
+                  <Button className="w-full h-12 rounded-xl bg-primary text-primary-content font-bold mt-8 hover:scale-105 transition-all">
+                    View Detailed Analytics
+                  </Button>
+                </Link>
               </div>
 
               {/* Discussion Preview */}
@@ -303,6 +641,7 @@ export default function ProjectDetailsPage() {
 
           <MatchingSection 
             projectId={project.id} 
+            projectTechnology={project.technology_type}
             capitalMatches={capitalMatches} 
             technicalMatches={technicalMatches} 
           />
@@ -333,7 +672,7 @@ function StepItem({ number, label, status }: { number: number, label: string, st
   );
 }
 
-function DocumentItem({ name, size, date }: { name: string, size: string, date: string }) {
+function DocumentItem({ name, size, date, canDelete, onDelete }: { name: string, size: string, date: string, canDelete?: boolean, onDelete?: () => void }) {
   return (
     <div className="flex items-center justify-between p-5 rounded-[20px] bg-background border border-gray-50 hover:border-primary/30 group transition-all cursor-pointer">
       <div className="flex items-center gap-4">
@@ -345,7 +684,38 @@ function DocumentItem({ name, size, date }: { name: string, size: string, date: 
           <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1.5">{size} • {date}</p>
         </div>
       </div>
-      <MoreVertical className="size-4 text-text-muted hover:text-text-main" />
+      <div className="flex items-center gap-2">
+        {canDelete && (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="rounded-xl hover:bg-error/10 hover:text-error h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        )}
+        <MoreVertical className="size-4 text-text-muted hover:text-text-main" />
+      </div>
+    </div>
+  );
+}
+
+function OverrideSlider({ label, value, max, onChange }: { label: string, value: number, max: number, onChange: (v: number) => void }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-between">
+        <span className="text-[10px] font-black uppercase text-text-muted tracking-widest">{label}</span>
+        <span className="text-xs font-bold text-primary">{value} / {max}</span>
+      </div>
+      <input 
+        type="range" 
+        min="0" 
+        max={max} 
+        value={value} 
+        onChange={(e) => onChange(parseInt(e.target.value))}
+        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary"
+      />
     </div>
   );
 }
@@ -371,6 +741,53 @@ function ScoreMetric({ label, score }: { label: string, score: number }) {
           className="h-full bg-primary transition-all duration-1000 ease-out" 
           style={{ width: `${score}%` }} 
         />
+      </div>
+    </div>
+  );
+}
+
+function ScorePillar({ label, score, max, color, details }: { label: string, score: number, max: number, color: string, details?: any }) {
+  const percentage = (score / max) * 100;
+  
+  return (
+    <div className="p-6 rounded-[24px] bg-white border border-gray-100 shadow-sm flex flex-col items-center">
+      <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] mb-4">{label}</div>
+      <div className="relative size-24 flex items-center justify-center mb-4">
+        <svg className="size-full -rotate-90">
+          <circle
+            cx="48"
+            cy="48"
+            r="44"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="8"
+            className="text-slate-50"
+          />
+          <circle
+            cx="48"
+            cy="48"
+            r="44"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="8"
+            strokeDasharray={276}
+            strokeDashoffset={276 - (276 * percentage) / 100}
+            strokeLinecap="round"
+            className={cn("transition-all duration-1000 text-opacity-80", color.replace('bg-', 'text-'))}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-black text-text-main">{score}</span>
+          <span className="text-[10px] font-bold text-text-muted">/ {max}</span>
+        </div>
+      </div>
+      <div className="w-full space-y-2 mt-2">
+        {details && Object.entries(details).slice(0, 2).map(([key, val]: [string, any]) => (
+          <div key={key} className="flex justify-between items-center text-[9px] font-bold uppercase text-text-muted">
+            <span>{key.replace(/_/g, ' ')}</span>
+            <span className="text-text-main">{val}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -156,7 +156,8 @@ export function calculateCapitalMatchScore(
   score += structureMatch * CAPITAL_MATCH_WEIGHTS.structure_compatibility;
 
   // Risk Tolerance Alignment (15%)
-  const riskAlignment = calculateRiskAlignment(project.risk_disclosures, partner.risk_tolerance);
+  const readinessScore = project.scores?.regulatory_score || 50;
+  const riskAlignment = calculateRiskAlignment(project.risk_disclosures, partner.risk_tolerance, readinessScore);
   score += riskAlignment * CAPITAL_MATCH_WEIGHTS.risk_tolerance_alignment;
 
   // Governance Preference Alignment (15%)
@@ -212,21 +213,26 @@ function calculateCapitalOverlap(projectCapital: number, minTicket: number, maxT
 }
 
 // Calculate Risk Alignment
-function calculateRiskAlignment(riskDisclosures: string | undefined, riskTolerance: string): number {
-  if (!riskDisclosures) return 50;
+function calculateRiskAlignment(riskDisclosures: string | undefined, riskTolerance: string, regulatoryScore: number): number {
+  let baseScore = 50;
   
   // Logic: Partners with higher risk tolerance match better with projects that have disclosed risks
-  // This is a simplified proxy
   switch (riskTolerance) {
     case 'LOW':
-      return 60;
+      baseScore = regulatoryScore > 30 ? 90 : 40; // Low tolerance requires high regulatory readiness
+      break;
     case 'MEDIUM':
-      return 80;
+      baseScore = regulatoryScore > 20 ? 85 : 60;
+      break;
     case 'HIGH':
-      return 100;
+      baseScore = 100; // High tolerance matches everything
+      break;
     default:
-      return 50;
+      baseScore = 50;
   }
+
+  if (riskDisclosures) baseScore += 10;
+  return Math.min(100, baseScore);
 }
 
 // Calculate Governance Alignment

@@ -97,7 +97,7 @@ export default function LandingPage() {
             {/* Metric Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto">
               <div className="bg-white/80 backdrop-blur-md border border-white p-6 rounded-[24px] shadow-soft flex flex-col items-center">
-                <div className="text-4xl font-extrabold text-slate-900">$1.2B+</div>
+                <div className="text-4xl font-extrabold text-slate-900">K25B+</div>
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-2">Capital Pipeline</div>
               </div>
               <div className="bg-white/80 backdrop-blur-md border border-white p-6 rounded-[24px] shadow-soft flex flex-col items-center border-green-100 shadow-green-800/5">
@@ -236,7 +236,7 @@ export default function LandingPage() {
                    </div>
                    <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Funding Needed</div>
-                      <div className="text-lg font-bold text-slate-900">$32M</div>
+                      <div className="text-lg font-bold text-slate-900">K640M</div>
                    </div>
                 </div>
               </div>
@@ -273,7 +273,7 @@ export default function LandingPage() {
                    </div>
                    <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Funding Needed</div>
-                      <div className="text-lg font-bold text-slate-900">$85M</div>
+                      <div className="text-lg font-bold text-slate-900">K1.7B</div>
                    </div>
                 </div>
               </div>
@@ -310,7 +310,7 @@ export default function LandingPage() {
                    </div>
                    <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Funding Needed</div>
-                      <div className="text-lg font-bold text-slate-900">$140M</div>
+                      <div className="text-lg font-bold text-slate-900">K2.8B</div>
                    </div>
                 </div>
               </div>
@@ -468,9 +468,9 @@ export default function LandingPage() {
           </div>
           <div className="pt-8 border-t border-slate-100 flex flex-col md:flex-row justify-between items-center gap-4">
              <div className="text-slate-400 text-xs font-bold uppercase tracking-tighter">© 2026 Afri Connect Ltd.</div>
-             <div className="flex gap-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                <Link href="#" className="hover:text-slate-900 transition-colors">Privacy</Link>
-                <Link href="#" className="hover:text-slate-900 transition-colors">Terms</Link>
+              <div className="flex gap-8 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                <Link href="/privacy" className="hover:text-slate-900 transition-colors">Privacy</Link>
+                <Link href="/terms" className="hover:text-slate-900 transition-colors">Terms</Link>
              </div>
           </div>
         </div>

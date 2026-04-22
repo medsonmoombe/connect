@@ -90,6 +90,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     },
     {
       icon: <Icons.shieldCheck className="size-5" />,
+      label: "Verification Queue",
+      href: "/dashboard/admin/verification",
+    },
+    {
+      icon: <Icons.shieldCheck className="size-5" />,
       label: "User Provisioning",
       href: "/dashboard/admin/users",
     },

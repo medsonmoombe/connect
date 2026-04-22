@@ -12,7 +12,6 @@ const ROLES = [
   { id: 'DEVELOPER', name: 'Developer' },
   { id: 'CAPITAL_PARTNER', name: 'Capital Partner' },
   { id: 'TECHNICAL_PARTNER', name: 'Technical Partner' },
-  { id: 'GRANT_PROVIDER', name: 'Grant Provider' },
   { id: 'ADMIN', name: 'Admin' },
 ];
 

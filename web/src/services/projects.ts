@@ -162,12 +162,38 @@ export const projectService = {
   },
 
   /**
+   * Delete project document
+   */
+  async deleteProjectDocument(documentId: string) {
+    const { error } = await supabase
+      .from('project_documents')
+      .delete()
+      .eq('id', documentId);
+
+    if (error) throw error;
+    return true;
+  },
+
+  /**
    * Save or update project scores
    */
   async saveProjectScores(scores: any) {
+    // Ensure all score fields are integers before upserting
+    const sanitizedScores = {
+      ...scores,
+      capital_readiness_score: Math.round(scores.capital_readiness_score || 0),
+      regulatory_score: Math.round(scores.regulatory_score || 0),
+      financial_score: Math.round(scores.financial_score || 0),
+      developer_score: Math.round(scores.developer_score || 0),
+      technical_readiness_score: Math.round(scores.technical_readiness_score || 0),
+      documentation_score: Math.round(scores.documentation_score || 0),
+      governance_score: Math.round(scores.governance_score || 0),
+      financial_transparency_score: Math.round(scores.financial_transparency_score || 0)
+    };
+
     const { data, error } = await supabase
       .from('project_scores')
-      .upsert([scores], { onConflict: 'project_id' })
+      .upsert([sanitizedScores], { onConflict: 'project_id' })
       .select()
       .single();
 

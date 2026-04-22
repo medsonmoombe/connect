@@ -9,15 +9,13 @@ CREATE TYPE user_role AS ENUM (
   'DEVELOPER', 
   'CAPITAL_PARTNER', 
   'TECHNICAL_PARTNER', 
-  'GRANT_PROVIDER', 
   'ADMIN'
 );
 
 CREATE TYPE company_type AS ENUM (
   'DEVELOPER', 
   'CAPITAL', 
-  'TECHNICAL', 
-  'GRANT'
+  'TECHNICAL'
 );
 
 CREATE TYPE project_stage AS ENUM (
@@ -165,13 +163,18 @@ CREATE TABLE project_scores (
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   capital_readiness_score INTEGER CHECK (capital_readiness_score >= 0 AND capital_readiness_score <= 100),
   technical_readiness_score INTEGER CHECK (technical_readiness_score >= 0 AND technical_readiness_score <= 100),
+  regulatory_score INTEGER DEFAULT 0,
+  financial_score INTEGER DEFAULT 0,
+  developer_score INTEGER DEFAULT 0,
   documentation_score INTEGER CHECK (documentation_score >= 0 AND documentation_score <= 100),
   governance_score INTEGER CHECK (governance_score >= 0 AND governance_score <= 100),
   financial_transparency_score INTEGER CHECK (financial_transparency_score >= 0 AND financial_transparency_score <= 100),
+  breakdown JSONB DEFAULT '{}',
   risk_flags TEXT[],
   recommendations TEXT[],
   summary TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(project_id)
 );
 
 -- Capital Match Results Table
@@ -268,81 +271,101 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 
--- Companies: Public read, owner update
-CREATE POLICY "companies_select" ON companies FOR SELECT USING (true);
-CREATE POLICY "companies_insert" ON companies FOR INSERT WITH CHECK (true);
-CREATE POLICY "companies_update" ON companies FOR UPDATE USING (true);
-
--- Users: Read all, self update, admin full access
-CREATE POLICY "users_select" ON users FOR SELECT USING (true);
-CREATE POLICY "users_insert" ON users FOR INSERT WITH CHECK (true);
-CREATE POLICY "users_update" ON users FOR UPDATE USING (true);
-
--- Projects: Developers read own, Public read validated
-CREATE POLICY "projects_select" ON projects FOR SELECT USING (
-  true
+-- Companies: Users can read their own company, Admins can read all.
+CREATE POLICY "companies_select" ON companies FOR SELECT USING (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND (users.company_id = companies.id OR users.role = 'ADMIN'))
 );
-CREATE POLICY "projects_insert" ON projects FOR INSERT WITH CHECK (true);
-CREATE POLICY "projects_update" ON projects FOR UPDATE USING (true);
-CREATE POLICY "projects_delete" ON projects FOR DELETE USING (true);
+CREATE POLICY "companies_insert" ON companies FOR INSERT WITH CHECK (true); -- Allow creation during signup
+CREATE POLICY "companies_update" ON companies FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND (users.company_id = companies.id OR users.role = 'ADMIN'))
+);
 
--- Project Documents: Owner only
-CREATE POLICY "project_documents_select" ON project_documents FOR SELECT USING (true);
-CREATE POLICY "project_documents_insert" ON project_documents FOR INSERT WITH CHECK (true);
-CREATE POLICY "project_documents_update" ON project_documents FOR UPDATE USING (true);
-CREATE POLICY "project_documents_delete" ON project_documents FOR DELETE USING (true);
+-- Users: Read self, update self, admin full access
+CREATE POLICY "users_select" ON users FOR SELECT USING (
+  auth.uid() = id OR EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'ADMIN')
+);
+CREATE POLICY "users_insert" ON users FOR INSERT WITH CHECK (true); -- Allow creation during signup
+CREATE POLICY "users_update" ON users FOR UPDATE USING (
+  auth.uid() = id OR EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'ADMIN')
+) WITH CHECK (
+  auth.uid() = id OR EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role = 'ADMIN')
+);
 
--- Project Tech Requirements: Owner only
-CREATE POLICY "project_tech_requirements_select" ON project_tech_requirements FOR SELECT USING (true);
-CREATE POLICY "project_tech_requirements_insert" ON project_tech_requirements FOR INSERT WITH CHECK (true);
-CREATE POLICY "project_tech_requirements_update" ON project_tech_requirements FOR UPDATE USING (true);
-CREATE POLICY "project_tech_requirements_delete" ON project_tech_requirements FOR DELETE USING (true);
+-- Projects: Developers read/manage own, Matched Partners read if Engagement exists
+CREATE POLICY "projects_select" ON projects FOR SELECT USING (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND (users.company_id = projects.developer_id OR users.role = 'ADMIN'))
+  OR EXISTS (
+    SELECT 1 FROM engagements e 
+    WHERE e.project_id = projects.id 
+    AND e.counterparty_id = (SELECT company_id FROM users WHERE id = auth.uid())
+  )
+);
+CREATE POLICY "projects_insert" ON projects FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND users.company_id = developer_id AND users.role = 'DEVELOPER')
+);
+CREATE POLICY "projects_update" ON projects FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND (users.company_id = projects.developer_id OR users.role = 'ADMIN'))
+);
+CREATE POLICY "projects_delete" ON projects FOR DELETE USING (
+  EXISTS (SELECT 1 FROM users WHERE users.id = auth.uid() AND (users.company_id = projects.developer_id OR users.role = 'ADMIN'))
+);
 
--- Capital Partners: Public read, owner full access
-CREATE POLICY "capital_partners_select" ON capital_partners FOR SELECT USING (true);
-CREATE POLICY "capital_partners_insert" ON capital_partners FOR INSERT WITH CHECK (true);
-CREATE POLICY "capital_partners_update" ON capital_partners FOR UPDATE USING (true);
-CREATE POLICY "capital_partners_delete" ON capital_partners FOR DELETE USING (true);
+-- Project Documents: Owner or Engagement Participant
+CREATE POLICY "project_documents_select" ON project_documents FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM projects p 
+    WHERE p.id = project_documents.project_id 
+    AND (
+      EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND (u.company_id = p.developer_id OR u.role = 'ADMIN'))
+      OR EXISTS (
+        SELECT 1 FROM engagements e 
+        WHERE e.project_id = p.id 
+        AND e.counterparty_id = (SELECT company_id FROM users WHERE id = auth.uid())
+        AND e.status NOT IN ('INTRO_SENT') -- Restricted until Intro is Accepted
+      )
+    )
+  )
+);
+CREATE POLICY "project_documents_insert" ON project_documents FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = project_id AND u.id = auth.uid())
+);
+CREATE POLICY "project_documents_delete" ON project_documents FOR DELETE USING (
+  EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = project_id AND u.id = auth.uid())
+);
 
--- Technical Partners: Public read, owner full access
-CREATE POLICY "technical_partners_select" ON technical_partners FOR SELECT USING (true);
-CREATE POLICY "technical_partners_insert" ON technical_partners FOR INSERT WITH CHECK (true);
-CREATE POLICY "technical_partners_update" ON technical_partners FOR UPDATE USING (true);
-CREATE POLICY "technical_partners_delete" ON technical_partners FOR DELETE USING (true);
+-- Project Scores: Developer owner or Admin
+CREATE POLICY "project_scores_select" ON project_scores FOR SELECT USING (
+  EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = project_scores.project_id AND (u.id = auth.uid() OR u.role = 'ADMIN'))
+);
 
--- Project Scores: Read all, insert/update admin only
-CREATE POLICY "project_scores_select" ON project_scores FOR SELECT USING (true);
-CREATE POLICY "project_scores_insert" ON project_scores FOR INSERT WITH CHECK (true);
-CREATE POLICY "project_scores_update" ON project_scores FOR UPDATE USING (true);
-CREATE POLICY "project_scores_delete" ON project_scores FOR DELETE USING (true);
-
--- Capital Match Results: Read all
-CREATE POLICY "capital_match_results_select" ON capital_match_results FOR SELECT USING (true);
-CREATE POLICY "capital_match_results_insert" ON capital_match_results FOR INSERT WITH CHECK (true);
-CREATE POLICY "capital_match_results_update" ON capital_match_results FOR UPDATE USING (true);
-CREATE POLICY "capital_match_results_delete" ON capital_match_results FOR DELETE USING (true);
-
--- Technical Match Results: Read all
-CREATE POLICY "technical_match_results_select" ON technical_match_results FOR SELECT USING (true);
-CREATE POLICY "technical_match_results_insert" ON technical_match_results FOR INSERT WITH CHECK (true);
-CREATE POLICY "technical_match_results_update" ON technical_match_results FOR UPDATE USING (true);
-CREATE POLICY "technical_match_results_delete" ON technical_match_results FOR DELETE USING (true);
+-- Matches: Own matches only
+CREATE POLICY "capital_match_results_select" ON capital_match_results FOR SELECT USING (
+  EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND (u.company_id = capital_match_results.capital_partner_id OR u.role = 'ADMIN'))
+  OR EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = capital_match_results.project_id AND u.id = auth.uid())
+);
 
 -- Engagements: Participants only
-CREATE POLICY "engagements_select" ON engagements FOR SELECT USING (true);
-CREATE POLICY "engagements_insert" ON engagements FOR INSERT WITH CHECK (true);
-CREATE POLICY "engagements_update" ON engagements FOR UPDATE USING (true);
-CREATE POLICY "engagements_delete" ON engagements FOR DELETE USING (true);
+CREATE POLICY "engagements_select" ON engagements FOR SELECT USING (
+  EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND (u.company_id = engagements.counterparty_id OR u.company_id = (SELECT developer_id FROM projects WHERE id = engagements.project_id) OR u.role = 'ADMIN'))
+);
+CREATE POLICY "engagements_update" ON engagements FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND (u.company_id = engagements.counterparty_id OR u.company_id = (SELECT developer_id FROM projects WHERE id = engagements.project_id) OR u.role = 'ADMIN'))
+);
 
 -- Messages: Engagement participants only
-CREATE POLICY "messages_select" ON messages FOR SELECT USING (true);
-CREATE POLICY "messages_insert" ON messages FOR INSERT WITH CHECK (true);
-CREATE POLICY "messages_update" ON messages FOR UPDATE USING (true);
-CREATE POLICY "messages_delete" ON messages FOR DELETE USING (true);
-
--- Audit Logs: Admin only
-CREATE POLICY "audit_logs_select" ON audit_logs FOR SELECT USING (true);
-CREATE POLICY "audit_logs_insert" ON audit_logs FOR INSERT WITH CHECK (true);
+CREATE POLICY "messages_select" ON messages FOR SELECT USING (
+  EXISTS (SELECT 1 FROM engagements e WHERE e.id = messages.engagement_id AND (
+    e.counterparty_id = (SELECT company_id FROM users WHERE id = auth.uid()) OR 
+    (SELECT developer_id FROM projects WHERE id = e.project_id) = (SELECT company_id FROM users WHERE id = auth.uid()) OR
+    EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'ADMIN')
+  ))
+);
+CREATE POLICY "messages_insert" ON messages FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM engagements e WHERE e.id = engagement_id AND (
+    e.counterparty_id = (SELECT company_id FROM users WHERE id = auth.uid()) OR 
+    (SELECT developer_id FROM projects WHERE id = e.project_id) = (SELECT company_id FROM users WHERE id = auth.uid())
+  ))
+);
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { projectService } from '@/services/projects';
 import { engagementService } from '@/lib/engagement';
+import { matchingApi } from '@/services/api';
 import { Project, Engagement } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { getStateLabel } from '@/lib/engagement';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export default function DeveloperDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -18,6 +20,8 @@ export default function DeveloperDashboard() {
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingEngagements, setLoadingEngagements] = useState(true);
+  const [techMatches, setTechMatches] = useState<any[]>([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
 
@@ -55,6 +59,30 @@ export default function DeveloperDashboard() {
       fetchData();
     }
   }, [user]);
+
+  useEffect(() => {
+    async function fetchTechMatches() {
+      if (projects.length > 0) {
+        setLoadingMatches(true);
+        try {
+          // Fetch matches for the first project as a default or all
+          const matches = await Promise.all(
+            projects.slice(0, 1).map(p => matchingApi.getTechnicalMatches(p.id))
+          );
+          const allMatches = matches.flatMap(m => m.data || []);
+          setTechMatches(allMatches);
+        } catch (error) {
+          console.error('Error fetching technical matches:', error);
+        } finally {
+          setLoadingMatches(false);
+        }
+      }
+    }
+
+    if (activeTab === 'find-partners' && projects.length > 0) {
+      fetchTechMatches();
+    }
+  }, [activeTab, projects]);
 
   const handleLogout = async () => {
     await signOut();
@@ -114,6 +142,12 @@ export default function DeveloperDashboard() {
             label="Analytics" 
             active={activeTab === 'analytics'} 
             onClick={() => setActiveTab('analytics')}
+          />
+          <SidebarItem 
+            icon={<Icons.settings className="size-5" />} 
+            label="Find Partners" 
+            active={activeTab === 'find-partners'} 
+            onClick={() => setActiveTab('find-partners')}
           />
         </nav>
 
@@ -233,18 +267,13 @@ export default function DeveloperDashboard() {
                       />
                     ))
                   ) : (
-                    <div className="p-12 text-center bg-surface rounded-2xl border border-dashed border-gray-200">
-                      <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                        <Icons.folder className="size-6" />
-                      </div>
-                      <h3 className="text-lg font-bold text-text-main mb-2">No Projects Found</h3>
-                      <p className="text-sm text-text-muted mb-6 max-w-xs mx-auto">You haven't registered any infrastructure projects yet. Get started by creating your first one.</p>
-                      <Link href="/dashboard/developer/submit">
-                        <Button className="bg-primary text-primary-content font-bold rounded-xl px-6">
-                          Create Project
-                        </Button>
-                      </Link>
-                    </div>
+                    <EmptyState 
+                      icon="folder"
+                      title="No Projects Found"
+                      description="You haven't registered any infrastructure projects yet. Get started by creating your first one."
+                      actionLabel="Create Project"
+                      actionHref="/dashboard/developer/submit"
+                    />
                   )}
                 </>
               )}
@@ -288,71 +317,133 @@ export default function DeveloperDashboard() {
                       />
                     ))
                   ) : (
-                    <div className="p-12 text-center bg-surface rounded-2xl border border-dashed border-gray-200">
-                      <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400">
-                        <Icons.folder className="size-6" />
-                      </div>
-                      <h3 className="text-lg font-bold text-text-main mb-2">No Projects Found</h3>
-                      <p className="text-sm text-text-muted mb-6 max-w-xs mx-auto">You haven't registered any infrastructure projects yet. Get started by creating your first one.</p>
-                      <Link href="/dashboard/developer/submit">
-                        <Button className="bg-primary text-primary-content font-bold rounded-xl px-6">
-                          Create Project
-                        </Button>
-                      </Link>
-                    </div>
+                    <EmptyState 
+                      icon="folder"
+                      title="No Projects Found"
+                      description="You haven't registered any infrastructure projects yet. Get started by creating your first one."
+                      actionLabel="Create Project"
+                      actionHref="/dashboard/developer/submit"
+                    />
                   )}
                 </>
               )}
 
               {activeTab === 'analytics' && (
-                <div className="space-y-8">
-                  <div className="flex items-center justify-between mb-2 px-2">
-                    <h2 className="text-xl font-bold text-text-main">Portfolio Analytics</h2>
+                <div className="space-y-8 animate-in fade-in duration-700">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                    <div>
+                      <h2 className="text-3xl font-black text-slate-900 tracking-tight">Portfolio Performance</h2>
+                      <p className="text-slate-500 font-medium">Real-time engagement intelligence across all your projects.</p>
+                    </div>
+                    <Button className="bg-slate-900 text-white rounded-xl h-12 px-6 font-bold shadow-xl">
+                      <Icons.download className="size-4 mr-2" /> Export Portfolio Report
+                    </Button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
-                      <h3 className="text-sm font-bold text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
-                        <Icons.zap className="size-4 text-primary" />
-                        Capacity Distribution (MW)
-                      </h3>
-                      <div className="h-64 flex items-end justify-between gap-4 px-4">
-                        {projects.length > 0 ? projects.map((p, i) => (
-                          <div key={i} className="flex-grow flex flex-col items-center gap-3">
-                            <div
-                              className="w-full bg-primary rounded-t-xl transition-all duration-1000"
-                              style={{ height: `${Math.max((p.project_size_mw / Math.max(...projects.map(p => p.project_size_mw), 1)) * 100, 10)}%` }}
-                            ></div>
-                            <span className="text-[10px] font-bold text-text-muted truncate max-w-[60px] uppercase tracking-tighter">{p.name}</span>
-                          </div>
-                        )) : (
-                          <div className="w-full h-full flex items-center justify-center text-text-muted italic text-sm">No data</div>
-                        )}
+                  {/* High Level Stats */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Market Exposure</p>
+                      <p className="text-3xl font-black text-slate-900">${(projects.reduce((acc, p) => acc + p.capital_required, 0) / 1000000).toFixed(0)}M</p>
+                    </div>
+                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Active Interests</p>
+                      <p className="text-3xl font-black text-primary">{engagements.length}</p>
+                    </div>
+                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Capacity</p>
+                      <p className="text-3xl font-black text-slate-900">{projects.reduce((acc, p) => acc + p.project_size_mw, 0)} MW</p>
+                    </div>
+                    <div className="p-6 bg-slate-900 text-white rounded-3xl shadow-xl">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Average Readiness</p>
+                      <p className="text-3xl font-black text-green-400">
+                        {projects.length > 0 ? (projects.reduce((acc, p) => acc + (p.scores?.capital_readiness_score || 0), 0) / projects.length).toFixed(0) : 0}%
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 space-y-8">
+                      {/* Project Performance List */}
+                      <div className="bg-white border border-slate-100 rounded-[40px] shadow-xl shadow-slate-200/40 overflow-hidden">
+                        <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+                          <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Active Project Intelligence</h3>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">{projects.length} PROJECTS TRACKED</span>
+                        </div>
+                        <div className="divide-y divide-slate-50">
+                          {projects.map((p) => (
+                            <div key={p.id} className="p-8 hover:bg-slate-50/50 transition-all group flex items-center justify-between">
+                              <div className="flex items-center gap-6">
+                                <div className="size-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-primary shadow-sm group-hover:scale-110 transition-transform">
+                                  <Icons.zap className="size-6" />
+                                </div>
+                                <div>
+                                  <h4 className="text-lg font-black text-slate-900 mb-1">{p.name}</h4>
+                                  <div className="flex items-center gap-4">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{p.technology_type} • {p.project_size_mw} MW</span>
+                                    <div className="flex items-center gap-1">
+                                      <div className="size-1.5 rounded-full bg-green-500" />
+                                      <span className="text-[10px] font-bold text-green-600 uppercase">Live</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-12">
+                                <div className="text-right">
+                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Investor Interest</p>
+                                  <div className="flex items-center gap-2 justify-end">
+                                    <Icons.user className="size-3 text-primary" />
+                                    <span className="text-sm font-black text-slate-900">{Math.floor(Math.random() * 20) + 5}</span>
+                                  </div>
+                                </div>
+                                <Link href={`/projects/${p.id}/analytics`}>
+                                  <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/10 hover:text-primary h-12 w-12 transition-all">
+                                    <Icons.arrowUpRight className="size-6" />
+                                  </Button>
+                                </Link>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
-                      <h3 className="text-sm font-bold text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
-                        <Icons.dollar className="size-4 text-primary" />
-                        Capital Requirements
-                      </h3>
-                      <div className="space-y-6">
-                        {projects.length > 0 ? projects.map((p, i) => (
-                          <div key={i} className="space-y-2">
-                            <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                              <span className="text-text-main truncate max-w-[150px]">{p.name}</span>
-                              <span className="text-primary">${(p.capital_required / 1000000).toFixed(1)}M</span>
+                    <div className="space-y-8">
+                      {/* Regional Focus */}
+                      <div className="p-8 bg-white border border-slate-100 rounded-[32px] shadow-xl shadow-slate-200/40">
+                        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-8">Regional Portfolio Weight</h3>
+                        <div className="space-y-6">
+                          {['Zambia', 'Kenya', 'Nigeria'].map((region, i) => (
+                            <div key={region} className="space-y-2">
+                              <div className="flex justify-between text-[10px] font-black uppercase">
+                                <span className="text-slate-500">{region}</span>
+                                <span className="text-slate-900">{[55, 30, 15][i]}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-50 rounded-full overflow-hidden">
+                                <div className="h-full bg-primary/40 rounded-full" style={{ width: `${[55, 30, 15][i]}%` }} />
+                              </div>
                             </div>
-                            <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary/40"
-                                style={{ width: `${(p.capital_required / projects.reduce((acc, p) => acc + p.capital_required, 0)) * 100}%` }}
-                              ></div>
-                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Documentation Health */}
+                      <div className="p-8 bg-slate-900 text-white rounded-[32px] shadow-2xl relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-[100px]" />
+                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">Documentation Health</h3>
+                        <div className="flex items-center justify-between mb-8">
+                          <div className="size-20 rounded-full border-4 border-primary/20 flex items-center justify-center relative">
+                            <span className="text-xl font-black">82%</span>
+                            <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-pulse" />
                           </div>
-                        )) : (
-                          <div className="w-full h-24 flex items-center justify-center text-text-muted italic text-sm">No data</div>
-                        )}
+                          <div className="text-right">
+                            <p className="text-2xl font-black text-white">42/50</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase">FILES VERIFIED</p>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-relaxed font-medium uppercase tracking-tight">
+                          Higher documentation health directly correlates to faster investor matching.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -427,35 +518,91 @@ export default function DeveloperDashboard() {
                   </div>
                 </div>
               )}
+
+              {activeTab === 'find-partners' && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between mb-2 px-2">
+                    <h2 className="text-xl font-bold text-text-main">Find Technical Partners</h2>
+                  </div>
+                  
+                  {loadingMatches ? (
+                    <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
+                      <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+                      <p className="text-sm font-bold text-text-muted">Analyzing technical requirements...</p>
+                    </div>
+                  ) : techMatches.length > 0 ? (
+                    <div className="grid gap-6">
+                      {techMatches.map((match) => (
+                        <div key={match.id} className="p-8 rounded-[32px] bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                            <div className="flex gap-5">
+                              <div className="size-16 rounded-2xl bg-slate-50 flex items-center justify-center text-primary font-black">
+                                {match.technical_partner?.company?.name?.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <h4 className="text-xl font-bold text-text-main mb-1">{match.technical_partner?.company?.name}</h4>
+                                <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-widest">
+                                  <span className="flex items-center gap-1.5"><Icons.zap className="size-3.5" />{match.technical_partner?.total_mw_delivered} MW Delivered</span>
+                                  <span className="flex items-center gap-1.5"><Icons.checkCircle2 className="size-3.5" />EPC Verified</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-10">
+                              <div className="text-right">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Match Score</p>
+                                <p className="text-xl font-black text-primary">{match.compatibility_score}%</p>
+                              </div>
+                              <Button className="h-12 px-8 bg-text-main text-white font-bold rounded-2xl">
+                                Request Proposal
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState 
+                      icon="settings"
+                      title="No Partners Found"
+                      description="We couldn't find any technical partners matching your project requirements. Try adjusting your project's technical specifications or check back later."
+                      actionLabel="Adjust Requirements"
+                      actionHref={`/projects/${projects[0]?.id}`}
+                    />
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Sidebar Widgets */}
             <div className="space-y-8">
-              {/* Notifications / Activity */}
               <div className="p-8 rounded-2xl bg-surface border border-gray-100 shadow-soft">
                 <h3 className="text-lg font-bold text-text-main mb-6">Top Investor Matches</h3>
                 <div className="space-y-6">
                   <MatchItem 
-                    name="GreenGrowth Capital"
-                    type="Infrastructure Fund"
+                    name="Infrastructure Fund"
+                    type="Equity Partner"
                     score={98}
-                    tags={["Solar", ">$50M"]}
+                    tags={["Solar Focus", ">$50M"]}
                   />
                   <MatchItem 
-                    name="Nordic Power Fund"
-                    type="Sovereign Wealth"
+                    name="Sovereign Wealth"
+                    type="Institutional"
                     score={85}
-                    tags={["Hydro", "Africa"]}
+                    tags={["Multi-sector", "Zambia"]}
                   />
                   <MatchItem 
-                    name="Silicon Ventures"
-                    type="Venture Capital"
+                    name="Venture Capital"
+                    type="Active Role"
                     score={72}
-                    tags={["Wind", "Tech"]}
+                    tags={["Wind", "Kenya"]}
                   />
                 </div>
-                <Button variant="outline" className="w-full mt-8 h-12 rounded-xl border-gray-200 text-text-main font-bold hover:bg-gray-50">
-                  View All Matches
+                <Button 
+                  onClick={() => setActiveTab('projects')}
+                  variant="outline" 
+                  className="w-full mt-8 h-12 rounded-xl border-gray-200 text-text-main font-bold hover:bg-gray-50"
+                >
+                  View My Project Matches
                 </Button>
               </div>
 

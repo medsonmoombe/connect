@@ -15,6 +15,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [setupKey, setSetupKey] = useState('');
   const [role, setRole] = useState<UserRole>('DEVELOPER');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -25,6 +26,14 @@ export default function SignupPage() {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+
+    // Verify Setup Key
+    if (setupKey !== process.env.NEXT_PUBLIC_SETUP_KEY) {
+      setError('Invalid platform setup key. Please contact an administrator.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       await signUp(email, password, fullName, role);
       router.push('/dashboard');
@@ -107,13 +116,6 @@ export default function SignupPage() {
                 icon={<Icons.settings className="size-5" />} 
                 label="Technical Partner"
               />
-              <RoleCard 
-                role="GRANT_PROVIDER" 
-                currentRole={role} 
-                setRole={setRole} 
-                icon={<Icons.handshake className="size-5" />} 
-                label="Grant Provider"
-              />
             </div>
 
             <form onSubmit={handleSignup} className="space-y-4">
@@ -125,6 +127,19 @@ export default function SignupPage() {
                   disabled={isLoading}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  className="h-12 rounded-xl border-gray-100 bg-surface shadow-soft focus:ring-2 focus:ring-primary/20 transition-all"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-meta ml-1" htmlFor="setupKey">Platform Setup Key</Label>
+                <Input
+                  id="setupKey"
+                  type="password"
+                  placeholder="Enter access key"
+                  disabled={isLoading}
+                  value={setupKey}
+                  onChange={(e) => setSetupKey(e.target.value)}
                   className="h-12 rounded-xl border-gray-100 bg-surface shadow-soft focus:ring-2 focus:ring-primary/20 transition-all"
                   required
                 />

@@ -33,9 +33,6 @@ export default function DashboardPage() {
           case 'TECHNICAL_PARTNER':
             router.push('/dashboard/technical');
             break;
-          case 'GRANT_PROVIDER':
-            router.push('/dashboard/grant');
-            break;
           case 'ADMIN':
             router.push('/dashboard/admin');
             break;

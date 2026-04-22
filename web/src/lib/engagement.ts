@@ -209,9 +209,17 @@ export class EngagementService {
 
     if (error) throw error;
     
-    // 4. Create internal notification (checkpoint alert)
-    // For now, we'll just log to audit_logs or similar if needed
-    // In a real app, this might trigger an email or pusher event
+    // 4. Create Audit Log Entry
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('audit_logs').insert([{
+        user_id: user.id,
+        action_type: 'TRANSITION',
+        entity_type: 'ENGAGEMENT',
+        entity_id: engagementId,
+        timestamp: new Date().toISOString()
+      }]);
+    }
     
     return data;
   }

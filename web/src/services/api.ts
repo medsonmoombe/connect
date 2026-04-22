@@ -83,6 +83,25 @@ export const usersApi = {
     const response = await supabase.from('users').update(user).eq('id', id).select().single();
     return handleResponse(response);
   },
+
+  async getPendingVerifications(): Promise<ApiResponse<User[]>> {
+    const response = await supabase
+      .from('users')
+      .select('*, company:companies(*)')
+      .eq('verification_status', 'PENDING')
+      .order('created_at', { ascending: false });
+    return handleResponse(response);
+  },
+
+  async verifyUser(userId: string, status: 'VERIFIED' | 'REJECTED'): Promise<ApiResponse<User>> {
+    const response = await supabase
+      .from('users')
+      .update({ verification_status: status })
+      .eq('id', userId)
+      .select()
+      .single();
+    return handleResponse(response);
+  },
 };
 
 // Projects API
@@ -161,28 +180,38 @@ export const projectsApi = {
     return handleResponse(response);
   },
 
-  async create(project: Partial<Project>): Promise<ApiResponse<Project>> {
-    const response = await supabase.from('projects').insert(project).select().single();
-    return handleResponse(response);
-  },
+  async getAnalytics(projectId: string): Promise<ApiResponse<any>> {
+    const [viewsRes, engagementsRes] = await Promise.all([
+      supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('entity_id', projectId)
+        .in('action_type', ['PROJECT_VIEW', 'DATAROOM_ACCESS']),
+      supabase
+        .from('engagements')
+        .select('*')
+        .eq('project_id', projectId)
+    ]);
 
-  async update(id: string, project: Partial<Project>): Promise<ApiResponse<Project>> {
-    const response = await supabase.from('projects').update(project).eq('id', id).select().single();
-    return handleResponse(response);
-  },
+    if (viewsRes.error) return { error: viewsRes.error.message };
+    if (engagementsRes.error) return { error: engagementsRes.error.message };
 
-  async delete(id: string): Promise<ApiResponse<null>> {
-    const response = await supabase.from('projects').delete().eq('id', id);
-    return handleResponse(response);
-  },
+    const views = viewsRes.data || [];
+    const engagements = engagementsRes.data || [];
 
-  async getScores(projectId: string): Promise<ApiResponse<ProjectScore>> {
-    const response = await supabase
-      .from('project_scores')
-      .select('*')
-      .eq('project_id', projectId)
-      .single();
-    return handleResponse(response);
+    const stats = {
+      totalViews: views.filter(v => v.action_type === 'PROJECT_VIEW').length,
+      dataroomAccess: views.filter(v => v.action_type === 'DATAROOM_ACCESS').length,
+      funnel: {
+        intro: engagements.length,
+        nda: engagements.filter(e => ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET', 'CLOSED'].includes(e.status)).length,
+        dueDiligence: engagements.filter(e => ['DUE_DILIGENCE', 'TERM_SHEET', 'CLOSED'].includes(e.status)).length,
+        termSheet: engagements.filter(e => ['TERM_SHEET', 'CLOSED'].includes(e.status)).length,
+        closed: engagements.filter(e => e.status === 'CLOSED').length
+      }
+    };
+
+    return { data: stats };
   },
 };
 
@@ -395,4 +424,21 @@ export const onboardingApi = {
     
     return handleResponse(response);
   }
+};
+
+// Audit Logs API
+export const auditLogsApi = {
+  async getAll(): Promise<ApiResponse<AuditLog[]>> {
+    const response = await supabase
+      .from('audit_logs')
+      .select('*, user:users(*)')
+      .order('timestamp', { ascending: false })
+      .limit(50);
+    return handleResponse(response);
+  },
+
+  async create(log: Partial<AuditLog>): Promise<ApiResponse<AuditLog>> {
+    const response = await supabase.from('audit_logs').insert(log).select().single();
+    return handleResponse(response);
+  },
 };

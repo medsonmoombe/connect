@@ -158,12 +158,14 @@ export default function ProjectSubmissionPage() {
             const aiData = scoringResponse.data.data;
             await projectService.saveProjectScores({
               project_id: project.id,
-              capital_readiness_score: aiData.total_score,
-              documentation_score: aiData.breakdown.documentation,
-              governance_score: aiData.breakdown.governance,
-              financial_transparency_score: aiData.breakdown.financials,
-              risk_flags: aiData.risk_flags,
-              recommendations: aiData.recommendations
+              capital_readiness_score: Math.round(aiData.total_score || 0),
+              regulatory_score: Math.round(aiData.breakdown?.regulatory?.score || 0),
+              financial_score: Math.round(aiData.breakdown?.financial?.score || 0),
+              developer_score: Math.round(aiData.breakdown?.developer?.score || 0),
+              breakdown: aiData.breakdown,
+              risk_flags: aiData.risk_signals?.map((s: any) => `${s.level}: ${s.text}`) || [],
+              recommendations: aiData.recommendations || [],
+              summary: aiData.summary || ''
             });
           }
         } catch (scoringError) {
@@ -294,10 +296,10 @@ export default function ProjectSubmissionPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Capital Required (USD)</Label>
+                    <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Capital Required (ZMW)</Label>
                     <Input 
                       type="number"
-                      placeholder="e.g. 35000000" 
+                      placeholder="e.g. 500000000" 
                       value={formData.capital_required}
                       onChange={(e) => updateFormData({ capital_required: parseFloat(e.target.value) })}
                       className="h-12 bg-background border-gray-100 rounded-xl px-4"

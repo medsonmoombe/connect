@@ -7,13 +7,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
-import { matchingApi } from '@/services/api';
-import { CapitalMatchResult } from '@/types';
+import { projectsApi } from '@/services/api';
+import { engagementService } from '@/lib/engagement';
+import { Project, Engagement, CapitalMatchResult } from '@/types';
+import { getStateLabel } from '@/lib/engagement';
+import { EmptyState } from '@/components/ui/empty-state';
 
 export default function InvestorDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [matches, setMatches] = useState<CapitalMatchResult[]>([]);
-  const [loadingMatches, setLoadingMatches] = useState(true);
+  const [marketplaceProjects, setMarketplaceProjects] = useState<Project[]>([]);
+  const [portfolioEngagements, setPortfolioEngagements] = useState<Engagement[]>([]);
+  const [loadingMarketplace, setLoadingMarketplace] = useState(true);
+  const [loadingPortfolio, setLoadingPortfolio] = useState(true);
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
 
@@ -22,30 +27,43 @@ export default function InvestorDashboard() {
       if (!user) {
         router.push('/login');
       } else if (user.role !== 'CAPITAL_PARTNER' && user.role !== 'ADMIN') {
-        // Redirect if not investor or admin
         router.push('/dashboard');
       }
     }
   }, [user, loading, router]);
 
   useEffect(() => {
-    async function fetchMatches() {
-      // In a real scenario, we'd fetch matches for the investor's projects or general matches
-      // For MVP, we'll try to find some matches if projects exist
-      setLoadingMatches(true);
+    async function fetchMarketplace() {
+      setLoadingMarketplace(true);
       try {
-        // This is a placeholder since we don't have a specific "get matches for investor" endpoint yet
-        // In a real app, we'd have matchingApi.getInvestorMatches(investorId)
-        setMatches([]); 
+        const response = await projectsApi.getAdminAll();
+        if (response.data) {
+          setMarketplaceProjects(response.data);
+        }
       } catch (error) {
-        console.error('Error fetching matches:', error);
+        console.error('Error fetching marketplace:', error);
       } finally {
-        setLoadingMatches(false);
+        setLoadingMarketplace(false);
       }
     }
 
-    if (user && activeTab === 'dashboard') {
-      fetchMatches();
+    async function fetchPortfolio() {
+      if (user?.company_id) {
+        setLoadingPortfolio(true);
+        try {
+          const engData = await engagementService.getCompanyEngagements(user.company_id);
+          setPortfolioEngagements(engData);
+        } catch (error) {
+          console.error('Error fetching portfolio:', error);
+        } finally {
+          setLoadingPortfolio(false);
+        }
+      }
+    }
+
+    if (user) {
+      if (activeTab === 'dashboard' || activeTab === 'marketplace') fetchMarketplace();
+      if (activeTab === 'dashboard' || activeTab === 'portfolio') fetchPortfolio();
     }
   }, [user, activeTab]);
 
@@ -100,7 +118,7 @@ export default function InvestorDashboard() {
             label="Messages" 
             active={activeTab === 'messages'} 
             onClick={() => setActiveTab('messages')}
-            badge={5}
+            badge={portfolioEngagements.length > 0 ? portfolioEngagements.length : undefined}
           />
           <SidebarItem 
             icon={<Icons.fileText className="size-5" />} 
@@ -150,22 +168,13 @@ export default function InvestorDashboard() {
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-text-main mb-2">Investor Overview</h1>
-              <p className="text-text-muted font-medium">Welcome back, {user?.full_name?.split(' ')[0] || 'Partner'}. Here are the top opportunities matching your criteria.</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Icons.search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-text-muted" />
-                <input 
-                  type="text" 
-                  placeholder="Search projects..." 
-                  className="h-12 pl-12 pr-6 rounded-xl border-none bg-surface shadow-soft text-sm font-medium w-64 focus:ring-2 focus:ring-primary/20 transition-all"
-                />
-              </div>
-              <Button className="h-12 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all flex gap-2">
-                <Icons.plus className="size-5" />
-                New Criteria
-              </Button>
+              <h1 className="text-4xl font-extrabold tracking-tight text-text-main mb-2">
+                {activeTab === 'dashboard' ? 'Investor Overview' : 
+                 activeTab === 'marketplace' ? 'Project Marketplace' :
+                 activeTab === 'portfolio' ? 'Active Portfolio' :
+                 activeTab === 'messages' ? 'Communications' : 'Investment Reports'}
+              </h1>
+              <p className="text-text-muted font-medium">Welcome back, {user?.full_name?.split(' ')[0] || 'Partner'}.</p>
             </div>
           </div>
 
@@ -173,7 +182,6 @@ export default function InvestorDashboard() {
             <>
               {/* Hero Highlight */}
               <div className="relative p-12 rounded-[40px] bg-slate-900 text-white overflow-hidden mb-12 shadow-2xl group">
-                {/* Visual Background Elements */}
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/20 rounded-full blur-[120px] translate-x-1/4 -translate-y-1/4 group-hover:bg-primary/30 transition-all duration-1000" />
                 <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-blue-500/10 rounded-full blur-[100px] -translate-x-1/4 translate-y-1/4" />
                 
@@ -184,70 +192,192 @@ export default function InvestorDashboard() {
                   </div>
                   <h2 className="text-4xl md:text-5xl font-black tracking-tighter mb-6 leading-[1.1]">New Opportunities <br /><span className="text-primary-light">Found for You.</span></h2>
                   <p className="text-lg text-slate-400 font-medium leading-relaxed mb-10">
-                    We've identified 3 high-potential projects in West Africa matching your investment criteria for Q3 2024.
+                    We've identified {marketplaceProjects.length} high-potential projects matching your investment criteria.
                   </p>
                   <div className="flex gap-4">
-                    <Button className="h-14 px-10 bg-primary text-white font-black rounded-2xl hover:scale-105 hover:shadow-xl hover:shadow-primary/20 transition-all">
+                    <Button onClick={() => setActiveTab('marketplace')} className="h-14 px-10 bg-primary text-white font-black rounded-2xl hover:scale-105 hover:shadow-xl hover:shadow-primary/20 transition-all">
                       Review Matches
-                    </Button>
-                    <Button className="h-14 px-8 bg-transparent border border-slate-600 text-white hover:bg-white/10 font-bold rounded-2xl transition-all">
-                      Adjust Criteria
                     </Button>
                   </div>
                 </div>
               </div>
 
-              {/* Filters & Grid */}
-              <div className="flex items-center justify-between mb-8">
-                <div className="flex gap-2">
-                  <FilterTag label="All Projects" active />
-                  <FilterTag label="Solar PV" />
-                  <FilterTag label="Wind Energy" />
-                  <FilterTag label="Hydro" />
-                </div>
-                <Button variant="ghost" className="text-xs font-bold uppercase tracking-widest text-text-muted flex gap-2">
-                  <Icons.filter className="size-4" />
-                  Sort & Filter
-                </Button>
+              <div className="flex items-center justify-between mb-8 px-2">
+                <h2 className="text-xl font-bold text-text-main">Top Opportunities</h2>
+                <button onClick={() => setActiveTab('marketplace')} className="text-xs font-bold uppercase tracking-widest text-primary hover:underline">
+                  View All Marketplace
+                </button>
               </div>
 
-              <div className="grid md:grid-cols-2 gap-8">
-                <OpportunityCard 
-                  name="50MW Solar Farm"
-                  location="Kaduna, Nigeria"
-                  capital="$35M"
-                  readiness={94}
-                  irr="18.5%"
-                  tags={["Solar", "Nigeria", "Stage 3"]}
-                />
-                <OpportunityCard 
-                  name="Coastal Wind Cluster"
-                  location="Takoradi, Ghana"
-                  capital="$120M"
-                  readiness={82}
-                  irr="14.2%"
-                  tags={["Wind", "Ghana", "Stage 2"]}
-                />
+              <div className="grid md:grid-cols-2 gap-8 mb-12">
+                {loadingMarketplace ? (
+                  <div className="col-span-2 p-12 text-center bg-surface rounded-3xl"><Icons.spinner className="size-8 animate-spin mx-auto text-primary" /></div>
+                ) : marketplaceProjects.length > 0 ? (
+                  marketplaceProjects.slice(0, 4).map(project => (
+                    <OpportunityCard 
+                      key={project.id}
+                      id={project.id}
+                      name={project.name}
+                      location={project.location_country}
+                      capital={`$${(project.capital_required / 1000000).toFixed(1)}M`}
+                      readiness={project.scores?.capital_readiness_score || 0}
+                      irr="15-18%"
+                      tags={[project.technology_type, project.project_stage.replace('_', ' ')]}
+                    />
+                  ))
+                ) : (
+                  <EmptyState 
+                    icon="search"
+                    title="No Projects Available"
+                    description="We're currently vetting new energy infrastructure projects. Check back soon for institutional-grade opportunities."
+                    actionLabel="Refresh Feed"
+                    onAction={() => window.location.reload()}
+                  />
+                )}
               </div>
             </>
           )}
 
           {activeTab === 'marketplace' && (
             <div className="space-y-8">
-               <h2 className="text-2xl font-bold text-text-main">Marketplace</h2>
-               <div className="p-12 text-center bg-surface rounded-3xl border border-dashed border-gray-200">
-                  <Icons.search className="size-12 mx-auto text-gray-400 mb-4" />
-                  <p className="text-text-muted">Browse all available projects on the platform.</p>
-               </div>
+               <div className="grid md:grid-cols-2 gap-8">
+                {loadingMarketplace ? (
+                  <div className="col-span-2 p-12 text-center bg-surface rounded-3xl"><Icons.spinner className="size-8 animate-spin mx-auto text-primary" /></div>
+                ) : marketplaceProjects.length > 0 ? (
+                  marketplaceProjects.map(project => (
+                    <OpportunityCard 
+                      key={project.id}
+                      id={project.id}
+                      name={project.name}
+                      location={project.location_country}
+                      capital={`$${(project.capital_required / 1000000).toFixed(1)}M`}
+                      readiness={project.scores?.capital_readiness_score || 0}
+                      irr="15-18%"
+                      tags={[project.technology_type, project.project_stage.replace('_', ' ')]}
+                    />
+                  ))
+                ) : (
+                  <div className="col-span-2">
+                    <EmptyState 
+                      icon="search"
+                      title="Marketplace Empty"
+                      description="No projects matching your current investment criteria were found in the global marketplace."
+                      actionLabel="Clear Filters"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {activeTab === 'portfolio' && (
             <div className="space-y-8">
-               <h2 className="text-2xl font-bold text-text-main">Your Portfolio</h2>
-               <div className="p-12 text-center bg-surface rounded-3xl border border-dashed border-gray-200">
-                  <Icons.briefcase className="size-12 mx-auto text-gray-400 mb-4" />
-                  <p className="text-text-muted">You haven't committed to any projects yet.</p>
+               <div className="grid gap-6">
+                {loadingPortfolio ? (
+                   <div className="p-12 text-center bg-surface rounded-3xl"><Icons.spinner className="size-8 animate-spin mx-auto text-primary" /></div>
+                ) : portfolioEngagements.length > 0 ? (
+                  portfolioEngagements.map(eng => (
+                    <div key={eng.id} className="p-6 rounded-[32px] bg-white border border-gray-100 shadow-soft flex items-center justify-between">
+                      <div className="flex items-center gap-6">
+                        <div className="size-14 rounded-2xl bg-slate-50 flex items-center justify-center text-primary">
+                          <Icons.zap className="size-7" />
+                        </div>
+                        <div>
+                          <h4 className="text-lg font-bold text-text-main">{eng.project?.name}</h4>
+                          <p className="text-xs font-bold text-text-muted uppercase tracking-widest mt-1">
+                            Status: <span className="text-primary">{getStateLabel(eng.status)}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <Link href={`/dashboard/engagements/${eng.id}`}>
+                        <Button variant="outline" className="rounded-xl border-gray-200">
+                          Milestone Room
+                        </Button>
+                      </Link>
+                    </div>
+                  ))
+                ) : (
+                  <EmptyState 
+                    icon="briefcase"
+                    title="Portfolio Empty"
+                    description="You haven't committed to any projects yet. Start by exploring the marketplace to find your first investment."
+                    actionLabel="Explore Marketplace"
+                    onAction={() => setActiveTab('marketplace')}
+                  />
+                )}
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'messages' && (
+            <div className="space-y-8">
+              <div className="bg-white border border-gray-100 rounded-[32px] shadow-soft overflow-hidden">
+                <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
+                   <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{portfolioEngagements.length} Active Conversations</span>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {loadingPortfolio ? (
+                    <div className="p-8 text-center"><Icons.spinner className="size-5 animate-spin mx-auto text-primary" /></div>
+                  ) : portfolioEngagements.length > 0 ? (
+                    portfolioEngagements.map((eng) => (
+                      <Link key={eng.id} href={`/dashboard/engagements/${eng.id}`}>
+                        <div className="p-6 hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-6">
+                          <div className="size-10 rounded-xl bg-gray-50 flex items-center justify-center text-text-muted shrink-0 border border-gray-100">
+                            <Icons.messageSquare className="size-5" />
+                          </div>
+                          <div className="flex-grow">
+                            <div className="flex items-center justify-between mb-1">
+                              <h4 className="text-sm font-bold text-text-main">{eng.project?.name}</h4>
+                              <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">
+                                {new Date(eng.updated_at || eng.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-text-muted font-medium">Last activity: {getStateLabel(eng.status)}</p>
+                          </div>
+                        </div>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="p-12 text-center text-sm text-text-muted italic">No active conversations.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="space-y-8">
+               <div className="grid md:grid-cols-2 gap-8">
+                  <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
+                    <h3 className="text-sm font-black text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
+                      <Icons.pieChart className="size-4 text-primary" />
+                      Sector Distribution
+                    </h3>
+                    <div className="h-64 flex items-center justify-center border-4 border-slate-50 rounded-full w-64 mx-auto relative">
+                      <div className="absolute inset-0 flex items-center justify-center flex-col">
+                        <span className="text-3xl font-black text-slate-900">100%</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Solar Focus</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-8 bg-white border border-gray-100 rounded-[32px] shadow-soft">
+                    <h3 className="text-sm font-black text-text-main uppercase tracking-widest mb-8 flex items-center gap-2">
+                      <Icons.lineChart className="size-4 text-primary" />
+                      Capital Exposure
+                    </h3>
+                    <div className="space-y-6">
+                      <div className="h-40 flex items-end justify-between gap-2 px-4">
+                        {[40, 70, 45, 90, 65, 80].map((h, i) => (
+                          <div key={i} className="flex-grow bg-primary/20 rounded-t-lg relative group">
+                            <div className="absolute bottom-0 left-0 right-0 bg-primary rounded-t-lg transition-all duration-1000" style={{ height: `${h}%` }}></div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between text-[10px] font-bold text-text-muted uppercase tracking-widest">
+                        <span>Jan</span><span>Mar</span><span>May</span><span>Jul</span><span>Sep</span><span>Nov</span>
+                      </div>
+                    </div>
+                  </div>
                </div>
             </div>
           )}
@@ -273,7 +403,7 @@ function SidebarItem({ icon, label, active, onClick, badge }: { icon: React.Reac
       </div>
       <span className="text-sm flex-grow text-left">{label}</span>
       {badge && (
-        <span className="size-5 rounded-full bg-primary text-[10px] font-black text-primary-content flex items-center justify-center">
+        <span className="size-5 rounded-full bg-primary text-[10px] font-black text-white flex items-center justify-center">
           {badge}
         </span>
       )}
@@ -281,22 +411,9 @@ function SidebarItem({ icon, label, active, onClick, badge }: { icon: React.Reac
   );
 }
 
-function FilterTag({ label, active }: { label: string, active?: boolean }) {
+function OpportunityCard({ id, name, location, capital, readiness, irr, tags }: { id: string, name: string, location: string, capital: string, readiness: number, irr: string, tags: string[] }) {
   return (
-    <button className={cn(
-      "px-5 py-2.5 rounded-xl text-xs font-bold transition-all",
-      active 
-        ? "bg-text-main text-white shadow-lg shadow-text-main/10" 
-        : "bg-surface text-text-muted hover:bg-gray-50 border border-gray-100"
-    )}>
-      {label}
-    </button>
-  );
-}
-
-function OpportunityCard({ name, location, capital, readiness, irr, tags }: { name: string, location: string, capital: string, readiness: number, irr: string, tags: string[] }) {
-  return (
-    <div className="p-8 rounded-3xl bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
+    <div className="p-8 rounded-[40px] bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
       <div className="flex justify-between items-start mb-6">
         <div>
           <h3 className="text-xl font-bold text-text-main mb-2 group-hover:text-primary transition-colors">{name}</h3>
@@ -312,15 +429,15 @@ function OpportunityCard({ name, location, capital, readiness, irr, tags }: { na
 
       <div className="grid grid-cols-3 gap-6 mb-8 py-6 border-y border-gray-50">
         <div>
-          <p className="text-meta mb-1">Capital Req.</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Capital Req.</p>
           <p className="text-sm font-bold text-text-main">{capital}</p>
         </div>
         <div>
-          <p className="text-meta mb-1">Target IRR</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Target IRR</p>
           <p className="text-sm font-bold text-primary">{irr}</p>
         </div>
         <div>
-          <p className="text-meta mb-1">Readiness</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Readiness</p>
           <p className="text-sm font-bold text-text-main">{readiness}%</p>
         </div>
       </div>
@@ -333,7 +450,7 @@ function OpportunityCard({ name, location, capital, readiness, irr, tags }: { na
             </span>
           ))}
         </div>
-        <Link href={`/projects/1`}>
+        <Link href={`/projects/${id}`}>
           <Button className="h-10 px-6 rounded-xl bg-text-main text-white font-bold text-xs hover:bg-text-main/90 transition-all">
             Review Deal
           </Button>
@@ -342,5 +459,3 @@ function OpportunityCard({ name, location, capital, readiness, irr, tags }: { na
     </div>
   );
 }
-
-
