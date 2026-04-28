@@ -6,10 +6,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { projectService } from '@/services/projects';
 import { engagementService } from '@/lib/engagement';
-import { matchingApi } from '@/services/api';
-import { Project, Engagement } from '@/types';
+import { matchingApi, companiesApi } from '@/services/api';
+import { Project, Engagement, Company } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { getStateLabel } from '@/lib/engagement';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -22,30 +24,46 @@ export default function DeveloperDashboard() {
   const [loadingEngagements, setLoadingEngagements] = useState(true);
   const [techMatches, setTechMatches] = useState<any[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  
+  const [profileData, setProfileData] = useState({
+    name: '',
+    description: '',
+    years_operating: 0,
+    annual_turnover: 0,
+    subsidiaries: '',
+    solar_construction_experience: '',
+    operations_experience: ''
+  });
+
   const router = useRouter();
   const { user, loading, signOut } = useAuth();
-
-  useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.push('/login');
-      } else if (user.role !== 'DEVELOPER' && user.role !== 'ADMIN') {
-        // Redirect if not developer or admin
-        router.push('/dashboard');
-      }
-    }
-  }, [user, loading, router]);
 
   useEffect(() => {
     async function fetchData() {
       if (user?.company_id) {
         try {
-          const [projData, engData] = await Promise.all([
+          const [projData, engData, companyData] = await Promise.all([
             projectService.getDeveloperProjects(user.company_id),
-            engagementService.getCompanyEngagements(user.company_id)
+            engagementService.getCompanyEngagements(user.company_id),
+            companiesApi.getById(user.company_id)
           ]);
           setProjects(projData);
           setEngagements(engData);
+          if (companyData.data) {
+            setCompany(companyData.data);
+            const metadata = (companyData.data as any).metadata || {};
+            setProfileData({
+              name: companyData.data.name || '',
+              description: companyData.data.description || '',
+              years_operating: companyData.data.years_operating || 0,
+              annual_turnover: metadata.annual_turnover || 0,
+              subsidiaries: metadata.subsidiaries || '',
+              solar_construction_experience: metadata.solar_construction_experience || '',
+              operations_experience: metadata.operations_experience || ''
+            });
+          }
         } catch (error) {
           console.error('Error fetching dashboard data:', error);
         } finally {
@@ -59,6 +77,30 @@ export default function DeveloperDashboard() {
       fetchData();
     }
   }, [user]);
+
+  const handleUpdateProfile = async () => {
+    if (!user?.company_id) return;
+    setUpdatingProfile(true);
+    try {
+      await companiesApi.update(user.company_id, {
+        name: profileData.name,
+        description: profileData.description,
+        years_operating: profileData.years_operating,
+        metadata: {
+          annual_turnover: profileData.annual_turnover,
+          subsidiaries: profileData.subsidiaries,
+          solar_construction_experience: profileData.solar_construction_experience,
+          operations_experience: profileData.operations_experience
+        }
+      } as any);
+      alert('Profile updated successfully');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Failed to update profile');
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
 
   useEffect(() => {
     async function fetchTechMatches() {
@@ -148,6 +190,12 @@ export default function DeveloperDashboard() {
             label="Find Partners" 
             active={activeTab === 'find-partners'} 
             onClick={() => setActiveTab('find-partners')}
+          />
+          <SidebarItem 
+            icon={<Icons.user className="size-5" />} 
+            label="Developer Profile" 
+            active={activeTab === 'profile'} 
+            onClick={() => setActiveTab('profile')}
           />
         </nav>
 
@@ -332,31 +380,34 @@ export default function DeveloperDashboard() {
                 <div className="space-y-8 animate-in fade-in duration-700">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
                     <div>
-                      <h2 className="text-3xl font-black text-slate-900 tracking-tight">Portfolio Performance</h2>
+                      <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Portfolio Performance</h2>
                       <p className="text-slate-500 font-medium">Real-time engagement intelligence across all your projects.</p>
                     </div>
-                    <Button className="bg-slate-900 text-white rounded-xl h-12 px-6 font-bold shadow-xl">
+                    <Button 
+                      className="bg-slate-900 text-white rounded-xl h-12 px-6 font-bold shadow-xl"
+                      onClick={() => window.print()}
+                    >
                       <Icons.download className="size-4 mr-2" /> Export Portfolio Report
                     </Button>
                   </div>
                   
                   {/* High Level Stats */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Market Exposure</p>
-                      <p className="text-3xl font-black text-slate-900">${(projects.reduce((acc, p) => acc + p.capital_required, 0) / 1000000).toFixed(0)}M</p>
+                    <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-soft">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Market Exposure</p>
+                      <p className="text-3xl font-extrabold text-slate-900">${(projects.reduce((acc, p) => acc + p.capital_required, 0) / 1000000).toFixed(0)}M</p>
                     </div>
-                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Active Interests</p>
-                      <p className="text-3xl font-black text-primary">{engagements.length}</p>
+                    <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-soft">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Active Interests</p>
+                      <p className="text-3xl font-extrabold text-primary">{engagements.length}</p>
                     </div>
-                    <div className="p-6 bg-white border border-slate-100 rounded-3xl shadow-soft">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Capacity</p>
-                      <p className="text-3xl font-black text-slate-900">{projects.reduce((acc, p) => acc + p.project_size_mw, 0)} MW</p>
+                    <div className="p-6 bg-white border border-slate-100 rounded-2xl shadow-soft">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Total Capacity</p>
+                      <p className="text-3xl font-extrabold text-slate-900">{projects.reduce((acc, p) => acc + p.project_size_mw, 0)} MW</p>
                     </div>
-                    <div className="p-6 bg-slate-900 text-white rounded-3xl shadow-xl">
-                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Average Readiness</p>
-                      <p className="text-3xl font-black text-green-400">
+                    <div className="p-6 bg-slate-900 text-white rounded-2xl shadow-xl">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Average Readiness</p>
+                      <p className="text-3xl font-extrabold text-green-400">
                         {projects.length > 0 ? (projects.reduce((acc, p) => acc + (p.scores?.capital_readiness_score || 0), 0) / projects.length).toFixed(0) : 0}%
                       </p>
                     </div>
@@ -365,9 +416,9 @@ export default function DeveloperDashboard() {
                   <div className="grid lg:grid-cols-3 gap-8">
                     <div className="lg:col-span-2 space-y-8">
                       {/* Project Performance List */}
-                      <div className="bg-white border border-slate-100 rounded-[40px] shadow-xl shadow-slate-200/40 overflow-hidden">
+                      <div className="bg-white border border-slate-100 rounded-2xl shadow-xl shadow-slate-200/40 overflow-hidden">
                         <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
-                          <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Active Project Intelligence</h3>
+                          <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest">Active Project Intelligence</h3>
                           <span className="text-[10px] font-bold text-slate-400 uppercase">{projects.length} PROJECTS TRACKED</span>
                         </div>
                         <div className="divide-y divide-slate-50">
@@ -378,7 +429,7 @@ export default function DeveloperDashboard() {
                                   <Icons.zap className="size-6" />
                                 </div>
                                 <div>
-                                  <h4 className="text-lg font-black text-slate-900 mb-1">{p.name}</h4>
+                                  <h4 className="text-lg font-bold text-slate-900 mb-1">{p.name}</h4>
                                   <div className="flex items-center gap-4">
                                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">{p.technology_type} • {p.project_size_mw} MW</span>
                                     <div className="flex items-center gap-1">
@@ -390,10 +441,10 @@ export default function DeveloperDashboard() {
                               </div>
                               <div className="flex items-center gap-12">
                                 <div className="text-right">
-                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Investor Interest</p>
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Investor Interest</p>
                                   <div className="flex items-center gap-2 justify-end">
                                     <Icons.user className="size-3 text-primary" />
-                                    <span className="text-sm font-black text-slate-900">{Math.floor(Math.random() * 20) + 5}</span>
+                                    <span className="text-sm font-bold text-slate-900">{Math.floor(Math.random() * 20) + 5}</span>
                                   </div>
                                 </div>
                                 <Link href={`/projects/${p.id}/analytics`}>
@@ -410,12 +461,12 @@ export default function DeveloperDashboard() {
 
                     <div className="space-y-8">
                       {/* Regional Focus */}
-                      <div className="p-8 bg-white border border-slate-100 rounded-[32px] shadow-xl shadow-slate-200/40">
-                        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest mb-8">Regional Portfolio Weight</h3>
+                      <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-xl shadow-slate-200/40">
+                        <h3 className="text-xs font-bold text-slate-900 uppercase tracking-widest mb-8">Regional Portfolio Weight</h3>
                         <div className="space-y-6">
                           {['Zambia', 'Kenya', 'Nigeria'].map((region, i) => (
                             <div key={region} className="space-y-2">
-                              <div className="flex justify-between text-[10px] font-black uppercase">
+                              <div className="flex justify-between text-[10px] font-bold uppercase">
                                 <span className="text-slate-500">{region}</span>
                                 <span className="text-slate-900">{[55, 30, 15][i]}%</span>
                               </div>
@@ -428,16 +479,16 @@ export default function DeveloperDashboard() {
                       </div>
 
                       {/* Documentation Health */}
-                      <div className="p-8 bg-slate-900 text-white rounded-[32px] shadow-2xl relative overflow-hidden group">
+                      <div className="p-8 bg-slate-900 text-white rounded-2xl shadow-2xl relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-bl-[100px]" />
-                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">Documentation Health</h3>
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-8">Documentation Health</h3>
                         <div className="flex items-center justify-between mb-8">
                           <div className="size-20 rounded-full border-4 border-primary/20 flex items-center justify-center relative">
-                            <span className="text-xl font-black">82%</span>
+                            <span className="text-xl font-extrabold">82%</span>
                             <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-pulse" />
                           </div>
                           <div className="text-right">
-                            <p className="text-2xl font-black text-white">42/50</p>
+                            <p className="text-2xl font-extrabold text-white">42/50</p>
                             <p className="text-[10px] font-bold text-slate-500 uppercase">FILES VERIFIED</p>
                           </div>
                         </div>
@@ -454,11 +505,22 @@ export default function DeveloperDashboard() {
                 <div className="space-y-8">
                   <div className="flex items-center justify-between mb-2 px-2">
                     <h2 className="text-xl font-bold text-text-main">Centralized Data Room</h2>
-                    <Button variant="outline" size="sm" className="rounded-xl border-gray-200">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="rounded-xl border-gray-200"
+                      onClick={() => {
+                        if (projects.length > 0) {
+                          router.push(`/projects/${projects[0].id}`);
+                        } else {
+                          alert('Please create a project first to access the Data Room.');
+                        }
+                      }}
+                    >
                       <Icons.plus className="size-4 mr-2" /> Upload Document
                     </Button>
                   </div>
-                  <div className="p-12 text-center bg-surface rounded-[32px] border border-dashed border-gray-200">
+                  <div className="p-12 text-center bg-surface rounded-2xl border border-dashed border-gray-200">
                     <div className="size-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-400">
                       <Icons.shieldCheck className="size-8" />
                     </div>
@@ -490,10 +552,9 @@ export default function DeveloperDashboard() {
                   <div className="flex items-center justify-between mb-2 px-2">
                     <h2 className="text-xl font-bold text-text-main">Engagement Inbox</h2>
                   </div>
-                  <div className="bg-white border border-gray-100 rounded-[32px] shadow-soft overflow-hidden">
+                  <div className="bg-white border border-gray-100 rounded-2xl shadow-soft overflow-hidden">
                     <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
                        <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{engagements.length} Active Engagements</span>
-                       <button className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">View Milestone Room</button>
                     </div>
                     <div className="divide-y divide-gray-50">
                       {loadingEngagements ? (
@@ -533,7 +594,7 @@ export default function DeveloperDashboard() {
                   ) : techMatches.length > 0 ? (
                     <div className="grid gap-6">
                       {techMatches.map((match) => (
-                        <div key={match.id} className="p-8 rounded-[32px] bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
+                        <div key={match.id} className="p-8 rounded-2xl bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                             <div className="flex gap-5">
                               <div className="size-16 rounded-2xl bg-slate-50 flex items-center justify-center text-primary font-black">
@@ -549,10 +610,15 @@ export default function DeveloperDashboard() {
                             </div>
                             <div className="flex items-center gap-10">
                               <div className="text-right">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted mb-1">Match Score</p>
-                                <p className="text-xl font-black text-primary">{match.compatibility_score}%</p>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-1">Match Score</p>
+                                <p className="text-xl font-extrabold text-primary">{match.compatibility_score}%</p>
                               </div>
-                              <Button className="h-12 px-8 bg-text-main text-white font-bold rounded-2xl">
+                              <Button 
+                                className="h-12 px-8 bg-text-main text-white font-bold rounded-2xl"
+                                onClick={() => {
+                                  alert(`Proposal request simulated for ${match.technical_partner?.company?.name}`);
+                                }}
+                              >
                                 Request Proposal
                               </Button>
                             </div>
@@ -569,6 +635,110 @@ export default function DeveloperDashboard() {
                       actionHref={`/projects/${projects[0]?.id}`}
                     />
                   )}
+                </div>
+              )}
+
+              {activeTab === 'profile' && (
+                <div className="space-y-8 animate-in fade-in duration-700">
+                  <div className="flex items-center justify-between px-2">
+                    <h2 className="text-3xl font-bold text-slate-900 tracking-tight">Developer Profile</h2>
+                    <Button 
+                      onClick={handleUpdateProfile} 
+                      disabled={updatingProfile}
+                      className="bg-primary text-white rounded-xl h-12 px-8 font-bold shadow-lg"
+                    >
+                      {updatingProfile ? <Icons.spinner className="size-4 animate-spin mr-2" /> : <Icons.check className="size-4 mr-2" />}
+                      Save Profile
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-8">
+                    <div className="p-8 bg-white border border-slate-100 rounded-2xl shadow-soft space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Company Name</Label>
+                          <Input 
+                            value={profileData.name}
+                            onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                            className="h-12 rounded-xl border-slate-100"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Time in Existence (Years)</Label>
+                          <Input 
+                            type="number"
+                            value={profileData.years_operating}
+                            onChange={(e) => setProfileData({ ...profileData, years_operating: parseInt(e.target.value) || 0 })}
+                            className="h-12 rounded-xl border-slate-100"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Developer Profile / Description</Label>
+                        <textarea 
+                          className="w-full h-32 p-4 rounded-xl border border-slate-100 bg-slate-50/30 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          value={profileData.description}
+                          onChange={(e) => setProfileData({ ...profileData, description: e.target.value })}
+                          placeholder="Describe your firm's core focus and history..."
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className={cn(
+                            "text-[10px] font-bold uppercase tracking-widest",
+                            profileData.years_operating < 1 ? "text-slate-300" : "text-slate-400"
+                          )}>
+                            Annual Turnover (USD)
+                          </Label>
+                          <Input 
+                            type="number"
+                            disabled={profileData.years_operating < 1}
+                            value={profileData.annual_turnover}
+                            onChange={(e) => setProfileData({ ...profileData, annual_turnover: parseInt(e.target.value) || 0 })}
+                            className={cn(
+                              "h-12 rounded-xl border-slate-100",
+                              profileData.years_operating < 1 && "bg-slate-50 text-slate-400 cursor-not-allowed"
+                            )}
+                          />
+                          {profileData.years_operating < 1 && (
+                            <p className="text-[10px] text-amber-600 font-bold">Turnover field disabled for companies less than 1 year in existence.</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Subsidiaries</Label>
+                          <Input 
+                            value={profileData.subsidiaries}
+                            onChange={(e) => setProfileData({ ...profileData, subsidiaries: e.target.value })}
+                            placeholder="List main subsidiaries if any..."
+                            className="h-12 rounded-xl border-slate-100"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-50">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Solar Project Construction Experience</Label>
+                          <textarea 
+                            className="w-full h-24 p-4 rounded-xl border border-slate-100 bg-slate-50/30 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            value={profileData.solar_construction_experience}
+                            onChange={(e) => setProfileData({ ...profileData, solar_construction_experience: e.target.value })}
+                            placeholder="Detail your track record in solar EPC..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Operations Experience</Label>
+                          <textarea 
+                            className="w-full h-24 p-4 rounded-xl border border-slate-100 bg-slate-50/30 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            value={profileData.operations_experience}
+                            onChange={(e) => setProfileData({ ...profileData, operations_experience: e.target.value })}
+                            placeholder="Detail your experience in asset management and O&M..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -607,7 +777,7 @@ export default function DeveloperDashboard() {
               </div>
 
               {/* Data Room Activity */}
-              <div className="p-8 rounded-3xl bg-primary text-white shadow-xl shadow-primary/20 relative overflow-hidden group">
+              <div className="p-8 rounded-2xl bg-primary text-white shadow-xl shadow-primary/20 relative overflow-hidden group">
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-50"></div>
                 <div className="relative z-10">
                   <div className="flex items-center gap-3 mb-6">
@@ -617,7 +787,7 @@ export default function DeveloperDashboard() {
                   <p className="text-sm font-medium text-white/90 mb-6 leading-relaxed">
                     Your project documents are currently protected by institutional-grade encryption and access control.
                   </p>
-                  <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest bg-white/10 border border-white/10 p-4 rounded-2xl">
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest bg-white/10 border border-white/10 p-4 rounded-xl">
                     <span>Pending Requests</span>
                     <span className="size-6 rounded-full bg-white text-primary flex items-center justify-center font-bold shadow-lg">3</span>
                   </div>
@@ -647,7 +817,7 @@ function SidebarItem({ icon, label, active, onClick, badge }: { icon: React.Reac
       </div>
       <span className="text-sm flex-grow text-left">{label}</span>
       {badge && (
-        <span className="size-5 rounded-full bg-primary text-[10px] font-black text-white border border-white/20 flex items-center justify-center shadow-sm">
+        <span className="size-5 rounded-full bg-primary text-[10px] font-bold text-white border border-white/20 flex items-center justify-center shadow-sm">
           {badge}
         </span>
       )}
@@ -752,7 +922,7 @@ function MatchItem({ name, type, score, tags }: { name: string, type: string, sc
   return (
     <div className="flex items-center justify-between group cursor-pointer">
       <div className="flex items-center gap-3">
-        <div className="size-10 rounded-xl bg-background border border-gray-100 flex items-center justify-center font-black text-text-muted text-xs group-hover:border-primary/50 group-hover:text-primary transition-all">
+        <div className="size-10 rounded-xl bg-background border border-gray-100 flex items-center justify-center font-bold text-text-muted text-xs group-hover:border-primary/50 group-hover:text-primary transition-all">
           {name.substring(0, 2).toUpperCase()}
         </div>
         <div>
@@ -762,7 +932,7 @@ function MatchItem({ name, type, score, tags }: { name: string, type: string, sc
       </div>
       <div className="flex items-center gap-2">
         <div className="text-right">
-          <div className="text-xs font-black text-primary">{score}%</div>
+          <div className="text-xs font-bold text-primary">{score}%</div>
         </div>
         <div className="size-8 rounded-full border-2 border-primary/20 flex items-center justify-center p-0.5">
           <div className="size-full rounded-full border-2 border-primary border-t-transparent animate-[spin_3s_linear_infinite]" />
@@ -771,3 +941,4 @@ function MatchItem({ name, type, score, tags }: { name: string, type: string, sc
     </div>
   );
 }
+

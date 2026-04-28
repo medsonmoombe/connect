@@ -27,7 +27,7 @@ interface SelectedFile {
 }
 
 export default function ProjectSubmissionPage() {
-  const [step, setStep] = useState<Step>(5);
+  const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -54,7 +54,11 @@ export default function ProjectSubmissionPage() {
     target_cod: '',
     governance_terms: '',
     exit_terms: '',
-    risk_disclosures: ''
+    risk_disclosures: '',
+    has_secured_land: false,
+    land_title_status: 'Not Applicable' as 'Traditional' | 'Titled' | 'Not Applicable',
+    has_reached_financial_close: false,
+    regulatory_approvals: [] as string[]
   });
 
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
@@ -279,6 +283,77 @@ export default function ProjectSubmissionPage() {
                     />
                   </div>
                 </div>
+
+                <div className="space-y-6 pt-6 border-t border-gray-50">
+                  <h3 className="text-sm font-black text-text-main uppercase tracking-widest flex items-center gap-2">
+                    <Icons.checkCircle2 className="size-4 text-primary" />
+                    Project Readiness Checklist
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          id="secured_land"
+                          checked={formData.has_secured_land}
+                          onChange={(e) => updateFormData({ has_secured_land: e.target.checked })}
+                          className="size-5 rounded border-gray-300 text-primary focus:ring-primary"
+                        />
+                        <Label htmlFor="secured_land" className="text-sm font-bold text-text-main cursor-pointer">Have you secured the land?</Label>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Land Title Status</Label>
+                        <select 
+                          className="w-full h-11 bg-background border border-gray-100 rounded-xl px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          value={formData.land_title_status}
+                          onChange={(e) => updateFormData({ land_title_status: e.target.value as any })}
+                        >
+                          <option value="Traditional">Traditional</option>
+                          <option value="Titled">Titled</option>
+                          <option value="Not Applicable">Not Applicable</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          id="fin_close"
+                          checked={formData.has_reached_financial_close}
+                          onChange={(e) => updateFormData({ has_reached_financial_close: e.target.checked })}
+                          className="size-5 rounded border-gray-300 text-primary focus:ring-primary"
+                        />
+                        <Label htmlFor="fin_close" className="text-sm font-bold text-text-main cursor-pointer">Have you reached financial close?</Label>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Latest Regulatory Approvals</Label>
+                        <div className="grid grid-cols-1 gap-2">
+                          {['ZEMA approval letter', 'Grid Connection Agreement', 'Power Purchase Agreement (PPA)', 'Construction Permit'].map((approval) => (
+                            <div key={approval} className="flex items-center gap-2">
+                              <input 
+                                type="checkbox" 
+                                id={approval}
+                                checked={formData.regulatory_approvals.includes(approval)}
+                                onChange={(e) => {
+                                  const approvals = e.target.checked 
+                                    ? [...formData.regulatory_approvals, approval]
+                                    : formData.regulatory_approvals.filter(a => a !== approval);
+                                  updateFormData({ regulatory_approvals: approvals });
+                                }}
+                                className="size-4 rounded border-gray-300 text-primary focus:ring-primary"
+                              />
+                              <Label htmlFor={approval} className="text-xs font-medium text-text-muted cursor-pointer">{approval}</Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
 
@@ -325,12 +400,13 @@ export default function ProjectSubmissionPage() {
             {step === 3 && (
               <>
                 <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Project Stage</Label>
+                    <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Project Stage</Label>
                   <select 
                     className="w-full h-12 bg-background border border-gray-100 rounded-xl px-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
                     value={formData.project_stage}
                     onChange={(e) => updateFormData({ project_stage: e.target.value as ProjectStage })}
                   >
+                    <option value="CONCEPT">Concept</option>
                     <option value="FEASIBILITY">Feasibility</option>
                     <option value="PRE_CONSTRUCTION">Pre-Construction</option>
                     <option value="READY_TO_BUILD">Ready to Build</option>
@@ -349,7 +425,7 @@ export default function ProjectSubmissionPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Target COD</Label>
+                    <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Target Project Go-Live</Label>
                     <Input 
                       type="date"
                       value={formData.target_cod}
@@ -430,7 +506,14 @@ export default function ProjectSubmissionPage() {
                 <div className="space-y-4 pt-6">
                   <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Project Documents</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {['Pitch Deck', 'Financial Model', 'Feasibility Study', 'Environmental Audit'].map((docType) => {
+                    {[
+                      'Pitch Deck', 
+                      'Financial Model', 
+                      'Feasibility Study', 
+                      'Environmental Audit',
+                      'Land Title/Lease Agreement',
+                      'Regulatory Approval Docs'
+                    ].map((docType) => {
                       const existing = selectedFiles.find(f => f.type === docType);
                       return (
                         <div key={docType} className="p-4 rounded-xl border border-gray-100 bg-background flex items-center justify-between">

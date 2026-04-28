@@ -263,6 +263,7 @@ export default function InvestorDashboard() {
                       title="Marketplace Empty"
                       description="No projects matching your current investment criteria were found in the global marketplace."
                       actionLabel="Clear Filters"
+                      onAction={() => window.location.reload()}
                     />
                   </div>
                 )}
@@ -412,6 +413,8 @@ function SidebarItem({ icon, label, active, onClick, badge }: { icon: React.Reac
 }
 
 function OpportunityCard({ id, name, location, capital, readiness, irr, tags }: { id: string, name: string, location: string, capital: string, readiness: number, irr: string, tags: string[] }) {
+  const [isBookmarked, setIsBookmarked] = useState(false);
+
   return (
     <div className="p-8 rounded-[40px] bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
       <div className="flex justify-between items-start mb-6">
@@ -422,8 +425,16 @@ function OpportunityCard({ id, name, location, capital, readiness, irr, tags }: 
             {location}
           </div>
         </div>
-        <div className="size-10 rounded-full border border-gray-100 flex items-center justify-center text-text-muted hover:text-primary cursor-pointer transition-colors">
-          <Icons.bookmark className="size-4" />
+        <div 
+          className={cn("size-10 rounded-full border border-gray-100 flex items-center justify-center cursor-pointer transition-colors", isBookmarked ? "text-primary bg-primary/10 border-primary/20" : "text-text-muted hover:text-primary")}
+          onClick={() => {
+            setIsBookmarked(!isBookmarked);
+            if (!isBookmarked) {
+              alert("Project saved to watchlist");
+            }
+          }}
+        >
+          <Icons.bookmark className={cn("size-4", isBookmarked && "fill-current")} />
         </div>
       </div>
 

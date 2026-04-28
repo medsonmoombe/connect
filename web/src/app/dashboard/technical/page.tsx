@@ -211,7 +211,7 @@ export default function TechnicalDashboard() {
                 <StatCard
                   label="Avg. Delivery"
                   value={`${techProfile?.average_delivery_time_months || 0} Mo.`}
-                  subValue="Concept to COD"
+                  subValue="Concept to Go-Live"
                 />
               </div>
 

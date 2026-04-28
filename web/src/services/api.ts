@@ -12,7 +12,8 @@ import {
   User,
   UserRole,
   PaginatedResponse,
-  ApiResponse
+  ApiResponse,
+  AuditLog
 } from '@/types';
 
 // Helper function to handle Supabase responses

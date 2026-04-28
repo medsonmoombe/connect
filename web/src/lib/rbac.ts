@@ -38,17 +38,6 @@ export const rolePermissions: Record<UserRole, string[]> = {
     'technical_profiles:read',
     'technical_profiles:update',
   ],
-  GRANT_PROVIDER: [
-    'projects:read',
-    'matches:read',
-    'engagements:create',
-    'engagements:read',
-    'messages:send',
-    'messages:read',
-    'companies:read',
-    'grant_profiles:read',
-    'grant_profiles:update',
-  ],
   ADMIN: [
     'users:read',
     'users:update',

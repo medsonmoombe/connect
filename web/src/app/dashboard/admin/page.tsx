@@ -234,9 +234,11 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            <Button className="w-full mt-8 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-bold">
-              SYSTEM CONSOLE
-            </Button>
+            <Link href="/dashboard/admin/settings">
+              <Button className="w-full mt-8 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-bold">
+                SYSTEM CONSOLE
+              </Button>
+            </Link>
           </div>
 
           <div className="bg-white rounded-[20px] border border-slate-100 p-6 shadow-xl shadow-slate-200/50">

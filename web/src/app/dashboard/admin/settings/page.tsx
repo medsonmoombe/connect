@@ -5,7 +5,6 @@ import { Icons } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(false);
@@ -61,7 +60,7 @@ export default function AdminSettingsPage() {
                    <span className="text-sm font-bold text-slate-900">Auto-trigger Analysis</span>
                    <span className="text-xs text-slate-400">Run Gemini analysis immediately upon document upload</span>
                  </div>
-                 <Switch checked />
+                 <input type="checkbox" defaultChecked className="size-5 accent-green-800" />
               </div>
             </div>
           </div>

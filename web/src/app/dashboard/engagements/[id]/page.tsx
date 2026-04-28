@@ -268,5 +268,3 @@ function RuleItem({ icon, text }: { icon: any, text: string }) {
     </li>
   );
 }
-  );
-}

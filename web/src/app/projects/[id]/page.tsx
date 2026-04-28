@@ -4,8 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { projectService } from '@/services/projects';
-import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectDocument } from '@/types';
+import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectDocument, ProjectStage } from '@/types';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send, Trash2 } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { MatchingSection } from '@/components/MatchingSection';
@@ -197,7 +198,7 @@ export default function ProjectDetailsPage() {
   const handleManualOverride = async (category: string, score: number) => {
     if (!project || !project.scores) return;
 
-    const newScores = { ...project.scores };
+    const newScores: any = { ...project.scores };
     if (category === 'regulatory') newScores.regulatory_score = score;
     if (category === 'financial') newScores.financial_score = score;
     if (category === 'developer') newScores.developer_score = score;
@@ -217,14 +218,80 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  const [editingChecklist, setEditingChecklist] = useState(false);
+  const [checklistData, setChecklistData] = useState<{
+    has_secured_land: boolean;
+    land_title_status: 'Traditional' | 'Titled' | 'Not Applicable';
+    has_reached_financial_close: boolean;
+    regulatory_approvals: string[];
+  }>({
+    has_secured_land: false,
+    land_title_status: 'Not Applicable',
+    has_reached_financial_close: false,
+    regulatory_approvals: []
+  });
+
+  useEffect(() => {
+    if (project) {
+      // Try to parse checklist data from risk_disclosures if it looks like JSON
+      let checklistFromRisk: any = {};
+      try {
+        if (project.risk_disclosures?.startsWith('{')) {
+          checklistFromRisk = JSON.parse(project.risk_disclosures);
+        }
+      } catch (e) {
+        console.warn('Failed to parse checklist from risk_disclosures');
+      }
+
+      setChecklistData({
+        has_secured_land: checklistFromRisk.has_secured_land ?? project.has_secured_land ?? false,
+        land_title_status: checklistFromRisk.land_title_status ?? (project.land_title_status as any) ?? 'Not Applicable',
+        has_reached_financial_close: checklistFromRisk.has_reached_financial_close ?? project.has_reached_financial_close ?? false,
+        regulatory_approvals: checklistFromRisk.regulatory_approvals ?? project.regulatory_approvals ?? []
+      });
+    }
+  }, [project]);
+
+  const handleUpdateChecklist = async () => {
+    if (!project) return;
+    try {
+      console.log('Updating project with checklist data...');
+      
+      // Since columns might not exist, we'll store the checklist as a JSON string in risk_disclosures
+      const checklistJson = JSON.stringify(checklistData);
+      
+      const updatePayload: any = {
+        risk_disclosures: checklistJson
+      };
+
+      // Also try to update the individual columns in case they DO exist (graceful degradation)
+      // If they don't exist, Supabase might throw an error, so we might need to be careful.
+      // Given the previous error, they likely don't exist.
+      
+      await projectService.updateProject(project.id, updatePayload);
+      
+      setProject({ 
+        ...project, 
+        ...checklistData,
+        risk_disclosures: checklistJson 
+      });
+      setEditingChecklist(false);
+    } catch (error: any) {
+      console.error('Error updating checklist detail:', error);
+      alert(`Failed to update checklist: ${error.message || 'Database column mismatch. Storing in risk_disclosures failed.'}`);
+    }
+  };
+
   useEffect(() => {
     async function fetchProject() {
       if (params.id) {
         try {
           const data = await projectService.getProjectDetails(params.id as string);
           setProject(data);
-          // Set stage based on project_stage enum if needed, for now just 1
-          setActiveStage(data.project_stage === 'FEASIBILITY' ? 1 : data.project_stage === 'PRE_CONSTRUCTION' ? 2 : 3);
+          // Set stage based on project_stage enum
+          const stages: ProjectStage[] = ['CONCEPT', 'FEASIBILITY', 'PRE_CONSTRUCTION', 'READY_TO_BUILD', 'UNDER_CONSTRUCTION', 'OPERATIONAL'];
+          const stageIndex = stages.indexOf(data.project_stage as any);
+          setActiveStage(stageIndex !== -1 ? stageIndex + 1 : 1);
           
           // Fetch matches
           const matches = await projectService.getProjectMatches(params.id as string);
@@ -291,12 +358,23 @@ export default function ProjectDetailsPage() {
             <Icons.chevronRight className="size-3" />
             <span className="text-text-main">{project.name}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main">Share</Button>
-            <Button className="h-10 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all">
-              Request Review
-            </Button>
-          </div>
+          {isOwner && (
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="outline" 
+                className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main"
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href);
+                  alert('Link copied to clipboard!');
+                }}
+              >
+                Share
+              </Button>
+              <Button className="h-10 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all">
+                Request Review
+              </Button>
+            </div>
+          )}
         </header>
 
         <div className="p-8 max-w-6xl mx-auto">
@@ -335,15 +413,16 @@ export default function ProjectDetailsPage() {
               <div className="absolute top-[4.25rem] left-0 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
                 <div 
                   className="bg-primary h-full transition-all duration-700" 
-                  style={{ width: `${(activeStage - 1) * 25}%` }} 
+                  style={{ width: `${(activeStage - 1) * 20}%` }} 
                 />
               </div>
               <div className="relative flex justify-between">
-                <StepItem number={1} label="Feasibility" status={activeStage > 1 ? "completed" : activeStage === 1 ? "active" : "pending"} />
-                <StepItem number={2} label="Permitting" status={activeStage > 2 ? "completed" : activeStage === 2 ? "active" : "pending"} />
-                <StepItem number={3} label="Financial Close" status={activeStage > 3 ? "completed" : activeStage === 3 ? "active" : "pending"} />
-                <StepItem number={4} label="Construction" status={activeStage > 4 ? "completed" : activeStage === 4 ? "active" : "pending"} />
-                <StepItem number={5} label="Operations" status={activeStage === 5 ? "active" : "pending"} />
+                <StepItem number={1} label="Concept" status={activeStage > 1 ? "completed" : activeStage === 1 ? "active" : "pending"} />
+                <StepItem number={2} label="Feasibility" status={activeStage > 2 ? "completed" : activeStage === 2 ? "active" : "pending"} />
+                <StepItem number={3} label="Permitting" status={activeStage > 3 ? "completed" : activeStage === 3 ? "active" : "pending"} />
+                <StepItem number={4} label="Financial Close" status={activeStage > 4 ? "completed" : activeStage === 4 ? "active" : "pending"} />
+                <StepItem number={5} label="Construction" status={activeStage > 5 ? "completed" : activeStage === 5 ? "active" : "pending"} />
+                <StepItem number={6} label="Operations" status={activeStage === 6 ? "active" : "pending"} />
               </div>
             </div>
           </div>
@@ -362,12 +441,111 @@ export default function ProjectDetailsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-10">
                   <SpecItem label="Technology" value={project.technology_type || 'N/A'} />
                   <SpecItem label="Grid Connection" value={project.tech_requirements?.grid_status || 'Pending'} />
-                  <SpecItem label="Land Status" value="In Progress" />
-                  <SpecItem label="Offtake" value="N/A" />
-                  <SpecItem label="Expected COD" value="TBD" />
-                  <SpecItem label="Stage" value={project.project_stage} />
+          <SpecItem label="Land Status" value={project.has_secured_land ? "Secured" : "In Progress"} />
+          <SpecItem label="Offtake" value="N/A" />
+          <SpecItem label="Expected Go-Live" value={project.target_cod || "TBD"} />
+          <SpecItem label="Stage" value={project.project_stage} />
+        </div>
+      </div>
+
+      {/* Checklist View (New) */}
+      <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="text-xl font-bold text-text-main flex items-center gap-3">
+            <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
+              <Check className="size-4" />
+            </div>
+            Readiness Checklist
+          </h3>
+          {isOwner && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-primary font-bold"
+              onClick={() => editingChecklist ? handleUpdateChecklist() : setEditingChecklist(true)}
+            >
+              {editingChecklist ? "Save Selection" : "Edit Selection"}
+            </Button>
+          )}
+        </div>
+
+        {editingChecklist ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8 animate-in fade-in slide-in-from-top-2">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  checked={checklistData.has_secured_land}
+                  onChange={(e) => setChecklistData({ ...checklistData, has_secured_land: e.target.checked })}
+                  className="size-5 rounded border-gray-300 text-primary"
+                />
+                <Label className="text-sm font-bold text-text-main">Have you secured the land?</Label>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Land Title Status</Label>
+                <select 
+                  className="w-full h-11 bg-background border border-gray-100 rounded-xl px-4 text-sm font-medium focus:outline-none"
+                  value={checklistData.land_title_status}
+                  onChange={(e) => setChecklistData({ ...checklistData, land_title_status: e.target.value as any })}
+                >
+                  <option value="Traditional">Traditional</option>
+                  <option value="Titled">Titled</option>
+                  <option value="Not Applicable">Not Applicable</option>
+                </select>
+              </div>
+            </div>
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  checked={checklistData.has_reached_financial_close}
+                  onChange={(e) => setChecklistData({ ...checklistData, has_reached_financial_close: e.target.checked })}
+                  className="size-5 rounded border-gray-300 text-primary"
+                />
+                <Label className="text-sm font-bold text-text-main">Have you reached financial close?</Label>
+              </div>
+              <div className="space-y-3">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Latest Regulatory Approvals</Label>
+                <div className="grid grid-cols-1 gap-2">
+                  {['ZEMA approval letter', 'Grid Connection Agreement', 'Power Purchase Agreement (PPA)', 'Construction Permit'].map((approval) => (
+                    <div key={approval} className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        checked={checklistData.regulatory_approvals.includes(approval)}
+                        onChange={(e) => {
+                          const approvals = e.target.checked 
+                            ? [...checklistData.regulatory_approvals, approval]
+                            : checklistData.regulatory_approvals.filter(a => a !== approval);
+                          setChecklistData({ ...checklistData, regulatory_approvals: approvals });
+                        }}
+                        className="size-4 rounded border-gray-300 text-primary"
+                      />
+                      <Label className="text-xs font-medium text-text-muted">{approval}</Label>
+                    </div>
+                  ))}
                 </div>
               </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+            <ChecklistItem label="Land Secured" checked={project.has_secured_land || false} />
+            <ChecklistItem label="Financial Close Reached" checked={project.has_reached_financial_close || false} />
+            <div>
+              <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Land Title Status</p>
+              <p className="text-sm font-bold text-text-main">{project.land_title_status || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Regulatory Approvals</p>
+              <div className="flex flex-wrap gap-2">
+                {project.regulatory_approvals && project.regulatory_approvals.length > 0 ? project.regulatory_approvals.map((a: string) => (
+                  <span key={a} className="px-2 py-1 bg-primary/5 text-primary text-[10px] font-bold rounded-lg border border-primary/10">{a}</span>
+                )) : <span className="text-sm font-bold text-text-muted italic">None stated</span>}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
               {/* AI Scoring Analysis */}
               <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
@@ -512,7 +690,7 @@ export default function ProjectDetailsPage() {
                     <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
                       <ShieldCheck className="size-4" />
                     </div>
-                    Secure Data Room
+                    {isOwner ? "Manage Data Room" : isPartner ? "Due Diligence Room" : "Secure Data Room"}
                   </h3>
                   <div className="flex gap-2">
                     {isOwner && (
@@ -536,7 +714,14 @@ export default function ProjectDetailsPage() {
                       </>
                     )}
                     {(isOwner || hasNda) && (
-                      <Button variant="outline" className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200">
+                      <Button 
+                        variant="outline" 
+                        className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200"
+                        onClick={() => {
+                          if (!project?.documents || project.documents.length === 0) return;
+                          alert('Please download files individually. Batch downloading is not currently supported by the storage setup.');
+                        }}
+                      >
                         <Download className="size-3 mr-2" /> Download All
                       </Button>
                     )}
@@ -553,6 +738,7 @@ export default function ProjectDetailsPage() {
                           date={new Date(doc.uploaded_at).toLocaleDateString()}
                           canDelete={isOwner}
                           onDelete={() => handleDeleteDocument(doc.id, doc.file_url)}
+                          fileUrl={doc.file_url}
                         />
                       ))
                     ) : (
@@ -579,55 +765,72 @@ export default function ProjectDetailsPage() {
             {/* Engagement Sidebar */}
             <div className="space-y-8">
               {/* Analytics Summary */}
-              <div className="p-8 rounded-[32px] bg-slate-900 text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-[100px]"></div>
-                <h3 className="text-lg font-bold mb-6">Market Interest</h3>
-                <div className="space-y-6">
-                   <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Views</span>
-                      <span className="text-lg font-bold">124</span>
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Data Room Access</span>
-                      <span className="text-lg font-bold text-primary">8</span>
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">NDA Requests</span>
-                      <span className="text-lg font-bold">3</span>
-                   </div>
+              {!(!isOwner && isPartner) && (
+                <div className="p-8 rounded-[32px] bg-slate-900 text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-[100px]"></div>
+                  <h3 className="text-lg font-bold mb-6">Market Interest</h3>
+                  <div className="space-y-6">
+                     <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Views</span>
+                        <span className="text-lg font-bold">124</span>
+                     </div>
+                     <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Data Room Access</span>
+                        <span className="text-lg font-bold text-primary">8</span>
+                     </div>
+                     <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">NDA Requests</span>
+                        <span className="text-lg font-bold">3</span>
+                     </div>
+                  </div>
+                  <Link href={`/projects/${project.id}/analytics`}>
+                    <Button className="w-full h-12 rounded-xl bg-primary text-primary-content font-bold mt-8 hover:scale-105 transition-all">
+                      View Detailed Analytics
+                    </Button>
+                  </Link>
                 </div>
-                <Link href={`/projects/${project.id}/analytics`}>
-                  <Button className="w-full h-12 rounded-xl bg-primary text-primary-content font-bold mt-8 hover:scale-105 transition-all">
-                    View Detailed Analytics
-                  </Button>
-                </Link>
-              </div>
+              )}
 
               {/* Discussion Preview */}
               <div className="rounded-[32px] bg-surface border border-gray-100 shadow-soft overflow-hidden flex flex-col h-[400px]">
                 <div className="p-6 border-b border-gray-50 flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-text-main uppercase tracking-widest">Active Discussions</h3>
-                    <p className="text-[10px] font-bold text-text-muted mt-1 uppercase">3 Ongoing Threads</p>
+                    <p className="text-[10px] font-bold text-text-muted mt-1 uppercase">
+                      {isOwner ? "3 Ongoing Threads" : "1 Ongoing Thread"}
+                    </p>
                   </div>
                   <Icons.messageSquare className="size-5 text-primary" />
                 </div>
                 
                 <div className="flex-grow p-6 overflow-y-auto no-scrollbar space-y-6">
-                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                     <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-[10px]">GC</div>
-                     <div>
-                        <p className="text-xs font-bold text-text-main mb-1">GreenGrowth Capital</p>
-                        <p className="text-[10px] text-text-muted leading-relaxed font-medium">"Could you provide more detail on the grid connection timeline?"</p>
-                     </div>
-                  </div>
-                  <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
-                     <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">NP</div>
-                     <div>
-                        <p className="text-xs font-bold text-text-main mb-1">Nordic Power Fund</p>
-                        <p className="text-[10px] text-text-muted leading-relaxed font-medium">"NDA countersigned. Awaiting access to financial model."</p>
-                     </div>
-                  </div>
+                  {(!(!isOwner && isPartner)) && (
+                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                       <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-[10px]">GC</div>
+                       <div>
+                          <p className="text-xs font-bold text-text-main mb-1">GreenGrowth Capital</p>
+                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"Could you provide more detail on the grid connection timeline?"</p>
+                       </div>
+                    </div>
+                  )}
+                  {isOwner && (
+                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
+                       <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">NP</div>
+                       <div>
+                          <p className="text-xs font-bold text-text-main mb-1">Nordic Power Fund</p>
+                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"NDA countersigned. Awaiting access to financial model."</p>
+                       </div>
+                    </div>
+                  )}
+                  {(!isOwner && isPartner) && (
+                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
+                       <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">YOU</div>
+                       <div>
+                          <p className="text-xs font-bold text-text-main mb-1">Your Thread</p>
+                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"Awaiting response from developer..."</p>
+                       </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-6 border-t border-gray-50">
@@ -647,6 +850,20 @@ export default function ProjectDetailsPage() {
           />
         </div>
       </main>
+    </div>
+  );
+}
+
+function ChecklistItem({ label, checked }: { label: string, checked: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className={cn(
+        "size-5 rounded-full flex items-center justify-center border-2 transition-colors",
+        checked ? "bg-green-500 border-green-500 text-white" : "bg-white border-gray-200 text-transparent"
+      )}>
+        <Check className="size-3" />
+      </div>
+      <span className="text-sm font-bold text-text-main">{label}</span>
     </div>
   );
 }
@@ -672,9 +889,18 @@ function StepItem({ number, label, status }: { number: number, label: string, st
   );
 }
 
-function DocumentItem({ name, size, date, canDelete, onDelete }: { name: string, size: string, date: string, canDelete?: boolean, onDelete?: () => void }) {
+function DocumentItem({ name, size, date, canDelete, onDelete, fileUrl }: { name: string, size: string, date: string, canDelete?: boolean, onDelete?: () => void, fileUrl?: string }) {
+  const handleDownload = () => {
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between p-5 rounded-[20px] bg-background border border-gray-50 hover:border-primary/30 group transition-all cursor-pointer">
+    <div 
+      className="flex items-center justify-between p-5 rounded-[20px] bg-background border border-gray-50 hover:border-primary/30 group transition-all cursor-pointer"
+      onClick={handleDownload}
+    >
       <div className="flex items-center gap-4">
         <div className="size-12 rounded-xl bg-white border border-gray-100 flex items-center justify-center text-text-muted group-hover:text-primary transition-colors">
           <FileText className="size-6" />

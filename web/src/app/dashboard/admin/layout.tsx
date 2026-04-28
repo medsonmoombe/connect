@@ -63,7 +63,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             break;
           case 'CAPITAL_PARTNER':
           case 'TECHNICAL_PARTNER':
-          case 'GRANT_PROVIDER':
             router.push('/dashboard/investor');
             break;
           default:

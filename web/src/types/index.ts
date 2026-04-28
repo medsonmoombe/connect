@@ -5,7 +5,7 @@ export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | '
 export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL';
 
 // Project Stages
-export type ProjectStage = 'FEASIBILITY' | 'PRE_CONSTRUCTION' | 'READY_TO_BUILD' | 'UNDER_CONSTRUCTION' | 'OPERATIONAL';
+export type ProjectStage = 'CONCEPT' | 'FEASIBILITY' | 'PRE_CONSTRUCTION' | 'READY_TO_BUILD' | 'UNDER_CONSTRUCTION' | 'OPERATIONAL';
 
 // Capital Structure Types (No debt instruments allowed)
 export type CapitalStructureType = 'EQUITY' | 'PROFIT_SHARING' | 'LEASING' | 'GRANT';
@@ -68,6 +68,11 @@ export interface Project {
   target_cod?: string;
   created_at: string;
   updated_at?: string;
+  // Checklist Fields
+  has_secured_land?: boolean;
+  land_title_status?: 'Traditional' | 'Titled' | 'Not Applicable';
+  has_reached_financial_close?: boolean;
+  regulatory_approvals?: string[];
   // Related data
   developer?: Company;
   documents?: ProjectDocument[];
@@ -102,6 +107,10 @@ export interface ProjectScore {
   documentation_score: number;
   governance_score: number;
   financial_transparency_score: number;
+  regulatory_score?: number;
+  financial_score?: number;
+  developer_score?: number;
+  breakdown?: any;
   risk_flags: string[];
   recommendations: string[];
   summary?: string;

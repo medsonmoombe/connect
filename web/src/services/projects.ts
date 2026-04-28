@@ -254,6 +254,21 @@ export const projectService = {
   },
 
   /**
+   * Update a project
+   */
+  async updateProject(projectId: string, updates: Partial<Project>) {
+    const { data, error } = await supabase
+      .from('projects')
+      .update(updates)
+      .eq('id', projectId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as Project;
+  },
+
+  /**
    * Delete a project
    */
   async deleteProject(projectId: string) {

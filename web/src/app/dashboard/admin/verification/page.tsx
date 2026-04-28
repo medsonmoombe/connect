@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { usersApi, projectsApi, auditLogsApi } from '@/services/api';
+import { projectService } from '@/services/projects';
 import { User, Project } from '@/types';
 import { Icons } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
@@ -66,7 +68,7 @@ export default function VerificationQueuePage() {
     try {
       if (status === 'VALIDATED') {
         // Transition project stage to PRE_CONSTRUCTION as 'validated'
-        await projectsApi.update(projectId, { project_stage: 'PRE_CONSTRUCTION' });
+        await projectService.updateProject(projectId, { project_stage: 'PRE_CONSTRUCTION' });
         // Trigger matching
         await projectService.runMatchingEngine(projectId);
       } else {
@@ -178,7 +180,7 @@ export default function VerificationQueuePage() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-8">
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Company</p><p className="text-lg font-bold text-slate-900">{selectedUser.company?.name || 'N/A'}</p></div>
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Company</p><p className="text-lg font-bold text-slate-900">{(selectedUser as any).company?.name || selectedUser.company_id || 'N/A'}</p></div>
                   <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role Applied</p><p className="text-lg font-bold text-slate-900">{selectedUser.role}</p></div>
                 </div>
               </div>

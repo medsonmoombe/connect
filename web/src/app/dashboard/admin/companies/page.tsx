@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { companiesApi } from '@/services/api';
 import { Company, CompanyType } from '@/types';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 const COMPANY_TYPES: { id: string, name: string }[] = [
@@ -13,7 +15,6 @@ const COMPANY_TYPES: { id: string, name: string }[] = [
   { id: 'DEVELOPER', name: 'Developer' },
   { id: 'CAPITAL', name: 'Capital Partner' },
   { id: 'TECHNICAL', name: 'Technical Partner' },
-  { id: 'GRANT', name: 'Grant Provider' },
 ];
 
 export default function AdminCompaniesPage() {
@@ -21,6 +22,7 @@ export default function AdminCompaniesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
 
   useEffect(() => {
     fetchCompanies();
@@ -53,7 +55,6 @@ export default function AdminCompaniesPage() {
       case 'DEVELOPER': return 'bg-blue-50 text-blue-700 border-blue-100';
       case 'CAPITAL': return 'bg-green-50 text-green-700 border-green-100';
       case 'TECHNICAL': return 'bg-purple-50 text-purple-700 border-purple-100';
-      case 'GRANT': return 'bg-orange-50 text-orange-700 border-orange-100';
       default: return 'bg-slate-50 text-slate-700 border-slate-100';
     }
   };
@@ -185,8 +186,13 @@ export default function AdminCompaniesPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Button variant="ghost" size="sm" className="h-8 px-3 rounded-lg text-green-800 hover:text-green-900 hover:bg-green-50 font-semibold">
-                        Edit
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-8 px-3 rounded-lg text-green-800 hover:text-green-900 hover:bg-green-50 font-semibold"
+                        onClick={() => setSelectedCompany(company)}
+                      >
+                        View Profile
                       </Button>
                     </td>
                   </tr>
@@ -203,6 +209,93 @@ export default function AdminCompaniesPage() {
           </div>
         </div>
       </div>
+
+      {/* Company Profile Modal */}
+      {selectedCompany && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 no-scrollbar">
+            <div className="sticky top-0 bg-white border-b border-slate-50 p-8 flex items-center justify-between z-10">
+              <div className="flex items-center gap-4">
+                <div className="size-14 rounded-2xl bg-slate-50 flex items-center justify-center text-green-800 font-black text-xl border border-slate-100">
+                  {selectedCompany.name.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 leading-tight">{selectedCompany.name}</h3>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{selectedCompany.type.replace(/_/g, ' ')}</p>
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setSelectedCompany(null)}
+                className="rounded-xl"
+              >
+                <Icons.close className="size-6" />
+              </Button>
+            </div>
+
+            <div className="p-10 space-y-10">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <ProfileItem label="Years Operating" value={`${selectedCompany.years_operating} Years`} />
+                <ProfileItem label="Annual Turnover" value={(selectedCompany as any).metadata?.annual_turnover ? `$${(selectedCompany as any).metadata.annual_turnover.toLocaleString()}` : 'N/A'} />
+                <ProfileItem label="Location" value={selectedCompany.country} />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-3">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Developer Profile</h4>
+                <p className="text-sm text-slate-600 leading-relaxed font-medium bg-slate-50/50 p-6 rounded-2xl border border-slate-100">
+                  {selectedCompany.description || 'No description provided.'}
+                </p>
+              </div>
+
+              {/* Experience */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                <div className="space-y-4">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Icons.zap className="size-3 text-amber-500" />
+                    Solar Construction Experience
+                  </h4>
+                  <p className="text-sm text-slate-600 leading-relaxed italic">
+                    "{(selectedCompany as any).metadata?.solar_construction_experience || 'No experience details listed.'}"
+                  </p>
+                </div>
+                <div className="space-y-4">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Icons.settings className="size-3 text-blue-500" />
+                    Operations Experience
+                  </h4>
+                  <p className="text-sm text-slate-600 leading-relaxed italic">
+                    "{(selectedCompany as any).metadata?.operations_experience || 'No operations details listed.'}"
+                  </p>
+                </div>
+              </div>
+
+              {/* Additional Details */}
+              <div className="pt-8 border-t border-slate-50 flex items-center justify-between">
+                <div>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Subsidiaries</h4>
+                  <p className="text-sm font-bold text-slate-900">{(selectedCompany as any).metadata?.subsidiaries || 'None'}</p>
+                </div>
+                <div className="text-right">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Team Size</h4>
+                  <p className="text-sm font-bold text-slate-900">{selectedCompany.team_size} Members</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfileItem({ label, value }: { label: string, value: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+      <p className="text-lg font-bold text-slate-900">{value}</p>
     </div>
   );
 }

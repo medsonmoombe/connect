@@ -10,6 +10,7 @@ import Link from 'next/link';
 
 const STAGES: { id: string, name: string }[] = [
   { id: 'ALL', name: 'All Stages' },
+  { id: 'CONCEPT', name: 'Concept' },
   { id: 'FEASIBILITY', name: 'Feasibility' },
   { id: 'PRE_CONSTRUCTION', name: 'Pre-Construction' },
   { id: 'READY_TO_BUILD', name: 'Ready to Build' },
@@ -59,6 +60,7 @@ export default function AdminProjectsPage() {
 
   const getStageColor = (stage: ProjectStage) => {
     switch (stage) {
+      case 'CONCEPT': return 'bg-slate-50 text-slate-700 border-slate-100';
       case 'FEASIBILITY': return 'bg-blue-50 text-blue-700 border-blue-100';
       case 'PRE_CONSTRUCTION': return 'bg-purple-50 text-purple-700 border-purple-100';
       case 'READY_TO_BUILD': return 'bg-yellow-50 text-yellow-700 border-yellow-100';

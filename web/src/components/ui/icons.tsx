@@ -48,10 +48,12 @@ import {
   Info,
   Phone,
   Trash2,
+  X,
 } from "lucide-react";
 
 export const Icons = {
   spinner: Loader2,
+  close: X,
   plus: Plus,
   zap: Zap,
   building: Building,
