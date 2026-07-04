@@ -4,6 +4,8 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 admin.initializeApp();
 
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+
 // Initialize GenAI inside the handler to ensure it picks up the latest environment variables
 const getGenAI = () => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -13,11 +15,58 @@ const getGenAI = () => {
   return new GoogleGenerativeAI(apiKey);
 };
 
+const getMimeType = async (bucket, path) => {
+  try {
+    const [metadata] = await bucket.file(path).getMetadata();
+    return metadata.contentType || "application/pdf";
+  } catch (err) {
+    console.warn(`Could not read metadata for ${path}; defaulting to application/pdf:`, err);
+    return "application/pdf";
+  }
+};
+
+const buildGcsFileDataParts = async (bucket, paths) => {
+  const parts = [];
+
+  for (const path of paths) {
+    const mimeType = await getMimeType(bucket, path);
+    parts.push({
+      fileData: {
+        fileUri: `gs://${bucket.name}/${path}`,
+        mimeType,
+      },
+    });
+  }
+
+  return parts;
+};
+
+const buildInlineDataParts = async (bucket, paths) => {
+  const parts = [];
+
+  for (const path of paths) {
+    const mimeType = await getMimeType(bucket, path);
+    const [fileBuffer] = await bucket.file(path).download();
+    parts.push({
+      inlineData: {
+        data: fileBuffer.toString("base64"),
+        mimeType,
+      },
+    });
+  }
+
+  return parts;
+};
+
 /**
  * Cloud Function to score a project using Gemini AI.
  * Expects { projectId, documentPaths: [] }
  */
-exports.scoreProject = onCall({ region: "us-central1" }, async (request) => {
+exports.scoreProject = onCall({
+  region: "us-central1",
+  memory: "512MiB",
+  timeoutSeconds: 540,
+}, async (request) => {
   const data = request.data;
   console.log("Received Gen 2 scoring request. Data:", JSON.stringify(data));
   
@@ -33,37 +82,18 @@ exports.scoreProject = onCall({ region: "us-central1" }, async (request) => {
 
   try {
     const uid = request.auth ? request.auth.uid : "testing-uid";
+    console.log("Authenticated uid:", uid);
 
-    // 1. Fetch and convert documents to Base64 for Gemini
     const bucket = admin.storage().bucket();
-    const documentParts = await Promise.all(
-      documentPaths.map(async (path) => {
-        try {
-          const [fileBuffer] = await bucket.file(path).download();
-          return {
-            inlineData: {
-              data: fileBuffer.toString("base64"),
-              mimeType: "application/pdf", // Default to PDF for infra docs
-            },
-          };
-        } catch (err) {
-          console.error(`Error downloading file ${path}:`, err);
-          return null;
-        }
-      })
-    );
 
-    // Filter out failed downloads
-    const validParts = documentParts.filter((part) => part !== null);
-
-    if (validParts.length === 0) {
-      throw new Error("No valid documents found for analysis.");
-    }
+    // 1. Convert Storage objects to Gemini file parts without loading every PDF into memory.
+    let documentParts = await buildGcsFileDataParts(bucket, documentPaths);
+    let documentPartMode = "gcs-file-data";
 
     // 2. Initialize Gemini with JSON mode
     const genAI = getGenAI();
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-3-flash-preview",
+      model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
       generationConfig: { responseMimeType: "application/json" }
     });
 
@@ -162,11 +192,44 @@ exports.scoreProject = onCall({ region: "us-central1" }, async (request) => {
     `;
 
     // 3. Generate Content (Prompt + Document Parts)
-    const result = await model.generateContent([prompt, ...validParts]);
+    let result;
+    try {
+      result = await model.generateContent([prompt, ...documentParts]);
+    } catch (generationError) {
+      console.warn(`Gemini generation failed with ${documentPartMode} parts; retrying with inline document data:`, generationError);
+      documentParts = await buildInlineDataParts(bucket, documentPaths);
+      documentPartMode = "inline-data";
+      result = await model.generateContent([prompt, ...documentParts]);
+    }
+
     const response = await result.response;
-    const text = response.text();
-    
-    const scoringResult = JSON.parse(text);
+    let text = response.text();
+    console.log("Raw response text from Gemini:", text);
+
+    // Clean up Markdown code block wrapper if present
+    if (text.trim().startsWith("```")) {
+      text = text.trim().replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    }
+
+    // Try parsing the text. If it fails, attempt to strip trailing commas from JSON arrays/objects
+    let scoringResult;
+    try {
+      scoringResult = JSON.parse(text);
+    } catch (parseError) {
+      console.warn("Standard JSON parse failed, attempting regex-based trailing comma cleanup...");
+      try {
+        // Strip trailing commas before a closing bracket or brace
+        const cleanedText = text.replace(/,(\s*[\]}])/g, "$1");
+        scoringResult = JSON.parse(cleanedText);
+        console.log("Cleaned JSON parse succeeded!");
+      } catch (nestedError) {
+        console.error("AI returned malformed JSON structure:", text);
+        throw new HttpsError(
+          "internal", 
+          `AI returned malformed JSON that could not be parsed: ${parseError.message}. Raw output: ${text.substring(0, 300)}...`
+        );
+      }
+    }
 
     return {
       success: true,

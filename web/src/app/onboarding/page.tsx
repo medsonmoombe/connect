@@ -29,10 +29,29 @@ export default function OnboardingPage() {
     name: '',
     country: '',
     website: '',
-    type: user?.role === 'ADMIN' ? 'DEVELOPER' : (user?.role === 'CAPITAL_PARTNER' ? 'CAPITAL' : (user?.role === 'TECHNICAL_PARTNER' ? 'TECHNICAL' : 'DEVELOPER')) as any
+    years_operating: 0,
+    team_size: 0,
+    is_new_company_with_experienced_team: false,
+    management_team_experience: { years: 0, description: '' },
+    type: user?.role === 'ADMIN' ? 'DEVELOPER' : (user?.role === 'CAPITAL_PARTNER' ? 'CAPITAL' : (user?.role === 'TECHNICAL_PARTNER' ? 'TECHNICAL' : (user?.role === 'POWER_TRADER' ? 'POWER_TRADER' : 'DEVELOPER'))) as any
   });
 
   const [preferences, setPreferences] = useState<any>({});
+
+  const normalizeList = (value: string) => value.split(',').map(s => s.trim()).filter(Boolean);
+
+  const updateManagementExperience = (years: number) => {
+    const managementTeamExperience = {
+      ...newCompany.management_team_experience,
+      years,
+    };
+    const yearsOperating = Number(newCompany.years_operating || 0);
+    setNewCompany({
+      ...newCompany,
+      management_team_experience: managementTeamExperience,
+      is_new_company_with_experienced_team: yearsOperating < 2 && years >= 5,
+    });
+  };
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +83,7 @@ export default function OnboardingPage() {
       setLoading(false);
     } else {
       await refreshUser();
-      if (user.role === 'CAPITAL_PARTNER' || user.role === 'TECHNICAL_PARTNER') {
+      if (user.role === 'CAPITAL_PARTNER' || user.role === 'TECHNICAL_PARTNER' || user.role === 'POWER_TRADER') {
         setStep('preferences');
       } else {
         setStep('complete');
@@ -79,7 +98,13 @@ export default function OnboardingPage() {
     setLoading(true);
     
     // Clean data
-    const companyData = { ...newCompany };
+    const managementYears = Number(newCompany.management_team_experience?.years || 0);
+    const companyData = {
+      ...newCompany,
+      years_operating: Number(newCompany.years_operating || 0),
+      team_size: Number(newCompany.team_size || 0),
+      is_new_company_with_experienced_team: Number(newCompany.years_operating || 0) < 2 && managementYears >= 5,
+    };
     if (!companyData.website) {
       // @ts-ignore
       delete companyData.website;
@@ -91,7 +116,7 @@ export default function OnboardingPage() {
       setLoading(false);
     } else {
       await refreshUser();
-      if (user.role === 'CAPITAL_PARTNER' || user.role === 'TECHNICAL_PARTNER') {
+      if (user.role === 'CAPITAL_PARTNER' || user.role === 'TECHNICAL_PARTNER' || user.role === 'POWER_TRADER') {
         setStep('preferences');
       } else {
         setStep('complete');
@@ -124,7 +149,7 @@ export default function OnboardingPage() {
         {['profile', 'company', 'preferences', 'complete'].map((s, idx) => {
           const isDone = ['profile', 'company', 'preferences', 'complete'].indexOf(step) > idx;
           const isActive = step === s;
-          if (s === 'preferences' && user?.role !== 'CAPITAL_PARTNER' && user?.role !== 'TECHNICAL_PARTNER') return null;
+          if (s === 'preferences' && user?.role !== 'CAPITAL_PARTNER' && user?.role !== 'TECHNICAL_PARTNER' && user?.role !== 'POWER_TRADER') return null;
           
           return (
             <div key={s} className="flex flex-col items-center gap-2">
@@ -245,6 +270,26 @@ export default function OnboardingPage() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label>Years Operating</Label>
+                    <Input 
+                      type="number"
+                      value={newCompany.years_operating}
+                      onChange={(e) => {
+                        const years = Number(e.target.value || 0);
+                        setNewCompany({...newCompany, years_operating: years});
+                        updateManagementExperience(Number(newCompany.management_team_experience?.years || 0));
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Team Size</Label>
+                    <Input 
+                      type="number"
+                      value={newCompany.team_size}
+                      onChange={(e) => setNewCompany({...newCompany, team_size: Number(e.target.value || 0)})}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label>Website (Optional)</Label>
                     <Input
                       type="url"
@@ -253,6 +298,28 @@ export default function OnboardingPage() {
                       onChange={(e) => setNewCompany({...newCompany, website: e.target.value})}
                     />
                   </div>
+                  {newCompany.type === 'TECHNICAL' && (
+                    <div className="col-span-2 p-4 bg-slate-50 rounded-lg space-y-4 border border-slate-200">
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="checkbox" 
+                          id="is_new_company_with_experienced_team"
+                          checked={newCompany.is_new_company_with_experienced_team}
+                          disabled
+                        />
+                        <Label htmlFor="is_new_company_with_experienced_team" className="font-semibold">Experienced Leadership Flag</Label>
+                      </div>
+                      <p className="text-xs text-slate-500">Calculated when the company has operated for less than 2 years and management experience is at least 5 years.</p>
+                      <div className="space-y-2">
+                        <Label>Management Team Total Experience (Years)</Label>
+                        <Input 
+                          type="number"
+                          value={newCompany.management_team_experience.years}
+                          onChange={(e) => updateManagementExperience(Number(e.target.value || 0))}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 pt-4">
                   <Button type="button" variant="ghost" onClick={() => setIsCreatingCompany(false)}>Back to Search</Button>
@@ -288,14 +355,14 @@ export default function OnboardingPage() {
                   <Label>Investment Sector Focus</Label>
                   <Input 
                     placeholder="Solar, Wind, Hydro..." 
-                    onChange={(e) => setPreferences({...preferences, sector_focus: e.target.value.split(',').map(s => s.trim())})} 
+                    onChange={(e) => setPreferences({...preferences, sector_focus: normalizeList(e.target.value)})} 
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Geographic Focus</Label>
                   <Input 
                     placeholder="Nigeria, Ghana, Kenya..." 
-                    onChange={(e) => setPreferences({...preferences, geographic_focus: e.target.value.split(',').map(s => s.trim())})} 
+                    onChange={(e) => setPreferences({...preferences, geographic_focus: normalizeList(e.target.value)})} 
                   />
                 </div>
                 <div className="space-y-2">
@@ -309,18 +376,61 @@ export default function OnboardingPage() {
                     <option value="HIGH">High Risk (Concept/Exploration)</option>
                   </select>
                 </div>
+                <div className="space-y-2">
+                  <Label>Preferred Project Stages</Label>
+                  <Input 
+                    placeholder="FEASIBILITY, READY_TO_BUILD..." 
+                    onChange={(e) => setPreferences({...preferences, preferred_project_stage: normalizeList(e.target.value).map(s => s.toUpperCase())})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Preferred Capital Structure</Label>
+                  <Input 
+                    placeholder="EQUITY, PROFIT_SHARING, LEASING, GRANT" 
+                    onChange={(e) => setPreferences({...preferences, preferred_capital_structure: normalizeList(e.target.value).map(s => s.toUpperCase())})} 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Expected Return Profile</Label>
+                  <Input 
+                    placeholder="e.g. 15-20% IRR" 
+                    onChange={(e) => setPreferences({...preferences, expected_return_profile: e.target.value})} 
+                  />
+                </div>
               </div>
             )}
 
             {user?.role === 'TECHNICAL_PARTNER' && (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Service Categories (Comma separated)</Label>
-                  <Input placeholder="EPC, O&M, Advisory..." onChange={(e) => setPreferences({...preferences, service_categories: e.target.value.split(',').map(s => s.trim())})} />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Years of Experience</Label>
+                    <Input type="number" onChange={(e) => setPreferences({...preferences, years_of_experience: Number(e.target.value)})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Min Project Size (ZMW)</Label>
+                    <Input type="number" onChange={(e) => setPreferences({...preferences, min_ticket_size_zmw: Number(e.target.value)})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Max Project Size (ZMW)</Label>
+                    <Input type="number" onChange={(e) => setPreferences({...preferences, max_ticket_size_zmw: Number(e.target.value)})} />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Regions of Operation</Label>
-                  <Input placeholder="North America, EU, SE Asia..." onChange={(e) => setPreferences({...preferences, regions_operated: e.target.value.split(',').map(s => s.trim())})} />
+                  <Label>Payment Terms</Label>
+                  <Input placeholder="e.g. 20% upfront, milestones..." onChange={(e) => setPreferences({...preferences, payment_terms: e.target.value})} />
+                </div>
+                <div className="space-y-2">
+                    <Label>Specific Project Type Experience</Label>
+                    <Input placeholder="Utility Scale Solar, Micro-grids..." onChange={(e) => setPreferences({...preferences, project_type_experience: normalizeList(e.target.value)})} />
+                </div>
+                <div className="space-y-2">
+                    <Label>Service Categories (Comma separated)</Label>
+                    <Input placeholder="EPC, O&M, Advisory..." onChange={(e) => setPreferences({...preferences, service_categories: normalizeList(e.target.value)})} />
+                </div>
+                <div className="space-y-2">
+                    <Label>Regions of Operation</Label>
+                    <Input placeholder="Copperbelt, Lusaka, Southern..." onChange={(e) => setPreferences({...preferences, regions_operated: normalizeList(e.target.value)})} />
                 </div>
               </div>
             )}
@@ -356,3 +466,5 @@ export default function OnboardingPage() {
     </div>
   );
 }
+
+

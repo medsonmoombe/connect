@@ -17,6 +17,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { engagementService } from '@/lib/engagement';
 import { auditLogsApi } from '@/services/api';
 
+const getErrorMessage = (error: unknown) => {
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String((error as { message?: unknown }).message);
+  }
+
+  return 'Unknown error';
+};
+
 export default function ProjectDetailsPage() {
   const params = useParams();
   const router = useRouter();
@@ -189,9 +197,29 @@ export default function ProjectDetailsPage() {
 
     } catch (error) {
       console.error('AI Analysis error:', error);
-      alert('Failed to run AI analysis');
+      alert(`Failed to run AI analysis: ${getErrorMessage(error)}`);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!project) return;
+    
+    const confirmDelete = window.confirm(
+      `CRITICAL ACTION: Are you sure you want to delete "${project.name}"?\n\nThis will permanently remove:\n- All project metadata\n- All uploaded documents from Google Cloud\n- All AI scoring and matching results\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmDelete) return;
+
+    setLoading(true);
+    try {
+      await projectService.deleteProject(project.id);
+      router.push('/dashboard/developer');
+    } catch (error: any) {
+      console.error('Error deleting project:', error);
+      alert(`Failed to delete project: ${error.message}`);
+      setLoading(false);
     }
   };
 
@@ -360,6 +388,14 @@ export default function ProjectDetailsPage() {
           </div>
           {isOwner && (
             <div className="flex items-center gap-3">
+              <Button 
+                variant="ghost" 
+                className="h-10 px-4 rounded-xl text-error hover:bg-error/10 font-bold"
+                onClick={handleDeleteProject}
+              >
+                <Trash2 className="size-4 mr-2" />
+                Delete
+              </Button>
               <Button 
                 variant="outline" 
                 className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main"

@@ -1,8 +1,8 @@
 // User Roles
-export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'ADMIN';
+export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'ADMIN' | 'POWER_TRADER';
 
 // Company Types
-export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL';
+export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL' | 'POWER_TRADER';
 
 // Project Stages
 export type ProjectStage = 'CONCEPT' | 'FEASIBILITY' | 'PRE_CONSTRUCTION' | 'READY_TO_BUILD' | 'UNDER_CONSTRUCTION' | 'OPERATIONAL';
@@ -15,6 +15,18 @@ export type RiskTolerance = 'LOW' | 'MEDIUM' | 'HIGH';
 
 // Governance Preference
 export type GovernancePreference = 'PASSIVE' | 'BOARD_SEAT' | 'ACTIVE_ROLE';
+
+export interface PowerTrader {
+  id: string;
+  company_id: string;
+  license_type: string;
+  max_offtake_capacity_mw: number;
+  preferred_technology_types: string[];
+  regions_of_interest: string[];
+  min_ppa_duration_years: number;
+  credit_rating_equivalent?: string;
+  company?: Company;
+}
 
 // Engagement Status
 export type EngagementStatus = 'INTRO_SENT' | 'INTRO_ACCEPTED' | 'NDA_SIGNED' | 'DUE_DILIGENCE' | 'TERM_SHEET' | 'CLOSED' | 'DROPPED' | 'CONTRACT_SIGNED' | 'CAPITAL_COMMITTED';
@@ -47,6 +59,8 @@ export interface Company {
   logo_url?: string;
   created_at: string;
   updated_at: string;
+  is_new_company_with_experienced_team?: boolean;
+  management_team_experience?: any;
 }
 
 // Project Type
@@ -128,6 +142,9 @@ export interface CapitalPartner {
   governance_preference: GovernancePreference;
   geographic_focus: string[];
   sector_focus: string[];
+  preferred_project_stage?: ProjectStage[];
+  expected_return_profile?: string;
+  preferred_capital_structure?: CapitalStructureType[];
   // Related data
   company?: Company;
 }
@@ -147,6 +164,12 @@ export interface TechnicalPartner {
   average_delivery_time_months: number;
   bonding_capacity: number;
   delivery_models: string[];
+  payment_terms?: string;
+  project_type_experience?: string[];
+  min_ticket_size_zmw?: number;
+  max_ticket_size_zmw?: number;
+  years_of_experience?: number;
+  company_experience_doc_url?: string;
   // Related data
   company?: Company;
 }
@@ -172,8 +195,21 @@ export interface TechnicalMatchResult {
   compatibility_score: number;
   score_breakdown: Record<string, unknown>;
   created_at: string;
+  status?: 'active' | 'inactive';
   // Related data
   technical_partner?: TechnicalPartner;
+}
+
+export interface PowerTrader {
+  id: string;
+  company_id: string;
+  license_type: string;
+  max_offtake_capacity_mw: number;
+  preferred_technology_types: string[];
+  regions_of_interest: string[];
+  min_ppa_duration_years: number;
+  credit_rating_equivalent?: string;
+  company?: Company;
 }
 
 // Engagement
@@ -227,3 +263,5 @@ export interface PaginatedResponse<T> {
   pageSize: number;
   totalPages: number;
 }
+
+

@@ -23,6 +23,7 @@ export default function DeveloperDashboard() {
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingEngagements, setLoadingEngagements] = useState(true);
   const [techMatches, setTechMatches] = useState<any[]>([]);
+  const [capMatches, setCapMatches] = useState<any[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
   const [updatingProfile, setUpdatingProfile] = useState(false);
@@ -103,18 +104,19 @@ export default function DeveloperDashboard() {
   };
 
   useEffect(() => {
-    async function fetchTechMatches() {
+    async function fetchAllMatches() {
       if (projects.length > 0) {
         setLoadingMatches(true);
         try {
           // Fetch matches for the first project as a default or all
-          const matches = await Promise.all(
-            projects.slice(0, 1).map(p => matchingApi.getTechnicalMatches(p.id))
-          );
-          const allMatches = matches.flatMap(m => m.data || []);
-          setTechMatches(allMatches);
+          const [tMatches, cMatches] = await Promise.all([
+            matchingApi.getTechnicalMatches(projects[0].id),
+            matchingApi.getCapitalMatches(projects[0].id)
+          ]);
+          setTechMatches(tMatches.data || []);
+          setCapMatches(cMatches.data || []);
         } catch (error) {
-          console.error('Error fetching technical matches:', error);
+          console.error('Error fetching matches:', error);
         } finally {
           setLoadingMatches(false);
         }
@@ -122,7 +124,7 @@ export default function DeveloperDashboard() {
     }
 
     if (activeTab === 'find-partners' && projects.length > 0) {
-      fetchTechMatches();
+      fetchAllMatches();
     }
   }, [activeTab, projects]);
 
@@ -581,60 +583,118 @@ export default function DeveloperDashboard() {
               )}
 
               {activeTab === 'find-partners' && (
-                <div className="space-y-8">
-                  <div className="flex items-center justify-between mb-2 px-2">
-                    <h2 className="text-xl font-bold text-text-main">Find Technical Partners</h2>
-                  </div>
-                  
-                  {loadingMatches ? (
-                    <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
-                      <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
-                      <p className="text-sm font-bold text-text-muted">Analyzing technical requirements...</p>
+                <div className="space-y-12">
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between mb-2 px-2">
+                      <h2 className="text-xl font-bold text-text-main">Institutional Capital Matches</h2>
+                      <span className="text-xs font-bold uppercase tracking-widest text-text-muted">{capMatches.length} Matches</span>
                     </div>
-                  ) : techMatches.length > 0 ? (
-                    <div className="grid gap-6">
-                      {techMatches.map((match) => (
-                        <div key={match.id} className="p-8 rounded-2xl bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                            <div className="flex gap-5">
-                              <div className="size-16 rounded-2xl bg-slate-50 flex items-center justify-center text-primary font-black">
-                                {match.technical_partner?.company?.name?.substring(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <h4 className="text-xl font-bold text-text-main mb-1">{match.technical_partner?.company?.name}</h4>
-                                <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-widest">
-                                  <span className="flex items-center gap-1.5"><Icons.zap className="size-3.5" />{match.technical_partner?.total_mw_delivered} MW Delivered</span>
-                                  <span className="flex items-center gap-1.5"><Icons.checkCircle2 className="size-3.5" />EPC Verified</span>
+                    
+                    {loadingMatches ? (
+                      <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
+                        <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+                        <p className="text-sm font-bold text-text-muted">Analyzing investment criteria...</p>
+                      </div>
+                    ) : capMatches.length > 0 ? (
+                      <div className="grid gap-6">
+                        {capMatches.map((match) => (
+                          <div key={match.id} className="p-8 rounded-2xl bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                              <div className="flex gap-5">
+                                <div className="size-16 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 font-black">
+                                  {match.capital_partner?.company?.name?.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <h4 className="text-xl font-bold text-text-main mb-1">{match.capital_partner?.company?.name}</h4>
+                                  <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-widest">
+                                    <span className="flex items-center gap-1.5"><Icons.dollarSign className="size-3.5" />Verified Fund</span>
+                                    <span className="flex items-center gap-1.5"><Icons.mapPin className="size-3.5" />{match.capital_partner?.geographic_focus?.join(', ')}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-10">
-                              <div className="text-right">
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-1">Match Score</p>
-                                <p className="text-xl font-extrabold text-primary">{match.compatibility_score}%</p>
+                              <div className="flex items-center gap-10">
+                                <div className="text-right">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-1">Compatibility</p>
+                                  <p className="text-xl font-extrabold text-blue-600">{match.compatibility_score}%</p>
+                                </div>
+                                <Button 
+                                  className="h-12 px-8 bg-blue-600 text-white font-bold rounded-2xl"
+                                  onClick={() => alert(`Intro request sent to ${match.capital_partner?.company?.name}`)}
+                                >
+                                  Request Intro
+                                </Button>
                               </div>
-                              <Button 
-                                className="h-12 px-8 bg-text-main text-white font-bold rounded-2xl"
-                                onClick={() => {
-                                  alert(`Proposal request simulated for ${match.technical_partner?.company?.name}`);
-                                }}
-                              >
-                                Request Proposal
-                              </Button>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState 
+                        icon="search"
+                        title="No Capital Matches"
+                        description="Try improving your project readiness score to attract more institutional investors."
+                        actionLabel="View Readiness Report"
+                        actionHref={`/projects/${projects[0]?.id}`}
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between mb-2 px-2">
+                      <h2 className="text-xl font-bold text-text-main">Qualified Technical Partners</h2>
+                      <span className="text-xs font-bold uppercase tracking-widest text-text-muted">{techMatches.length} Matches</span>
                     </div>
-                  ) : (
-                    <EmptyState 
-                      icon="settings"
-                      title="No Partners Found"
-                      description="We couldn't find any technical partners matching your project requirements. Try adjusting your project's technical specifications or check back later."
-                      actionLabel="Adjust Requirements"
-                      actionHref={`/projects/${projects[0]?.id}`}
-                    />
-                  )}
+                    
+                    {loadingMatches ? (
+                      <div className="p-12 text-center bg-surface rounded-2xl border border-gray-100">
+                        <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+                        <p className="text-sm font-bold text-text-muted">Analyzing technical requirements...</p>
+                      </div>
+                    ) : techMatches.length > 0 ? (
+                      <div className="grid gap-6">
+                        {techMatches.map((match) => (
+                          <div key={match.id} className="p-8 rounded-2xl bg-white border border-gray-100 shadow-soft hover:shadow-xl transition-all group">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                              <div className="flex gap-5">
+                                <div className="size-16 rounded-2xl bg-slate-50 flex items-center justify-center text-primary font-black">
+                                  {match.technical_partner?.company?.name?.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <h4 className="text-xl font-bold text-text-main mb-1">{match.technical_partner?.company?.name}</h4>
+                                  <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-widest">
+                                    <span className="flex items-center gap-1.5"><Icons.zap className="size-3.5" />{match.technical_partner?.total_mw_delivered} MW Delivered</span>
+                                    <span className="flex items-center gap-1.5"><Icons.checkCircle2 className="size-3.5" />EPC Verified</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-10">
+                                <div className="text-right">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted mb-1">Match Score</p>
+                                  <p className="text-xl font-extrabold text-primary">{match.compatibility_score}%</p>
+                                </div>
+                                <Button 
+                                  className="h-12 px-8 bg-text-main text-white font-bold rounded-2xl"
+                                  onClick={() => {
+                                    alert(`Proposal request simulated for ${match.technical_partner?.company?.name}`);
+                                  }}
+                                >
+                                  Request Proposal
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <EmptyState 
+                        icon="settings"
+                        title="No Technical Partners Found"
+                        description="We couldn't find any technical partners matching your project requirements."
+                        actionLabel="Adjust Requirements"
+                        actionHref={`/projects/${projects[0]?.id}`}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 

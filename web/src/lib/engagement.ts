@@ -1,5 +1,6 @@
 import { EngagementStatus, Engagement } from '@/types';
 import { supabase } from './supabase';
+import { projectService } from '@/services/projects';
 
 // Engagement State Machine
 // Valid transitions based on the design document:
@@ -14,6 +15,16 @@ export const ENGAGEMENT_STATES: EngagementStatus[] = [
   'TERM_SHEET',
   'CLOSED',
   'DROPPED',
+];
+
+export const ACCEPTED_TECHNICAL_STATUSES: EngagementStatus[] = [
+  'INTRO_ACCEPTED',
+  'NDA_SIGNED',
+  'DUE_DILIGENCE',
+  'TERM_SHEET',
+  'CONTRACT_SIGNED',
+  'CAPITAL_COMMITTED',
+  'CLOSED',
 ];
 
 // State transition map - defines valid next states from each current state
@@ -180,10 +191,10 @@ export class EngagementService {
    * Update engagement status with validation
    */
   static async updateStatus(engagementId: string, nextStatus: EngagementStatus) {
-    // 1. Get current status
+    // 1. Get current status and engagement metadata
     const { data: current, error: fetchErr } = await supabase
       .from('engagements')
-      .select('status')
+      .select('status, project_id, counterparty_type')
       .eq('id', engagementId)
       .single();
 
@@ -208,6 +219,13 @@ export class EngagementService {
       .single();
 
     if (error) throw error;
+    
+    if (
+      current.counterparty_type === 'TECHNICAL' &&
+      ACCEPTED_TECHNICAL_STATUSES.includes(nextStatus)
+    ) {
+      await projectService.runMatchingEngine(current.project_id);
+    }
     
     // 4. Create Audit Log Entry
     const { data: { user } } = await supabase.auth.getUser();

@@ -1,6 +1,17 @@
 import { supabase } from '@/lib/supabase';
 import { Project, ProjectTechRequirements, ProjectDocument, CapitalMatchResult, TechnicalMatchResult, CapitalPartner, TechnicalPartner } from '@/types';
 import { calculateCapitalMatchScore, calculateTechnicalMatchScore } from '@/lib/scoring';
+import { storageService } from '@/lib/storage';
+
+const ACCEPTED_TECHNICAL_STATUSES = [
+  'INTRO_ACCEPTED',
+  'NDA_SIGNED',
+  'DUE_DILIGENCE',
+  'TERM_SHEET',
+  'CONTRACT_SIGNED',
+  'CAPITAL_COMMITTED',
+  'CLOSED',
+];
 
 export const projectService = {
   /**
@@ -30,14 +41,25 @@ export const projectService = {
       const project = await this.getProjectDetails(projectId);
       if (!project) return;
 
-      // 2. Fetch all partners
+      // 2. Check for accepted EPC (Technical Partner)
+      const { data: acceptedEPC } = await supabase
+        .from('engagements')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('counterparty_type', 'TECHNICAL')
+        .in('status', ACCEPTED_TECHNICAL_STATUSES)
+        .maybeSingle();
+      
+      const hasAcceptedEPC = !!acceptedEPC;
+
+      // 3. Fetch all partners (optionally filter by verification status)
       const { data: capitalPartners } = await supabase.from('capital_partners').select('*, company:companies(*)');
       const { data: technicalPartners } = await supabase.from('technical_partners').select('*, company:companies(*)');
 
-      // 3. Calculate and save capital matches
+      // 4. Calculate and save capital matches
       if (capitalPartners) {
         const capitalMatches = capitalPartners.map(partner => 
-          calculateCapitalMatchScore(project, partner as CapitalPartner)
+          calculateCapitalMatchScore(project, partner as CapitalPartner, hasAcceptedEPC)
         );
         
         // Save to Supabase (upsert)
@@ -51,7 +73,7 @@ export const projectService = {
         }
       }
 
-      // 4. Calculate and save technical matches
+      // 5. Calculate and save technical matches
       if (technicalPartners) {
         const technicalMatches = technicalPartners.map(partner => 
           calculateTechnicalMatchScore(project, partner as TechnicalPartner)
@@ -63,7 +85,8 @@ export const projectService = {
             project_id: projectId,
             technical_partner_id: match.technical_partner_id,
             compatibility_score: match.compatibility_score,
-            score_breakdown: match.score_breakdown
+            score_breakdown: match.score_breakdown,
+            status: 'active'
           }, { onConflict: 'project_id,technical_partner_id' });
         }
       }
@@ -269,9 +292,19 @@ export const projectService = {
   },
 
   /**
-   * Delete a project
+   * Delete a project and all associated data
    */
   async deleteProject(projectId: string) {
+    // 1. Delete files from Firebase Storage
+    try {
+      await storageService.deleteProjectFolder(projectId);
+    } catch (storageError) {
+      console.warn('Could not delete storage folder, proceeding with DB deletion:', storageError);
+    }
+
+    // 2. Delete from Supabase
+    // Note: If cascading deletes are set up in the DB, this will clean up 
+    // project_scores, project_documents, match_results, etc.
     const { error } = await supabase
       .from('projects')
       .delete()

@@ -15,6 +15,38 @@ import {
   ApiResponse,
   AuditLog
 } from '@/types';
+import { projectService } from './projects';
+
+const ACCEPTED_TECHNICAL_STATUSES = [
+  'INTRO_ACCEPTED',
+  'NDA_SIGNED',
+  'DUE_DILIGENCE',
+  'TERM_SHEET',
+  'CONTRACT_SIGNED',
+  'CAPITAL_COMMITTED',
+  'CLOSED',
+];
+
+async function recalculateProjectMatches(projectId: string) {
+  try {
+    await projectService.runMatchingEngine(projectId);
+  } catch (error) {
+    console.error('Error recalculating matches:', error);
+  }
+}
+
+async function recalculateAllProjectsForPartner() {
+  const { data: projects, error } = await supabase
+    .from('projects')
+    .select('id');
+
+  if (error) {
+    console.error('Error fetching projects for match recalculation:', error);
+    return;
+  }
+
+  await Promise.all((projects || []).map(project => recalculateProjectMatches(project.id)));
+}
 
 // Helper function to handle Supabase responses
 async function handleResponse<T>(response: { data: T | null; error: Error | null }): Promise<ApiResponse<T>> {
@@ -101,6 +133,16 @@ export const usersApi = {
       .eq('id', userId)
       .select()
       .single();
+
+    if (!response.error && status === 'VERIFIED') {
+      const verifiedUser = response.data;
+      if (
+        verifiedUser?.company_id &&
+        (verifiedUser.role === 'CAPITAL_PARTNER' || verifiedUser.role === 'TECHNICAL_PARTNER')
+      ) {
+        await recalculateAllProjectsForPartner();
+      }
+    }
     return handleResponse(response);
   },
 };
@@ -241,6 +283,9 @@ export const capitalPartnersApi = {
 
   async update(id: string, partner: Partial<CapitalPartner>): Promise<ApiResponse<CapitalPartner>> {
     const response = await supabase.from('capital_partners').update(partner).eq('id', id).select().single();
+    if (!response.error) {
+      await recalculateAllProjectsForPartner();
+    }
     return handleResponse(response);
   },
 };
@@ -270,6 +315,9 @@ export const technicalPartnersApi = {
 
   async update(id: string, partner: Partial<TechnicalPartner>): Promise<ApiResponse<TechnicalPartner>> {
     const response = await supabase.from('technical_partners').update(partner).eq('id', id).select().single();
+    if (!response.error) {
+      await recalculateAllProjectsForPartner();
+    }
     return handleResponse(response);
   },
 };
@@ -344,6 +392,13 @@ export const engagementsApi = {
       .eq('id', id)
       .select()
       .single();
+    
+    if (!response.error && ACCEPTED_TECHNICAL_STATUSES.includes(status)) {
+      const engagement = response.data;
+      if (engagement.counterparty_type === 'TECHNICAL') {
+        await recalculateProjectMatches(engagement.project_id);
+      }
+    }
     return handleResponse(response);
   },
 };

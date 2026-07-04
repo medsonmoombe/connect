@@ -19,6 +19,7 @@ CREATE TYPE company_type AS ENUM (
 );
 
 CREATE TYPE project_stage AS ENUM (
+  'CONCEPT',
   'FEASIBILITY', 
   'PRE_CONSTRUCTION', 
   'READY_TO_BUILD', 
@@ -61,6 +62,11 @@ CREATE TYPE counterparty_type AS ENUM (
   'TECHNICAL'
 );
 
+CREATE TYPE match_status AS ENUM (
+  'active',
+  'inactive'
+);
+
 -- Companies Table
 CREATE TABLE companies (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -73,7 +79,9 @@ CREATE TABLE companies (
   description TEXT,
   logo_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  is_new_company_with_experienced_team BOOLEAN DEFAULT FALSE,
+  management_team_experience JSONB DEFAULT '{}'
 );
 
 -- Users Table
@@ -137,7 +145,10 @@ CREATE TABLE capital_partners (
   risk_tolerance risk_tolerance NOT NULL,
   governance_preference governance_preference NOT NULL,
   geographic_focus TEXT[],
-  sector_focus TEXT[]
+  sector_focus TEXT[],
+  preferred_project_stage project_stage[],
+  expected_return_profile TEXT,
+  preferred_capital_structure capital_structure_type[]
 );
 
 -- Technical Partners Table
@@ -154,7 +165,13 @@ CREATE TABLE technical_partners (
   largest_project_mw DECIMAL(10, 2),
   average_delivery_time_months INTEGER,
   bonding_capacity DECIMAL(10, 2),
-  delivery_models TEXT[]
+  delivery_models TEXT[],
+  payment_terms TEXT,
+  project_type_experience TEXT[],
+  min_ticket_size_zmw BIGINT,
+  max_ticket_size_zmw BIGINT,
+  years_of_experience INTEGER,
+  company_experience_doc_url TEXT
 );
 
 -- Project Scores Table
@@ -188,6 +205,19 @@ CREATE TABLE capital_match_results (
   UNIQUE(project_id, capital_partner_id)
 );
 
+CREATE TABLE power_traders (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  license_type TEXT NOT NULL,
+  max_offtake_capacity_mw DECIMAL(10, 2),
+  preferred_technology_types TEXT[],
+  regions_of_interest TEXT[],
+  min_ppa_duration_years INTEGER,
+  credit_rating_equivalent TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Technical Match Results Table
 CREATE TABLE technical_match_results (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -196,6 +226,7 @@ CREATE TABLE technical_match_results (
   compatibility_score INTEGER CHECK (compatibility_score >= 0 AND compatibility_score <= 100),
   score_breakdown JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW(),
+  status match_status DEFAULT 'active',
   UNIQUE(project_id, technical_partner_id)
 );
 
@@ -333,15 +364,82 @@ CREATE POLICY "project_documents_delete" ON project_documents FOR DELETE USING (
   EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = project_id AND u.id = auth.uid())
 );
 
--- Project Scores: Developer owner or Admin
+-- Project Scores: Developer owner, Admin, or matched Capital Partner. Technical Partners have no access.
 CREATE POLICY "project_scores_select" ON project_scores FOR SELECT USING (
-  EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = project_scores.project_id AND (u.id = auth.uid() OR u.role = 'ADMIN'))
+  EXISTS (
+    SELECT 1 FROM users u 
+    WHERE u.id = auth.uid() 
+    AND (
+      u.role = 'ADMIN' OR 
+      (u.role = 'DEVELOPER' AND EXISTS (
+        SELECT 1 FROM projects p 
+        WHERE p.id = project_scores.project_id 
+        AND p.developer_id = u.company_id
+      )) OR
+      (u.role = 'CAPITAL_PARTNER' AND EXISTS (
+        SELECT 1 FROM engagements e 
+        WHERE e.project_id = project_scores.project_id 
+        AND e.counterparty_id = u.company_id
+        AND e.status NOT IN ('INTRO_SENT')
+      ))
+    )
+  )
+);
+
+CREATE POLICY "project_scores_insert" ON project_scores FOR INSERT WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM users u 
+    WHERE u.id = auth.uid() 
+    AND (
+      u.role = 'ADMIN' OR 
+      (u.role = 'DEVELOPER' AND EXISTS (
+        SELECT 1 FROM projects p 
+        WHERE p.id = project_scores.project_id 
+        AND p.developer_id = u.company_id
+      ))
+    )
+  )
+);
+
+CREATE POLICY "project_scores_update" ON project_scores FOR UPDATE USING (
+  EXISTS (
+    SELECT 1 FROM users u 
+    WHERE u.id = auth.uid() 
+    AND (
+      u.role = 'ADMIN' OR 
+      (u.role = 'DEVELOPER' AND EXISTS (
+        SELECT 1 FROM projects p 
+        WHERE p.id = project_scores.project_id 
+        AND p.developer_id = u.company_id
+      ))
+    )
+  )
 );
 
 -- Matches: Own matches only
 CREATE POLICY "capital_match_results_select" ON capital_match_results FOR SELECT USING (
-  EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND (u.company_id = capital_match_results.capital_partner_id OR u.role = 'ADMIN'))
-  OR EXISTS (SELECT 1 FROM projects p JOIN users u ON p.developer_id = u.company_id WHERE p.id = capital_match_results.project_id AND u.id = auth.uid())
+  EXISTS (
+    SELECT 1 FROM users u
+    WHERE u.id = auth.uid()
+    AND (
+      u.role = 'ADMIN'
+      OR EXISTS (SELECT 1 FROM capital_partners cp WHERE cp.id = capital_match_results.capital_partner_id AND cp.company_id = u.company_id)
+      OR EXISTS (SELECT 1 FROM projects p WHERE p.id = capital_match_results.project_id AND p.developer_id = u.company_id)
+    )
+  )
+);
+
+CREATE POLICY "technical_match_results_select" ON technical_match_results FOR SELECT USING (
+  technical_match_results.status = 'active'
+  AND EXISTS (
+    SELECT 1 FROM users u
+    WHERE u.id = auth.uid()
+    AND (
+      u.role = 'ADMIN'
+      OR EXISTS (SELECT 1 FROM technical_partners tp WHERE tp.id = technical_match_results.technical_partner_id AND tp.company_id = u.company_id)
+      OR EXISTS (SELECT 1 FROM projects p WHERE p.id = technical_match_results.project_id AND p.developer_id = u.company_id)
+    )
+  )
 );
 
 -- Engagements: Participants only
@@ -385,3 +483,5 @@ CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
 
 CREATE TRIGGER update_engagements_updated_at BEFORE UPDATE ON engagements
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+

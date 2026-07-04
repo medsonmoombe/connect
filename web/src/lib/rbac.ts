@@ -38,6 +38,17 @@ export const rolePermissions: Record<UserRole, string[]> = {
     'technical_profiles:read',
     'technical_profiles:update',
   ],
+  POWER_TRADER: [
+    'projects:read',
+    'matches:read',
+    'engagements:create',
+    'engagements:read',
+    'messages:send',
+    'messages:read',
+    'companies:read',
+    'trader_profiles:read',
+    'trader_profiles:update',
+  ],
   ADMIN: [
     'users:read',
     'users:update',

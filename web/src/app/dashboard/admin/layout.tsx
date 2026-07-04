@@ -88,6 +88,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       href: "/dashboard/admin",
     },
     {
+      icon: <Icons.cpu className="size-5 text-green-700" />,
+      label: "AI Portfolio Oversight",
+      href: "/dashboard/admin/ai-overview",
+    },
+    {
       icon: <Icons.shieldCheck className="size-5" />,
       label: "Verification Queue",
       href: "/dashboard/admin/verification",

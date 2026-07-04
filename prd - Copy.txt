@@ -88,6 +88,7 @@ Energy Capital Match solves the critical problem of fragmentation and inefficien
 | **Document** | Project-level | Owner Org + Admin. Matched Partners only after Engagement starts. |
 | **Document** | Engagement-level | Engagement participants + Admin only. |
 | **Matches** | Active | Visible only to the two specific parties matched. |
+| **Matched Entity** | Developer + EPC Successful Match | Combined profile visible to Capital Partners as a joint project entity (label: "Jointly managed by [Developer] + [EPC Partner]"). |
 
 *   **Signed URL Rules:** All document links expire after 15 minutes. Access requires a valid session token with permission for the specific document ID.
 
@@ -103,7 +104,8 @@ This matrix defines the core permissions for each user role. C=Create, R=Read, U
 | **Project Documents**         | CRU (Own Org)    | R (In Engagement)| R (In Engagement) | R (In Engagement)| CRUD (All)       |
 | **Capital Partner Profiles**  | R (Active)       | CRUD (Own Org)   | R (Active)        | R (Active)       | CRUD (All)       |
 | **Technical Partner Profiles**| R (Active)       | R (Active)       | CRUD (Own Org)    | R (Active)       | CRUD (All)       |
-| **Project Scores**            | R (Own Org)      | R (Validated)    | R (Validated)     | R (Validated)    | CRU (All)        |
+| **Power Trader Profiles**     | R (Active)       | R (Active)       | R (Active)        | R (Active)       | CRUD (All)       |
+| **Project Scores**            | R (Own Org)      | R (Validated)    | No Access         | R (Validated)    | CRU (All)        |
 | **Match Results**             | R (Own Org)      | R (Own Org)      | R (Own Org)       | R (Own Org)      | R (All)          |
 | **Engagements**               | CRU (Participant)| CRU (Participant)| CRU (Participant) | CRU (Participant)| R (All)          |
 | **Messages**                  | CRU (Participant)| CRU (Participant)| CRU (Participant) | CRU (Participant)| R (All)          |
@@ -171,6 +173,7 @@ All system logic must reference these enums to ensure deterministic matching.
 *   Email must be unique and in a valid format.
 *   Password must be at least 8 characters long.
 *   Company details must be at minimum 30 characters long.
+*   **Onboarding UX:** Users should be able to update their preference selections post-onboarding via a Settings/Profile page. Preference fields set during onboarding (e.g., project stage targets, ticket size) must be editable at any time.
 
 **Backend Logic:**
 *   Create a new user record in Firebase Authentication.
@@ -205,8 +208,9 @@ All system logic must reference these enums to ensure deterministic matching.
 
 **Required Fields:**
 *   **All Companies:** `name`, `logo_url`, `website`, `description`, `country_of_operation` (Default: "Zambia"), `years_operating`, `team_size`.
-*   **Capital Partners:** `preferred_structures` (EQUITY, etc.), `min_ticket_size_zmw`, `max_ticket_size_zmw`, `risk_tolerance`, `governance_preference`, `sector_focus`, `geographic_focus` (within Zambia).
-*   **Technical Partners:** `service_categories`, `sector_experience`, `min_mw_capacity`, `max_mw_capacity`, `regions_operated` (within Zambia), `delivery_models`.
+*   **Capital Partners:** `preferred_structures` (EQUITY, etc.), `min_ticket_size_zmw`, `max_ticket_size_zmw`, `preferred_project_stage` (Enum array using Project Stages taxonomy), `expected_return_profile` (IRR range), `preferred_capital_structure` (EQUITY, PROFIT_SHARING, LEASING, GRANT), `risk_tolerance`, `governance_preference`, `sector_focus`, `geographic_focus` (within Zambia).
+*   **Technical Partners (EPC):** `service_categories`, `project_type_experience` (Array of sector enums: SOLAR, WIND, HYDRO, etc.), `payment_terms` (text), `min_ticket_size_zmw`, `max_ticket_size_zmw`, `years_of_experience`, `company_experience_doc_url` (file upload — portfolio/resume), `management_team_experience` (structured object: array of team members with name, years_experience, credentials), `min_mw_capacity`, `max_mw_capacity`, `regions_operated` (within Zambia), `delivery_models`.
+*   **Derived Flag:** `is_new_company_with_experienced_team` (boolean: true if years_operating < 2 AND management team avg experience > 5 years).
 
 **Backend Logic:**
 *   Data will be stored in the `organizations`, `capital_partners`, and `technical_partners` tables.
@@ -573,6 +577,8 @@ Before a match is even calculated, these rules must be satisfied:
 *   **Organization Status:** Both parties must be `verified`.
 *   **Sector Overlap:** Partner must have the project's sector in their `sector_focus`.
 *   **Currency Match:** Both must operate in `ZMW` (for MVP).
+*   **For EPC matches:** Project must be validated and EPC must be verified.
+*   **For Capital matches:** If Developer has an accepted EPC match, boost Capital match score by +10 points (joint entity bonus — signals project has a builder).
 
 ### 5.2. Match Recalculation Triggers
 
@@ -582,6 +588,8 @@ Before a match is even calculated, these rules must be satisfied:
 | Partner profile updated | Recalculate all validated projects against this partner. |
 | Partner becomes `verified` | Recalculate all validated projects against this partner. |
 | Admin manual trigger | Full system recalculation or specific ID range. |
+| EPC profile updated | Recalculate all validated projects against this EPC. |
+| Developer accepts EPC match | Recalculate that project's Capital matches (to apply +10 joint entity bonus). |
 
 *   **Version Control:** Scores are versioned in `match_results_history`. Stale matches are marked as `inactive` but not deleted.
 
@@ -601,6 +609,32 @@ Before a match is even calculated, these rules must be satisfied:
 *   **CapitalScore:** 100 if project `capital_required` is within `[min, max]`. 50 if within 20% of range. 0 otherwise.
 *   **StructureScore:** 100 if project `capital_structure` matches partner's list. 0 otherwise.
 *   **RiskScore/GovScore:** 100 if exact match. 50 if partial (e.g., Partner accepts Board Seat, Developer offers Observer).
+
+### 5.3.1. EPC/Technical Matching Score (0–100)
+
+**Weight Distribution:**
+*   Sector/Technology Match: 25%
+*   Project Size (MW) within EPC Capacity Range: 25%
+*   Ticket Size Overlap: 20%
+*   Geographic Region Overlap: 15%
+*   Years of Relevant Experience: 15%
+
+**Deterministic Formula:**
+`EPCScore = (SectorScore * 0.25) + (MWScore * 0.25) + (TicketScore * 0.20) + (GeoScore * 0.15) + (ExpScore * 0.15)`
+
+**Note:** The matching engine is fully deterministic and rules-based. Match scores are reproducible from the formula alone. Gemini AI is only used for document analysis in the scoring step (Section 6.2), not for match calculation.
+
+**Score Calculation Rules:**
+*   **Sector match:** 100 if exact match on `project_type_experience`, 50 if adjacent sector (e.g., SOLAR vs STORAGE), 0 if no overlap.
+*   **MW match:** 100 if project `project_size_mw` is within `[min_mw_capacity, max_mw_capacity]`, 50 if within 20% of range boundary, 0 otherwise.
+*   **Ticket match:** 100 if project `capital_required_zmw` is within `[min_ticket_size_zmw, max_ticket_size_zmw]`, 50 if within 20% of range, 0 otherwise.
+*   **Geography:** 100 if project `location_region` matches EPC `regions_operated` province, 50 if same country (Zambia), 0 otherwise.
+*   **Experience:** Linear scale 0–100 (0 years = 0, 10+ years = 100).
+
+### 5.3.2. Management Team Experience Flag
+
+*   **Experienced Leadership Bonus:** If `is_new_company_with_experienced_team` is true, add +10 bonus to experience score (capped at 100) and surface badge "Experienced Leadership" on profile.
+*   **Experience Penalty:** If company is < 2 years old AND management experience is low/unspecified, apply -15 penalty and flag profile for Admin review before matching.
 
 ### 5.4. Match Explanation JSON Contract
 
@@ -623,9 +657,46 @@ Matches must include a breakdown for transparency:
 }
 ```
 
-## 6. SCORING ENGINE SPECIFICATION
+### 5.4. EPC Match Explanation JSON Contract
 
-The scoring engine provides a quantitative measure of a project's viability and readiness.
+```json
+{
+  "match_id": "uuid",
+  "project_id": "uuid",
+  "epc_org_id": "uuid",
+  "total_score": 85,
+  "breakdown": {
+    "sector_match": { "score": 25, "detail": "SOLAR exact match" },
+    "mw_overlap": { "score": 25, "detail": "50MW within 10-100MW range" },
+    "ticket_overlap": { "score": 20, "detail": "150M ZMW within 100-200M range" },
+    "geography": { "score": 15, "detail": "Lusaka province match" },
+    "experience": { "score": 15, "detail": "8 years experience", "bonus": 10, "badge": "Experienced Leadership" }
+  },
+  "calculated_at": "ISO8601",
+  "status": "active"
+}
+```
+
+## 5.5. Match Result Storage
+
+### Technical Match Results Table
+
+EPC matches are stored in `technical_match_results` with the following fields:
+*   `match_id` (UUID, primary key)
+*   `project_id` (UUID, foreign key)
+*   `epc_org_id` (UUID, foreign key)
+*   `total_score` (numeric 0-100)
+*   `breakdown` (JSON)
+*   `calculated_at` (timestamp)
+*   `status` (enum: `active`, `inactive`)
+
+## 5.6. Match Visibility Rules
+
+*   **EPC partners:** Do NOT see the project's capital readiness score.
+*   **Developers:** See both their Capital and EPC match lists separately.
+*   **Capital Partners:** See the Developer's project card — if an EPC match is accepted, show "Builder Partner: [EPC Name]" on the project card.
+
+## 6. SCORING ENGINE SPECIFICATION
 
 ### 6.1. Deterministic Capital Readiness Formula (0-100)
 
@@ -921,13 +992,30 @@ The project will be developed in seven distinct phases. A detailed breakdown of 
 *   Allow users to manage their notification preferences.
 
 ### v2.0 (Expansion)
-*   Expand to new geographic markets (e.g., Kenya, Nigeria).
+*   Expand to new geographic markets: Malawi, Zimbabwe, Kenya, Uganda, Rwanda (via existing SIAS affiliate network).
+*   Each country operates its own instance with independent subscription model.
+*   Brand this expansion initiative as "AfriConnect".
 *   Introduce multi-currency support.
 *   Advanced analytics and market intelligence reports.
 *   Integrate with third-party data providers for enhanced project validation.
+*   Long-term goal: Continental platform with federated country nodes.
 
 ### Long-Term Vision
 *   Integrate carbon finance and carbon credit marketplaces.
 *   Build a mobile application.
 *   Develop a B2B API for partners to integrate with the platform.
 *   Become the definitive source for energy project intelligence in emerging markets.
+
+## 20. REVENUE MODEL
+
+### Revenue Streams
+
+*   **Subscription fees:** Charged to developer members via Solar Institute partnerships.
+*   **Due diligence fees:** Charged to Capital Partners.
+*   **Transaction advisory fees:** Percentage of deal value, agreed per project.
+*   **Equity participation:** 2–5% stake in projects, offered optionally at onboarding — developer can select: equity, blended, or fee-only.
+*   **Revenue sharing with regional partners:** SIAS affiliate organizations in each country get a cut of subscription + due diligence fees in their jurisdiction.
+
+
+
+

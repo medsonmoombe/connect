@@ -30,26 +30,20 @@ export default function ProjectSubmissionPage() {
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const dummyFile = new File(['dummy content'], 'test.pdf', { type: 'application/pdf' });
-    setSelectedFiles([
-      { file: dummyFile, type: 'Pitch Deck' }
-    ]);
-  }, []);
   const router = useRouter();
   const { user: realUser } = useAuth();
   const user = realUser || { company_id: 'a1c396ae-8189-4ea5-b729-fe3cd8df4e9f' };
 
   // Form State
   const [formData, setFormData] = useState({
-    name: 'CORS Test Project',
+    name: '',
     technology_type: 'Solar',
-    location_country: 'Zambia',
+    location_country: '',
     location_region: '',
     project_size_mw: 0,
     capital_required: 0,
     capital_structure_type: 'EQUITY' as CapitalStructureType,
-    project_stage: 'FEASIBILITY' as ProjectStage,
+    project_stage: 'CONCEPT' as ProjectStage,
     target_financial_close_date: '',
     target_cod: '',
     governance_terms: '',
@@ -62,6 +56,7 @@ export default function ProjectSubmissionPage() {
   });
 
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
 
   const [techRequirements, setTechRequirements] = useState<Partial<ProjectTechRequirements>>({
     required_services: [],
@@ -76,13 +71,6 @@ export default function ProjectSubmissionPage() {
 
   const updateTechData = (data: Partial<ProjectTechRequirements>) => {
     setTechRequirements(prev => ({ ...prev, ...data }));
-  };
-
-  const mockFiles = () => {
-    const dummyFile = new File(['dummy content'], 'test.pdf', { type: 'application/pdf' });
-    setSelectedFiles([
-      { file: dummyFile, type: 'Pitch Deck' }
-    ]);
   };
 
   const handleNext = () => {
@@ -100,7 +88,6 @@ export default function ProjectSubmissionPage() {
     try {
       console.log('Starting project submission workflow...');
       // 1. Create Project
-      console.log("Hello");
       console.log('Step 1: Creating project record...');
       console.log(formData);
       const project = await projectService.createProject({
@@ -126,7 +113,10 @@ export default function ProjectSubmissionPage() {
           const { file_url, storage_path } = await storageService.uploadProjectDocument(
             project.id,
             item.file,
-            item.type
+            item.type,
+            (progress) => {
+              setUploadProgress(prev => ({ ...prev, [item.file.name]: progress }));
+            }
           );
           
           console.log(`Upload successful for ${item.file.name}. Path: ${storage_path}`);
@@ -172,16 +162,21 @@ export default function ProjectSubmissionPage() {
               summary: aiData.summary || ''
             });
           }
-        } catch (scoringError) {
+        } catch (scoringError: any) {
           console.error('AI Scoring Error (non-blocking):', scoringError);
+          // Log detailed error if available from Firebase HttpsError
+          if (scoringError.code) {
+            console.error(`Scoring Error Code: ${scoringError.code}, Message: ${scoringError.message}`);
+          }
         }
       }
 
       // 5. Redirect to dashboard
       router.push('/dashboard/developer');
-    } catch (error) {
-      console.error('Error submitting project:', error);
-      alert('Failed to submit project. Please check the form and try again.');
+    } catch (error: any) {
+      console.error('Error submitting project (Detailed Debug):', error);
+      const errorMessage = error?.message || error?.code || JSON.stringify(error);
+      alert(`Failed to submit project: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -217,7 +212,6 @@ export default function ProjectSubmissionPage() {
 
         <div className="premium-card p-10 bg-surface">
           <div className="mb-10 text-center max-w-2xl mx-auto">
-            <Button onClick={mockFiles} variant="outline" className="mb-4">Mock Files</Button>
             <h1 className="text-3xl font-extrabold text-text-main mb-3">
               {step === 1 && "Project Identity"}
               {step === 2 && "Scale & Financials"}
@@ -365,8 +359,11 @@ export default function ProjectSubmissionPage() {
                     <Input 
                       type="number"
                       placeholder="e.g. 50" 
-                      value={formData.project_size_mw}
-                      onChange={(e) => updateFormData({ project_size_mw: parseFloat(e.target.value) })}
+                      value={formData.project_size_mw || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateFormData({ project_size_mw: val === '' ? 0 : parseFloat(val) });
+                      }}
                       className="h-12 bg-background border-gray-100 rounded-xl px-4"
                     />
                   </div>
@@ -375,8 +372,11 @@ export default function ProjectSubmissionPage() {
                     <Input 
                       type="number"
                       placeholder="e.g. 500000000" 
-                      value={formData.capital_required}
-                      onChange={(e) => updateFormData({ capital_required: parseFloat(e.target.value) })}
+                      value={formData.capital_required || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateFormData({ capital_required: val === '' ? 0 : parseFloat(val) });
+                      }}
                       className="h-12 bg-background border-gray-100 rounded-xl px-4"
                     />
                   </div>
@@ -505,6 +505,18 @@ export default function ProjectSubmissionPage() {
 
                 <div className="space-y-4 pt-6">
                   <Label className="text-xs font-bold uppercase tracking-widest text-text-muted">Project Documents</Label>
+                  {selectedFiles.some(f => f.file.size > 50 * 1024 * 1024) && (
+                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
+                      <Icons.alertTriangle className="size-5 text-amber-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-bold text-amber-900">Large file detected</p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          One or more files exceed 50MB. Uploads may take longer depending on your connection.
+                          Large files are automatically split into smaller chunks for reliability.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                       'Pitch Deck', 
@@ -553,6 +565,26 @@ export default function ProjectSubmissionPage() {
                       );
                     })}
                   </div>
+
+                  {loading && selectedFiles.length > 0 && (
+                    <div className="space-y-3 pt-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-text-muted">Uploading Documents...</p>
+                      {selectedFiles.map((item) => (
+                        <div key={item.type} className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-bold text-text-main">{item.type}</p>
+                            <p className="text-xs font-medium text-text-muted">{uploadProgress[item.file.name] ?? 0}%</p>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-300"
+                              style={{ width: `${uploadProgress[item.file.name] ?? 0}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}

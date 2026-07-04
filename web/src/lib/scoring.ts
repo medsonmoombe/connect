@@ -137,7 +137,8 @@ const CAPITAL_MATCH_WEIGHTS = {
 // Calculate Capital Match Score
 export function calculateCapitalMatchScore(
   project: Project,
-  partner: CapitalPartner
+  partner: CapitalPartner,
+  hasAcceptedEPC: boolean = false
 ): CapitalMatchResult {
   let score = 0;
 
@@ -150,9 +151,7 @@ export function calculateCapitalMatchScore(
   score += capitalOverlap * CAPITAL_MATCH_WEIGHTS.capital_range_overlap;
 
   // Structure Compatibility (20%)
-  const structureMatch = project.capital_structure_type && partner.preferred_structures.includes(project.capital_structure_type)
-    ? 100
-    : 0;
+  const structureMatch = calculateStructureMatch(project, partner);
   score += structureMatch * CAPITAL_MATCH_WEIGHTS.structure_compatibility;
 
   // Risk Tolerance Alignment (15%)
@@ -172,7 +171,17 @@ export function calculateCapitalMatchScore(
   const geoMatch = partner.geographic_focus.includes(project.location_country) ? 100 : 50;
   score += geoMatch * CAPITAL_MATCH_WEIGHTS.geographic_match;
 
-  const compatibilityScore = Math.round(score);
+  // Project Stage Alignment
+  if (partner.preferred_project_stage && partner.preferred_project_stage.includes(project.project_stage)) {
+    score += 5; // Bonus for stage alignment
+  }
+
+  // Joint Entity Bonus: Add +10 points if the project has an accepted EPC engagement.
+  if (hasAcceptedEPC) {
+    score += 10;
+  }
+
+  const compatibilityScore = Math.min(100, Math.round(score));
 
   return {
     id: '',
@@ -248,45 +257,73 @@ function calculateGovernanceAlignment(governanceTerms: string | undefined, prefe
   return 70; // Partial match
 }
 
+// Calculate Structure Match
+function calculateStructureMatch(project: Project, partner: CapitalPartner): number {
+  if (!project.capital_structure_type) return 50;
+  
+  // Direct match in preferred_structures (legacy)
+  if (partner.preferred_structures.includes(project.capital_structure_type)) return 100;
+  
+  // Match in new preferred_capital_structure field
+  if (partner.preferred_capital_structure?.includes(project.capital_structure_type)) return 100;
+  
+  return 0;
+}
+
 // Technical Matching Algorithm Weights
-const TECHNICAL_MATCH_WEIGHTS = {
-  service_category_match: 0.25,
-  sector_experience_match: 0.20,
-  mw_size_compatibility: 0.20,
-  geographic_track_record: 0.35,
+const NEW_TECHNICAL_MATCH_WEIGHTS = {
+  sector_tech: 0.25,
+  project_size: 0.25,
+  ticket_size: 0.20,
+  geography: 0.15,
+  experience: 0.15,
 };
 
-// Calculate Technical Match Score
+// Calculate Technical Match Score (New implementation)
 export function calculateTechnicalMatchScore(
   project: Project,
   partner: TechnicalPartner
 ): TechnicalMatchResult {
   let score = 0;
+  const breakdown: any = {};
 
-  // Service Category Match (25%)
-  const requiredServices = project.tech_requirements?.required_services || [];
-  const serviceMatch = requiredServices.length > 0
-    ? calculateServiceMatch(requiredServices, partner.service_categories)
-    : 80;
-  score += serviceMatch * TECHNICAL_MATCH_WEIGHTS.service_category_match;
+  // 1. Sector/Technology (25%)
+  const sectorScore = calculateSectorScore(project.technology_type, partner.sector_experience);
+  score += sectorScore * NEW_TECHNICAL_MATCH_WEIGHTS.sector_tech;
+  breakdown.sector_tech = Math.round(sectorScore);
 
-  // Sector Experience Match (20%)
-  const sectorExpMatch = partner.sector_experience.includes(project.technology_type) ? 100 : 50;
-  score += sectorExpMatch * TECHNICAL_MATCH_WEIGHTS.sector_experience_match;
+  // 2. Project Size MW (25%)
+  const sizeScore = calculateProjectSizeScore(project.project_size_mw, partner.min_mw_capacity, partner.max_mw_capacity);
+  score += sizeScore * NEW_TECHNICAL_MATCH_WEIGHTS.project_size;
+  breakdown.project_size = Math.round(sizeScore);
 
-  // MW Size Compatibility (20%)
-  const mwCompatibility = calculateMWCompatibility(
-    project.project_size_mw,
-    partner.min_mw_capacity,
-    partner.max_mw_capacity
-  );
-  score += mwCompatibility * TECHNICAL_MATCH_WEIGHTS.mw_size_compatibility;
+  // 3. Ticket Size (20%)
+  const ticketScore = calculateTicketSizeScore(project.capital_required, partner.min_ticket_size_zmw, partner.max_ticket_size_zmw);
+  score += ticketScore * NEW_TECHNICAL_MATCH_WEIGHTS.ticket_size;
+  breakdown.ticket_size = Math.round(ticketScore);
 
-  // Geography & Track Record (35%)
-  const geoMatch = partner.regions_operated.includes(project.location_country) ? 100 : 60;
-  const trackRecord = calculateTrackRecordScore(partner);
-  const geoTrackRecordMatch = (geoMatch * 0.6) + (trackRecord * 0.4);
-  score += geoTrackRecordMatch * TECHNICAL_MATCH_WEIGHTS.geographic_track_record;
+  // 4. Geography (15%)
+  const geoScore = calculateGeoScore(project.location_country, project.location_region, partner.regions_operated, partner.company?.country);
+  score += geoScore * NEW_TECHNICAL_MATCH_WEIGHTS.geography;
+  breakdown.geography = Math.round(geoScore);
+
+  // 5. Experience (15%)
+  let experienceScore = Math.min(100, (partner.years_of_experience || 0) * 10);
+  
+  // Management Team Logic:
+  if (partner.company?.is_new_company_with_experienced_team) {
+    experienceScore += 10;
+  }
+  if (partner.company?.years_operating && partner.company.years_operating < 2) {
+    const mgmtExp = partner.company.management_team_experience;
+    if (!partner.company.is_new_company_with_experienced_team && (!mgmtExp || mgmtExp.years < 5)) {
+      experienceScore -= 15;
+    }
+  }
+  
+  experienceScore = Math.max(0, Math.min(100, experienceScore));
+  score += experienceScore * NEW_TECHNICAL_MATCH_WEIGHTS.experience;
+  breakdown.experience = Math.round(experienceScore);
 
   const compatibilityScore = Math.round(score);
 
@@ -295,15 +332,51 @@ export function calculateTechnicalMatchScore(
     project_id: project.id,
     technical_partner_id: partner.id,
     compatibility_score: compatibilityScore,
-    score_breakdown: {
-      service_category_match: Math.round(serviceMatch),
-      sector_experience_match: Math.round(sectorExpMatch),
-      mw_size_compatibility: Math.round(mwCompatibility),
-      geographic_track_record: Math.round(geoTrackRecordMatch),
-    },
+    score_breakdown: breakdown,
     created_at: new Date().toISOString(),
   };
 }
+
+function calculateSectorScore(tech: string, experience: string[]): number {
+  if (experience.includes(tech)) return 100;
+  
+  const adjacencies: Record<string, string[]> = {
+    'SOLAR_PV': ['WIND', 'BATTERY_STORAGE'],
+    'WIND': ['SOLAR_PV', 'BATTERY_STORAGE'],
+    'HYDRO': ['GEOTHERMAL', 'BIOMASS'],
+    'BATTERY_STORAGE': ['SOLAR_PV', 'WIND'],
+  };
+  
+  const isAdjacent = adjacencies[tech]?.some(adj => experience.includes(adj));
+  return isAdjacent ? 50 : 0;
+}
+
+function calculateProjectSizeScore(projectMW: number, minMW: number, maxMW: number): number {
+  if (projectMW >= minMW && projectMW <= maxMW) return 100;
+  
+  if (projectMW < minMW && (minMW - projectMW) / minMW <= 0.2) return 50;
+  if (projectMW > maxMW && (projectMW - maxMW) / maxMW <= 0.2) return 50;
+  
+  return 0;
+}
+
+function calculateTicketSizeScore(required: number, min: number | undefined, max: number | undefined): number {
+  if (!min || !max) return 50;
+  if (required >= min && required <= max) return 100;
+  
+  if (required < min && (min - required) / min <= 0.2) return 50;
+  if (required > max && (required - max) / max <= 0.2) return 50;
+  
+  return 0;
+}
+
+function calculateGeoScore(country: string, region: string | undefined, operated: string[], partnerCountry: string | undefined): number {
+  if (operated.includes(region || '')) return 100;
+  if (operated.includes(country)) return 50;
+  if (partnerCountry === country) return 50;
+  return 0;
+}
+
 
 // Calculate Service Match
 function calculateServiceMatch(required: string[], available: string[]): number {

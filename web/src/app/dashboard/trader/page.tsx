@@ -9,31 +9,26 @@ import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { engagementService } from '@/lib/engagement';
 import { supabase } from '@/lib/supabase';
-import { Project, Engagement, TechnicalPartner, Company } from '@/types';
-import { onboardingApi, technicalPartnersApi, companiesApi } from '@/services/api';
+import { Project, Engagement, PowerTrader, Company } from '@/types';
+import { onboardingApi, companiesApi } from '@/services/api';
 import { EmptyState } from '@/components/ui/empty-state';
 
 export default function TechnicalDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [engagements, setEngagements] = useState<Engagement[]>([]);
-  const [techProfile, setTechProfile] = useState<TechnicalPartner | null>(null);
+  const [techProfile, setTechProfile] = useState<PowerTrader | null>(null);
   const [technicalPartnerId, setTechnicalPartnerId] = useState<string | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [updatingProfile, setUpdatingProfile] = useState(false);
   
   const [profileData, setProfileData] = useState<any>({
-    service_categories: [],
-    sector_experience: [],
-    min_mw_capacity: 0,
-    max_mw_capacity: 0,
-    regions_operated: [],
-    years_of_experience: 0,
-    payment_terms: '',
-    min_ticket_size_zmw: 0,
-    max_ticket_size_zmw: 0,
-    project_type_experience: [],
-    company_experience_doc_url: '',
+    license_type: 'TRADING',
+    max_offtake_capacity_mw: 0,
+    preferred_technology_types: [],
+    regions_of_interest: [],
+    min_ppa_duration_years: 0,
+    credit_rating_equivalent: '',
   });
 
   const router = useRouter();
@@ -43,7 +38,7 @@ export default function TechnicalDashboard() {
     if (!loading) {
       if (!user) {
         router.push('/login');
-      } else if (user.role !== 'TECHNICAL_PARTNER' && user.role !== 'ADMIN') {
+      } else if (user.role !== 'POWER_TRADER' && user.role !== 'ADMIN') {
         router.push('/dashboard');
       }
     }
@@ -59,7 +54,7 @@ export default function TechnicalDashboard() {
             companiesApi.getById(user.company_id)
           ]);
           const { data: partnerData } = await supabase
-            .from('technical_partners')
+            .from('power_traders')
             .select('*, company:companies(*)')
             .eq('company_id', user.company_id)
             .maybeSingle();
@@ -70,17 +65,12 @@ export default function TechnicalDashboard() {
             setTechProfile(partnerData);
             setTechnicalPartnerId(partnerData.id);
             setProfileData({
-              service_categories: partnerData.service_categories || [],
-              sector_experience: partnerData.sector_experience || [],
-              min_mw_capacity: partnerData.min_mw_capacity || 0,
-              max_mw_capacity: partnerData.max_mw_capacity || 0,
-              regions_operated: partnerData.regions_operated || [],
-              years_of_experience: partnerData.years_of_experience || 0,
-              payment_terms: partnerData.payment_terms || '',
-              min_ticket_size_zmw: partnerData.min_ticket_size_zmw || 0,
-              max_ticket_size_zmw: partnerData.max_ticket_size_zmw || 0,
-              project_type_experience: partnerData.project_type_experience || [],
-              company_experience_doc_url: partnerData.company_experience_doc_url || '',
+              license_type: partnerData.license_type || 'TRADING',
+              max_offtake_capacity_mw: partnerData.max_offtake_capacity_mw || 0,
+              preferred_technology_types: partnerData.preferred_technology_types || [],
+              regions_of_interest: partnerData.regions_of_interest || [],
+              min_ppa_duration_years: partnerData.min_ppa_duration_years || 0,
+              credit_rating_equivalent: partnerData.credit_rating_equivalent || '',
             });
           }
 
@@ -124,7 +114,7 @@ export default function TechnicalDashboard() {
             </div>
             <span className="text-xl font-bold tracking-tight text-text-main leading-none">Afri Connect</span>
           </Link>
-          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-2 ml-13">Technical Portal</p>
+          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-2 ml-13">Trading Portal</p>
         </div>
 
         <nav className="flex-grow px-4 space-y-2">
@@ -189,7 +179,7 @@ export default function TechnicalDashboard() {
             </div>
             <div className="flex-grow">
               <p className="text-sm font-bold text-text-main leading-none">{user.full_name || 'Partner'}</p>
-              <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mt-1">Technical Partner</p>
+              <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mt-1">Power Trader</p>
             </div>
             <button
               onClick={handleLogout}
@@ -208,8 +198,8 @@ export default function TechnicalDashboard() {
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
             <div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-text-main mb-2">Technical Dashboard</h1>
-              <p className="text-text-muted font-medium">Welcome back, {user?.full_name?.split(' ')[0] || 'Partner'}. Here is your engineering pipeline.</p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-text-main mb-2">Power Trader Dashboard</h1>
+              <p className="text-text-muted font-medium">Welcome back, {user?.full_name?.split(' ')[0] || 'Partner'}. Here is your offtake pipeline.</p>
             </div>
             <div className="flex items-center gap-3">
               <Button
@@ -232,8 +222,8 @@ export default function TechnicalDashboard() {
               {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
                 <StatCard
-                  label="Total Delivered"
-                  value={`${techProfile?.total_mw_delivered || 0} MW`}
+                  label="Contracted Capacity"
+                  value={`${techProfile?.max_offtake_capacity_mw || 0} MW`}
                   subValue="Lifetime Capacity"
                 />
                 <StatCard
@@ -242,13 +232,13 @@ export default function TechnicalDashboard() {
                   subValue="In procurement pipeline"
                 />
                 <StatCard 
-                  label="Annual Capacity" 
-                  value={`${techProfile?.annual_delivery_capacity_mw || 0} MW`} 
+                  label="Active PPAs" 
+                  value="98%" 
                   subValue="Current Year Target" 
                 />
                 <StatCard
-                  label="Avg. Delivery"
-                  value={`${techProfile?.average_delivery_time_months || 0} Mo.`}
+                  label="PPA Success Rate"
+                  value="Active"
                   subValue="Concept to Go-Live"
                 />
               </div>
@@ -286,11 +276,11 @@ export default function TechnicalDashboard() {
                 {/* Sidebar Widgets */}
                 <div className="space-y-8">
                   <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-                    <h3 className="text-lg font-bold text-text-main mb-6">Service Coverage</h3>
+                    <h3 className="text-lg font-bold text-text-main mb-6">Regions Operated</h3>
                     <div className="space-y-4">
-                      {techProfile?.service_categories?.map(service => (
-                        <div key={service} className="flex items-center justify-between p-3 rounded-xl bg-background border border-gray-50">
-                          <span className="text-xs font-bold text-text-main uppercase tracking-wider">{service}</span>
+                      {techProfile?.regions_of_interest?.map(region => (
+                        <div key={region} className="flex items-center justify-between p-3 rounded-xl bg-background border border-gray-50">
+                          <span className="text-xs font-bold text-text-main uppercase tracking-wider">{region}</span>
                           <Icons.checkCircle2 className="size-4 text-green-500" />
                         </div>
                       ))}
@@ -301,10 +291,10 @@ export default function TechnicalDashboard() {
                     <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-50"></div>
                     <div className="relative z-10">
                       <Icons.shieldCheck className="size-8 mb-6" />
-                      <h3 className="text-xl font-bold mb-2">Bonding Capacity</h3>
-                      <p className="text-3xl font-black mb-4">${((techProfile?.bonding_capacity || 0) / 1000000).toFixed(0)}M</p>
+                      <h3 className="text-xl font-bold mb-2">Credit Rating</h3>
+                      <p className="text-3xl font-black mb-4">{techProfile?.credit_rating_equivalent || 'A-'}</p>
                       <p className="text-xs font-medium text-white/80 leading-relaxed">
-                        Verified institutional backing for large-scale EPC contracts.
+                        Verified rating for power purchase agreement security.
                       </p>
                     </div>
                   </div>
@@ -373,13 +363,17 @@ export default function TechnicalDashboard() {
                     try {
                       if (!technicalPartnerId) {
                         const { data: createdPartner } = await supabase
-                          .from('technical_partners')
+                          .from('power_traders')
                           .insert({ company_id: user.company_id, ...profileData })
                           .select()
                           .single();
                         setTechnicalPartnerId(createdPartner?.id || null);
                       } else {
-                        await technicalPartnersApi.update(technicalPartnerId, profileData);
+                        const { error } = await supabase
+                          .from('power_traders')
+                          .update(profileData)
+                          .eq('id', technicalPartnerId);
+                        if (error) throw error;
                       }
                       alert('Profile updated successfully');
                     } catch (err) {
@@ -556,3 +550,10 @@ function OpportunityCard({ name, location, size, type, readiness, status }: { na
     </div>
   );
 }
+
+
+
+
+
+
+
