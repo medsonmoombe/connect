@@ -1,22 +1,24 @@
 'use client';
 
-import { ReactNode } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { ReactNode, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import { Icons } from '@/components/ui/icons';
+import LeafLoader from '@/components/ui/electric-loader';
 
 export default function OnboardingLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading) {
-      if (!user) {
-        router.push('/login');
-      } else if (user.company_id && user.role !== 'ADMIN') {
-        // If they already have a company, send them to dashboard
-        router.push('/dashboard');
+    if (!loading && user) {
+      // User already has an org — they belong on the dashboard (OrgReviewGate shows pending review)
+      if (user.company_id) {
+        router.replace('/dashboard');
+      }
+      // Admins don't need onboarding
+      else if (user.role === 'ADMIN') {
+        router.replace('/dashboard');
       }
     }
   }, [user, loading, router]);
@@ -24,10 +26,13 @@ export default function OnboardingLayout({ children }: { children: ReactNode }) 
   if (loading || !user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#f8fafc]">
-        <Icons.spinner className="h-8 w-8 animate-spin text-[#166534]" />
+        <LeafLoader size={100} />
       </div>
     );
   }
+
+  // Redirecting
+  if (user.company_id || user.role === 'ADMIN') return null;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col">

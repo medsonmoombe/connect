@@ -7,6 +7,9 @@ import { Input } from '@/components/ui/input';
 import { projectsApi } from '@/services/api';
 import { Project, ProjectStage } from '@/types';
 import Link from 'next/link';
+import { useAdminForceProjectState, useAdminOverrideScore } from '@/hooks/queries';
+import { Drawer } from '@/components/ui/drawer';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const STAGES: { id: string, name: string }[] = [
   { id: 'ALL', name: 'All Stages' },
@@ -18,11 +21,24 @@ const STAGES: { id: string, name: string }[] = [
   { id: 'OPERATIONAL', name: 'Operational' },
 ];
 
+const VALID_STATUSES = ['draft', 'submitted', 'under_review', 'validated', 'rejected', 'archived'];
+
 export default function AdminProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+
+  // Admin action state
+  const [actionProject, setActionProject] = useState<Project | null>(null);
+  const [actionType, setActionType] = useState<'state' | 'score' | null>(null);
+  const [actionNote, setActionNote] = useState('');
+  const [forceStatus, setForceStatus] = useState('validated');
+  const [scoreOverrides, setScoreOverrides] = useState({ capital_readiness_score: 0, technical_readiness_score: 0 });
+  const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const { mutateAsync: forceState, isPending: forcingState } = useAdminForceProjectState();
+  const { mutateAsync: overrideScore, isPending: overridingScore } = useAdminOverrideScore();
 
   useEffect(() => {
     fetchProjects();
@@ -68,6 +84,39 @@ export default function AdminProjectsPage() {
       case 'OPERATIONAL': return 'bg-green-50 text-green-700 border-green-100';
       default: return 'bg-slate-50 text-slate-700 border-slate-100';
     }
+  };
+
+  const handleForceState = async () => {
+    if (!actionProject) return;
+    setActionMsg(null);
+    try {
+      await forceState(actionProject.id, forceStatus, actionNote);
+      setActionMsg({ type: 'success', text: `Project moved to "${forceStatus}"` });
+      fetchProjects();
+    } catch (e: any) {
+      setActionMsg({ type: 'error', text: e.message });
+    }
+  };
+
+  const handleOverrideScore = async () => {
+    if (!actionProject) return;
+    setActionMsg(null);
+    try {
+      await overrideScore(actionProject.id, scoreOverrides, actionNote);
+      setActionMsg({ type: 'success', text: 'Scores updated successfully' });
+      fetchProjects();
+    } catch (e: any) {
+      setActionMsg({ type: 'error', text: e.message });
+    }
+  };
+
+  const openAction = (project: Project, type: 'state' | 'score') => {
+    setActionProject(project);
+    setActionType(type);
+    setActionNote('');
+    setActionMsg(null);
+    setForceStatus('validated');
+    setScoreOverrides({ capital_readiness_score: project.scores?.capital_readiness_score ?? 0, technical_readiness_score: project.scores?.technical_readiness_score ?? 0 });
   };
 
   return (
@@ -192,11 +241,19 @@ export default function AdminProjectsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Link href={`/projects/${project.id}`}>
-                        <Button variant="ghost" size="sm" className="h-8 px-3 rounded-lg text-green-800 hover:text-green-900 hover:bg-green-50 font-semibold">
-                          View Details
+                      <div className="flex items-center justify-end gap-1">
+                        <Link href={`/projects/${project.id}`}>
+                          <Button variant="ghost" size="sm" className="h-8 px-3 rounded-lg text-green-800 hover:text-green-900 hover:bg-green-50 font-semibold">
+                            View
+                          </Button>
+                        </Link>
+                        <Button variant="ghost" size="sm" className="h-8 px-3 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 font-semibold" onClick={() => openAction(project, 'state')}>
+                          State
                         </Button>
-                      </Link>
+                        <Button variant="ghost" size="sm" className="h-8 px-3 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 font-semibold" onClick={() => openAction(project, 'score')}>
+                          Score
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -212,6 +269,98 @@ export default function AdminProjectsPage() {
           </div>
         </div>
       </div>
+      {/* Admin Action Drawer */}
+      <Drawer
+        open={!!actionType}
+        onClose={() => { setActionType(null); setActionProject(null); }}
+        title={actionType === 'state' ? 'Force Project State' : 'Override Project Score'}
+        description={actionProject?.name ?? ''}
+        size="md"
+      >
+        <div className="space-y-5">
+          {actionMsg && (
+            <div className={`p-3 rounded-xl text-sm font-medium ${
+              actionMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+            }`}>
+              {actionMsg.text}
+            </div>
+          )}
+
+          {actionType === 'state' && (
+            <>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">New Status</label>
+                <select
+                  value={forceStatus}
+                  onChange={e => setForceStatus(e.target.value)}
+                  className="w-full h-11 px-3 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  {VALID_STATUSES.map(s => (
+                    <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Reason / Note <span className="text-red-500">*</span></label>
+                <textarea
+                  value={actionNote}
+                  onChange={e => setActionNote(e.target.value)}
+                  placeholder="Required — this will be sent to the project owner..."
+                  className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <Button
+                className="w-full h-11 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold"
+                onClick={handleForceState}
+                disabled={forcingState || !actionNote.trim()}
+              >
+                {forcingState ? <Icons.spinner className="size-4 animate-spin" /> : 'Force State Transition'}
+              </Button>
+            </>
+          )}
+
+          {actionType === 'score' && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Capital Readiness (0–100)</label>
+                  <Input
+                    type="number" min={0} max={100}
+                    value={scoreOverrides.capital_readiness_score}
+                    onChange={e => setScoreOverrides(s => ({ ...s, capital_readiness_score: Number(e.target.value) }))}
+                    className="h-11 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Technical Readiness (0–100)</label>
+                  <Input
+                    type="number" min={0} max={100}
+                    value={scoreOverrides.technical_readiness_score}
+                    onChange={e => setScoreOverrides(s => ({ ...s, technical_readiness_score: Number(e.target.value) }))}
+                    className="h-11 rounded-xl"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Override Note <span className="text-red-500">*</span></label>
+                <textarea
+                  value={actionNote}
+                  onChange={e => setActionNote(e.target.value)}
+                  placeholder="Required — reason for manual score override..."
+                  className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <Button
+                className="w-full h-11 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold"
+                onClick={handleOverrideScore}
+                disabled={overridingScore || !actionNote.trim()}
+              >
+                {overridingScore ? <Icons.spinner className="size-4 animate-spin" /> : 'Apply Score Override'}
+              </Button>
+            </>
+          )}
+        </div>
+      </Drawer>
     </div>
   );
 }

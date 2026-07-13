@@ -16,17 +16,27 @@
   --color-warning: #f59e0b;
   --color-error: #ef4444;
 
+  --color-sidebar-bg: #ffffff;
+  --color-sidebar-border: #e2e8f0;
+  --color-sidebar-active: #166534;
+
   --font-display: "Inter", sans-serif;
   --font-sans: "Inter", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
   --shadow-soft: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
   --shadow-premium: 0 20px 50px -12px rgba(15, 23, 42, 0.12);
+  --shadow-sidebar: 2px 0 20px -4px rgba(22, 101, 52, 0.06);
+  --shadow-sidebar-active: 0 1px 8px -2px rgba(22, 101, 52, 0.15);
 }
 
 @layer base {
   body {
     @apply bg-background text-text-main antialiased selection:bg-green-100 selection:text-primary;
+  }
+
+  button, [role="button"], a {
+    cursor: pointer;
   }
   
   h1, h2, h3, h4 {
@@ -68,6 +78,301 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Sidebar premium background */
+  .sidebar-bg {
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 40%, #f8fafc 70%, #ffffff 100%);
+  }
+
+  /* Sidebar right-edge glow */
+  .sidebar-glow {
+    box-shadow: inset -1px 0 0 0 rgba(226, 232, 240, 0.6), 2px 0 20px -4px rgba(22, 101, 52, 0.05);
+  }
+
+  /* Active nav indicator bar */
+  .nav-active-bar {
+    position: relative;
+  }
+  .nav-active-bar::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    min-height: 20px;
+    background: linear-gradient(180deg, #22c55e, #166534);
+    border-radius: 0 4px 4px 0;
+  }
+
+  /* Active nav icon container */
+  .nav-active-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(22, 101, 52, 0.12), rgba(34, 197, 94, 0.08));
+    flex-shrink: 0;
+  }
+
+  /* Hover nav icon container */
+  .nav-hover-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: transparent;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  /* Logo gradient container */
+  .logo-gradient {
+    background: linear-gradient(135deg, #166534 0%, #22c55e 100%);
+    box-shadow: 0 2px 8px -2px rgba(22, 101, 52, 0.3);
+  }
+
+  /* User avatar gradient ring */
+  .avatar-ring {
+    background: linear-gradient(135deg, #22c55e, #166534);
+    padding: 2px;
+  }
+
+  /* Premium badge pulse */
+  .badge-pulse {
+    animation: badge-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  @keyframes badge-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+
+  /* Online status indicator */
+  .status-online {
+    position: relative;
+  }
+  .status-online::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+  }
+
+  /* Section label style */
+  .sidebar-section-label {
+    @apply text-[10px] font-bold uppercase tracking-[0.15em] text-slate-300;
+    letter-spacing: 0.12em;
+  }
+
+  /* Footer widget premium card */
+  .sidebar-widget {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+  }
+
+  /* Sidebar nav item transition */
+  .nav-item-transition {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Navbar header background */
+  .navbar-bg {
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 60%, #f8fafc 100%);
+  }
+
+  /* Navbar bottom border gradient */
+  .navbar-border {
+    border-bottom: 1px solid transparent;
+    border-image: linear-gradient(90deg, rgba(226, 232, 240, 0.4) 0%, rgba(226, 232, 240, 1) 20%, rgba(226, 232, 240, 1) 80%, rgba(226, 232, 240, 0.4) 100%) 1;
+  }
+
+  /* Navbar search expanded state */
+  .navbar-search-expanded {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.06);
+  }
+
+  /* Navbar button base */
+  .navbar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: #64748b;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  .navbar-btn:hover {
+    color: #0f172a;
+    background-color: #f1f5f9;
+  }
+
+  /* Navbar dropdown card */
+  .navbar-dropdown {
+    background: #ffffff;
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px -10px rgba(15, 23, 42, 0.12);
+  }
+
+  /* Navbar profile gradient avatar */
+  .navbar-avatar {
+    background: linear-gradient(135deg, #22c55e 0%, #166534 100%);
+  }
+
+  /* Navbar notification badge */
+  .navbar-notif-badge {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 0 0 2px #ffffff;
+  }
+
+  /* Navbar breadcrumb separator */
+  .breadcrumb-sep {
+    color: #cbd5e1;
+  }
+
+  /* Navbar menu item hover */
+  .navbar-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+  }
+  .navbar-menu-item:hover {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  /* Keyboard shortcut badge */
+  .kbd-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    font-family: "Inter", sans-serif;
+    line-height: 1.4;
+  }
+
+  /* ── Dashboard page cards ─────────────────────────────────── */
+
+  /* Stat card */
+  .dash-stat {
+    background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 16px;
+    padding: 20px;
+  }
+
+  /* Stat card icon container */
+  .dash-stat-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(22, 101, 52, 0.1), rgba(34, 197, 94, 0.06));
+    color: #166534;
+    flex-shrink: 0;
+  }
+
+  /* Stat change badge */
+  .dash-stat-change {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .dash-stat-change.positive {
+    background: rgba(22, 101, 52, 0.08);
+    color: #166534;
+  }
+  .dash-stat-change.negative {
+    background: rgba(239, 68, 68, 0.08);
+    color: #dc2626;
+  }
+
+  /* Premium section card */
+  .dash-card {
+    background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 16px;
+  }
+
+  /* Section label for dashboard */
+  .dash-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #94a3b8;
+  }
+
+  /* Activity item avatar */
+  .dash-activity-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    flex-shrink: 0;
+  }
+
+  /* Quick link card */
+  .dash-quick-link {
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid rgba(226, 232, 240, 0.6);
+  }
+  .dash-quick-link:hover {
+    background: rgba(22, 101, 52, 0.04);
+    border-color: rgba(22, 101, 52, 0.15);
+  }
+
+  /* Progress bar premium */
+  .dash-progress {
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(30, 41, 59, 0.5);
+    overflow: hidden;
+  }
+  .dash-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #22c55e, #16a34a);
   }
 }
 

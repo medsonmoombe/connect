@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { Engagement, User } from '@/types';
 import { engagementService, getStateLabel, getValidNextStates } from '@/lib/engagement';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/api-client';
 import { EngagementMilestones } from '@/components/EngagementMilestones';
 import { ContactCard } from '@/components/ContactCard';
 import { Button } from '@/components/ui/button';
@@ -28,13 +28,13 @@ export default function EngagementRoomPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [engagementData, logsData] = await Promise.all([
+        const [engagementData, logsRes] = await Promise.all([
           engagementService.getEngagement(engagementId),
-          supabase.from('audit_logs').select('*').eq('entity_id', engagementId).order('timestamp', { ascending: false })
+          apiClient.get<{ data: any[] }>(`/engagements/${engagementId}/audit`)
         ]);
         
         setEngagement(engagementData);
-        setAuditLogs(logsData.data || []);
+        setAuditLogs(logsRes.data || []);
       } catch (err) {
         console.error('Error loading engagement data:', err);
         setError('Failed to load engagement details.');
@@ -57,7 +57,7 @@ export default function EngagementRoomPage() {
       // Reload to get full data and new logs
       const [fullUpdated, logsUpdated] = await Promise.all([
         engagementService.getEngagement(engagement.id),
-        supabase.from('audit_logs').select('*').eq('entity_id', engagement.id).order('timestamp', { ascending: false })
+        apiClient.get<{ data: any[] }>(`/engagements/${engagement.id}/audit`)
       ]);
       setEngagement(fullUpdated);
       setAuditLogs(logsUpdated.data || []);

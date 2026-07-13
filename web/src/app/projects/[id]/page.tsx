@@ -7,15 +7,15 @@ import { projectService } from '@/services/projects';
 import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectDocument, ProjectStage } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send, Trash2 } from '@/components/ui/icons';
+import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send, Trash2, X } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { MatchingSection } from '@/components/MatchingSection';
 import { storage, functions } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { httpsCallable } from 'firebase/functions';
+import { ref, deleteObject } from 'firebase/storage';
+import { storageService } from '@/lib/storage';
 import { useAuth } from '@/hooks/useAuth';
+import { apiClient } from '@/lib/api-client';
 import { engagementService } from '@/lib/engagement';
-import { auditLogsApi } from '@/services/api';
 
 const getErrorMessage = (error: unknown) => {
   if (typeof error === 'object' && error !== null && 'message' in error) {
@@ -67,14 +67,15 @@ export default function ProjectDetailsPage() {
 
     setUploading(true);
     try {
-      const storageRef = ref(storage!, `projects/${project.id}/${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      const { file_url, storage_path } = await storageService.uploadProjectDocument(
+        project.id, file, file.name
+      );
 
       const newDoc = await projectService.addProjectDocument({
         project_id: project.id,
         document_type: file.name,
-        file_url: url
+        file_url,
+        storage_path
       });
 
       setProject({
@@ -89,17 +90,11 @@ export default function ProjectDetailsPage() {
     }
   };
 
-  const handleDeleteDocument = async (docId: string, fileUrl: string) => {
+  const handleDeleteDocument = async (docId: string, storagePath: string) => {
     if (!confirm('Are you sure you want to delete this document?')) return;
 
     try {
-      // Delete from Storage
-      const storageRef = ref(storage!, fileUrl);
-      await deleteObject(storageRef);
-
-      // Delete from DB
-      await projectService.deleteProjectDocument(docId);
-
+      await projectService.deleteProjectDocument(docId, storagePath);
       setProject({
         ...project!,
         documents: project!.documents?.filter(d => d.id !== docId)
@@ -118,50 +113,35 @@ export default function ProjectDetailsPage() {
 
     setAnalyzing(true);
     try {
-      console.log('Starting AI Analysis for project:', project.id);
-      const scoreProject = httpsCallable(functions!, 'scoreProject');
-      
       const documentPaths = project.documents
         .map(d => {
+          if (d.storage_path) return d.storage_path;
           try {
             const url = new URL(d.file_url);
             const pathPart = url.pathname.split('/o/')[1];
             return pathPart ? decodeURIComponent(pathPart.split('?')[0]) : null;
-          } catch (e) {
-            console.warn('Failed to parse document URL:', d.file_url);
+          } catch {
             return null;
           }
         })
         .filter((p): p is string => p !== null);
 
-      console.log('Sending document paths to AI:', documentPaths);
-
       if (documentPaths.length === 0) {
-        throw new Error('No valid document paths found. Ensure documents are uploaded to Firebase Storage.');
+        throw new Error('No valid document paths found. Please re-upload your documents.');
       }
 
-      const projectId = project.id;
-      if (!projectId) {
-        throw new Error('Project ID is missing from the current state.');
-      }
+      const responseData = await apiClient.post<{ success: boolean; data: any }>(
+        `/projects/${project.id}/analyze`,
+        { documentPaths }
+      );
 
-      const payload = { projectId, documentPaths };
-      console.log('Final Cloud Function Payload:', JSON.stringify(payload, null, 2));
-
-      const result = await scoreProject(payload);
-      console.log('Raw Cloud Function Result:', result.data);
-
-      const responseData = result.data as any;
       if (!responseData.success || !responseData.data) {
         throw new Error('AI failed to generate a valid scoring result.');
       }
 
       const scoringData = responseData.data;
-      console.log('Extracted Scoring Data:', scoringData);
 
-      // Validate structure before saving
       if (!scoringData.breakdown) {
-        console.error('Missing breakdown in AI response:', scoringData);
         throw new Error('AI response is missing the detailed scoring breakdown.');
       }
 
@@ -246,7 +226,37 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  const [submitting, setSubmitting] = useState(false);
   const [editingChecklist, setEditingChecklist] = useState(false);
+  const [showAllFlags, setShowAllFlags] = useState(false);
+  const [showAllRecs, setShowAllRecs] = useState(false);
+  const PREVIEW_COUNT = 3;
+
+  const reviewRequirements = [
+    { label: 'At least 1 document uploaded', met: (project?.documents?.length ?? 0) > 0 },
+    { label: 'AI analysis completed', met: !!project?.scores },
+    { label: 'Readiness score ≥ 40', met: (project?.scores?.capital_readiness_score ?? 0) >= 40 },
+  ];
+  const canRequestReview = reviewRequirements.every(r => r.met) && project?.status === 'draft';
+
+  const handleRequestReview = async () => {
+    if (!project || !canRequestReview) return;
+    const unmet = reviewRequirements.filter(r => !r.met).map(r => `• ${r.label}`);
+    if (unmet.length > 0) {
+      alert(`Cannot submit for review. Missing requirements:\n${unmet.join('\n')}`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await projectService.updateProject(project.id, { status: 'submitted' });
+      setProject({ ...project, status: 'submitted' });
+      alert('Project submitted for review! The admin team will validate it shortly.');
+    } catch (error: any) {
+      alert(`Failed to submit: ${error.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const [checklistData, setChecklistData] = useState<{
     has_secured_land: boolean;
     land_title_status: 'Traditional' | 'Titled' | 'Not Applicable';
@@ -336,22 +346,12 @@ export default function ProjectDetailsPage() {
   }, [params.id]);
 
   useEffect(() => {
-    async function logView() {
-      if (project && user && project.developer_id !== user.company_id && user.role !== 'ADMIN') {
-        try {
-          await auditLogsApi.create({
-            user_id: user.id,
-            action_type: 'PROJECT_VIEW',
-            entity_type: 'PROJECT',
-            entity_id: project.id
-          });
-        } catch (error) {
-          console.error('Error logging project view:', error);
-        }
-      }
+    // Fire-and-forget: server route writes to audit_logs which triggers
+    // the analytics counter increment via Postgres trigger.
+    if (project && user && user.role !== 'ADMIN') {
+      apiClient.post(`/projects/${project.id}/view`, {}).catch(() => {});
     }
-    logView();
-  }, [project, user]);
+  }, [project?.id, user?.id]);
 
   if (loading) {
     return (
@@ -373,58 +373,54 @@ export default function ProjectDetailsPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background font-sans overflow-hidden">
-      {/* Main Content Area */}
-      <main className="flex-grow overflow-y-auto no-scrollbar">
-        {/* Navigation Bar */}
-        <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-gray-100 h-16 px-8 flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm font-bold text-text-muted uppercase tracking-widest">
-            <Link href="/dashboard/developer" className="hover:text-primary transition-colors flex items-center gap-2">
-              <ArrowLeft className="size-4" />
-              Dashboard
-            </Link>
-            <Icons.chevronRight className="size-3" />
-            <span className="text-text-main">{project.name}</span>
-          </div>
-          {isOwner && (
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="ghost" 
-                className="h-10 px-4 rounded-xl text-error hover:bg-error/10 font-bold"
-                onClick={handleDeleteProject}
-              >
-                <Trash2 className="size-4 mr-2" />
-                Delete
-              </Button>
-              <Button 
-                variant="outline" 
-                className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main"
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  alert('Link copied to clipboard!');
-                }}
-              >
-                Share
-              </Button>
-              <Button className="h-10 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all">
-                Request Review
-              </Button>
-            </div>
+    <div>
+      {/* Page actions row */}
+      {isOwner && (
+        <div className="flex items-center justify-end gap-3 mb-6">
+          <Button
+            variant="ghost"
+            className="h-10 px-4 rounded-xl text-error hover:bg-error/10 font-bold"
+            onClick={handleDeleteProject}
+          >
+            <Trash2 className="size-4 mr-2" />
+            Delete
+          </Button>
+          <Button
+            variant="outline"
+            className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main"
+            onClick={() => { navigator.clipboard.writeText(window.location.href); alert('Link copied!'); }}
+          >
+            Share
+          </Button>
+          {user?.role !== 'ADMIN' && (
+            <Button
+              className="h-10 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all disabled:opacity-50"
+              onClick={handleRequestReview}
+              disabled={submitting || !canRequestReview}
+            >
+              {submitting ? <Icons.spinner className="size-4 animate-spin mr-2" /> : null}
+              {project?.status === 'submitted' ? 'Under Review' : project?.status === 'validated' ? 'Validated ✓' : 'Request Review'}
+            </Button>
           )}
-        </header>
+        </div>
+      )}
 
-        <div className="p-8 max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Hero Section */}
           <div className="p-10 rounded-[40px] bg-surface border border-gray-100 shadow-soft mb-8 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-bl-[200px] -z-10"></div>
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
               <div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 text-green-600 border border-green-100 mb-6">
+                <div className={cn(
+                  'inline-flex items-center gap-2 px-3 py-1 rounded-full mb-6 border font-bold text-[10px] uppercase tracking-widest',
+                  project.status === 'validated' ? 'bg-green-50 text-green-600 border-green-100' :
+                  project.status === 'submitted' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
+                  project.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
+                  'bg-slate-50 text-slate-500 border-slate-100'
+                )}>
                   <Check className="size-3" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">
-                    {project.scores?.capital_readiness_score && project.scores.capital_readiness_score > 70 ? 'Institutional Grade' : 'Internal Portfolio'}
-                  </span>
+                  <span>{project.status === 'validated' ? 'Validated' : project.status === 'submitted' ? 'Under Review' : project.status === 'rejected' ? 'Rejected' : 'Draft'}</span>
                 </div>
                 <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-text-main leading-tight mb-6">
                   {project.name}
@@ -432,15 +428,27 @@ export default function ProjectDetailsPage() {
                 <div className="flex flex-wrap items-center gap-8 text-sm font-bold text-text-muted uppercase tracking-wider">
                   <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Zap className="size-4 text-primary" /> {project.project_size_mw} MW</span>
                   <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><MapPin className="size-4 text-primary" /> {project.location_country}</span>
-                  <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><DollarSign className="size-4 text-primary" /> ${(project.capital_required / 1000000).toFixed(1)}M Capital</span>
+                  <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><DollarSign className="size-4 text-primary" /> ZMW {(project.capital_required / 1000000).toFixed(1)}M</span>
                 </div>
               </div>
-              <div className="flex flex-col items-center justify-center p-6 bg-white border border-gray-100 rounded-3xl shadow-soft min-w-[140px]">
+              <div className="flex flex-col items-center justify-center p-6 bg-white border border-transparent rounded-3xl  min-w-[140px]">
                 <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Readiness</div>
                 <div className="text-4xl font-black text-primary">{project.scores?.capital_readiness_score || 0}%</div>
                 <div className="w-full bg-gray-100 h-1 rounded-full mt-4 overflow-hidden">
                    <div className="bg-primary h-full" style={{ width: `${project.scores?.capital_readiness_score || 0}%` }}></div>
                 </div>
+                {isOwner && project?.status === 'draft' && (
+                  <div className="w-full mt-4 space-y-1.5">
+                    {reviewRequirements.map((req, i) => (
+                      <div key={i} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[9px] font-bold ${
+                        req.met ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'
+                      }`}>
+                        {req.met ? <Check className="size-2.5 shrink-0" /> : <X className="size-2.5 shrink-0" />}
+                        <span className="leading-tight">{req.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -478,7 +486,7 @@ export default function ProjectDetailsPage() {
                   <SpecItem label="Technology" value={project.technology_type || 'N/A'} />
                   <SpecItem label="Grid Connection" value={project.tech_requirements?.grid_status || 'Pending'} />
           <SpecItem label="Land Status" value={project.has_secured_land ? "Secured" : "In Progress"} />
-          <SpecItem label="Offtake" value="N/A" />
+          <SpecItem label="Capital Structure" value={project.capital_structure_type || 'N/A'} />
           <SpecItem label="Expected Go-Live" value={project.target_cod || "TBD"} />
           <SpecItem label="Stage" value={project.project_stage} />
         </div>
@@ -668,28 +676,52 @@ export default function ProjectDetailsPage() {
                           <Icons.shieldCheck className="size-3" />
                           Risk Flags
                         </h4>
-                        <ul className="space-y-2">
-                          {project.scores.risk_flags?.map((flag, i) => (
-                            <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-error/5 p-3 rounded-xl border border-error/10">
-                              <span className="size-1.5 rounded-full bg-error mt-1.5 shrink-0" />
-                              {flag}
-                            </li>
-                          ))}
-                        </ul>
+                        <div className="overflow-hidden transition-all duration-500 ease-in-out"
+                          style={{ maxHeight: showAllFlags ? '2000px' : `${PREVIEW_COUNT * 80}px` }}
+                        >
+                          <ul className="space-y-2">
+                            {project.scores.risk_flags?.map((flag, i) => (
+                              <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-error/5 p-3 rounded-xl border border-error/10">
+                                <span className="size-1.5 rounded-full bg-error mt-1.5 shrink-0" />
+                                {flag}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        {(project.scores.risk_flags?.length ?? 0) > PREVIEW_COUNT && (
+                          <button
+                            onClick={() => setShowAllFlags(v => !v)}
+                            className="text-[10px] font-black uppercase tracking-widest text-error hover:underline cursor-pointer"
+                          >
+                            {showAllFlags ? 'Show Less ↑' : `View ${project.scores.risk_flags!.length - PREVIEW_COUNT} More ↓`}
+                          </button>
+                        )}
                       </div>
                       <div className="space-y-4">
                         <h4 className="text-xs font-black text-primary uppercase tracking-widest flex items-center gap-2">
                           <Icons.zap className="size-3" />
                           Strategic Recommendations
                         </h4>
-                        <ul className="space-y-2">
-                          {project.scores.recommendations?.map((rec, i) => (
-                            <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
-                              <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-                              {rec}
-                            </li>
-                          ))}
-                        </ul>
+                        <div className="overflow-hidden transition-all duration-500 ease-in-out"
+                          style={{ maxHeight: showAllRecs ? '2000px' : `${PREVIEW_COUNT * 80}px` }}
+                        >
+                          <ul className="space-y-2">
+                            {project.scores.recommendations?.map((rec, i) => (
+                              <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
+                                <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                                {rec}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        {(project.scores.recommendations?.length ?? 0) > PREVIEW_COUNT && (
+                          <button
+                            onClick={() => setShowAllRecs(v => !v)}
+                            className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline cursor-pointer"
+                          >
+                            {showAllRecs ? 'Show Less ↑' : `View ${project.scores.recommendations!.length - PREVIEW_COUNT} More ↓`}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </>
@@ -773,7 +805,7 @@ export default function ProjectDetailsPage() {
                           size="N/A" 
                           date={new Date(doc.uploaded_at).toLocaleDateString()}
                           canDelete={isOwner}
-                          onDelete={() => handleDeleteDocument(doc.id, doc.file_url)}
+                          onDelete={() => handleDeleteDocument(doc.id, doc.storage_path || '')}
                           fileUrl={doc.file_url}
                         />
                       ))
@@ -804,19 +836,19 @@ export default function ProjectDetailsPage() {
               {!(!isOwner && isPartner) && (
                 <div className="p-8 rounded-[32px] bg-slate-900 text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-[100px]"></div>
-                  <h3 className="text-lg font-bold mb-6">Market Interest</h3>
+                  <h3 className="text-lg font-bold mb-6">Project Status</h3>
                   <div className="space-y-6">
                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Views</span>
-                        <span className="text-lg font-bold">124</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Status</span>
+                        <span className="text-sm font-bold capitalize">{project.status || 'draft'}</span>
                      </div>
                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Data Room Access</span>
-                        <span className="text-lg font-bold text-primary">8</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital Required</span>
+                        <span className="text-sm font-bold">ZMW {(project.capital_required / 1000000).toFixed(1)}M</span>
                      </div>
                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">NDA Requests</span>
-                        <span className="text-lg font-bold">3</span>
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Matches</span>
+                        <span className="text-lg font-bold text-primary">{capitalMatches.length + technicalMatches.length}</span>
                      </div>
                   </div>
                   <Link href={`/projects/${project.id}/analytics`}>
@@ -827,48 +859,32 @@ export default function ProjectDetailsPage() {
                 </div>
               )}
 
-              {/* Discussion Preview */}
-              <div className="rounded-[32px] bg-surface border border-gray-100 shadow-soft overflow-hidden flex flex-col h-[400px]">
+              {/* Engagements */}
+              <div className="rounded-[32px] bg-surface border border-gray-100 shadow-soft overflow-hidden flex flex-col">
                 <div className="p-6 border-b border-gray-50 flex items-center justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-text-main uppercase tracking-widest">Active Discussions</h3>
+                    <h3 className="text-xs font-bold text-text-main uppercase tracking-widest">Active Engagements</h3>
                     <p className="text-[10px] font-bold text-text-muted mt-1 uppercase">
-                      {isOwner ? "3 Ongoing Threads" : "1 Ongoing Thread"}
+                      {isOwner ? `${capitalMatches.length + technicalMatches.length} Matched Partners` : 'Your Engagement'}
                     </p>
                   </div>
                   <Icons.messageSquare className="size-5 text-primary" />
                 </div>
-                
-                <div className="flex-grow p-6 overflow-y-auto no-scrollbar space-y-6">
-                  {(!(!isOwner && isPartner)) && (
-                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                       <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-[10px]">GC</div>
-                       <div>
-                          <p className="text-xs font-bold text-text-main mb-1">GreenGrowth Capital</p>
-                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"Could you provide more detail on the grid connection timeline?"</p>
-                       </div>
-                    </div>
-                  )}
-                  {isOwner && (
+                <div className="p-6">
+                  {(!isOwner && isPartner) ? (
                     <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
-                       <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">NP</div>
-                       <div>
-                          <p className="text-xs font-bold text-text-main mb-1">Nordic Power Fund</p>
-                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"NDA countersigned. Awaiting access to financial model."</p>
-                       </div>
+                      <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">YOU</div>
+                      <div>
+                        <p className="text-xs font-bold text-text-main mb-1">Your Engagement</p>
+                        <p className="text-[10px] text-text-muted leading-relaxed font-medium">Awaiting response from developer...</p>
+                      </div>
                     </div>
-                  )}
-                  {(!isOwner && isPartner) && (
-                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
-                       <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">YOU</div>
-                       <div>
-                          <p className="text-xs font-bold text-text-main mb-1">Your Thread</p>
-                          <p className="text-[10px] text-text-muted leading-relaxed font-medium">"Awaiting response from developer..."</p>
-                       </div>
+                  ) : (
+                    <div className="p-6 text-center">
+                      <p className="text-xs font-bold text-text-muted uppercase tracking-widest">Engagement details available in the Engagement Center</p>
                     </div>
                   )}
                 </div>
-
                 <div className="p-6 border-t border-gray-50">
                   <Button variant="ghost" className="w-full text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5">
                     Open Engagement Center
@@ -885,7 +901,6 @@ export default function ProjectDetailsPage() {
             technicalMatches={technicalMatches} 
           />
         </div>
-      </main>
     </div>
   );
 }
@@ -913,7 +928,7 @@ function StepItem({ number, label, status }: { number: number, label: string, st
         status === 'active' && "bg-white border-primary text-primary ring-4 ring-primary/10 scale-110",
         status === 'pending' && "bg-white border-gray-200 text-text-muted"
       )}>
-        {status === 'completed' ? <Check className="size-5" /> : number}
+        {status === 'completed' ? <Check className="size-5" color='#fff' /> : number}
       </div>
       <span className={cn(
         "text-[10px] font-bold uppercase tracking-widest text-center max-w-[80px]",

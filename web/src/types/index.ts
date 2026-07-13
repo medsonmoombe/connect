@@ -1,5 +1,13 @@
-// User Roles
-export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'ADMIN' | 'POWER_TRADER';
+// User Roles (derived from org.primary_role or org membership role)
+export type UserRole = 'DEVELOPER' | 'CAPITAL_PARTNER' | 'TECHNICAL_PARTNER' | 'ADMIN' | 'POWER_TRADER' | 'GRANT_PROVIDER';
+
+// Organization membership roles (organization_members.role)
+export type OrgMemberRole = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+// Platform Admin vs Org Admin distinction:
+// - Platform Admin: membership.role === 'ADMIN' (internal staff, full system access)
+// - Org Admin: membership.role !== 'ADMIN' but user.role is derived from org.primary_role
+//   (manages their own org's users/projects/settings)
 
 // Company Types
 export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL' | 'POWER_TRADER';
@@ -78,6 +86,7 @@ export interface Project {
   exit_terms?: string;
   risk_disclosures?: string;
   project_stage: ProjectStage;
+  status?: 'draft' | 'submitted' | 'validated' | 'rejected';
   target_financial_close_date?: string;
   target_cod?: string;
   created_at: string;
@@ -100,6 +109,7 @@ export interface ProjectDocument {
   project_id: string;
   document_type: string;
   file_url: string;
+  storage_path?: string;
   uploaded_at: string;
 }
 
@@ -245,6 +255,8 @@ export interface AuditLog {
   entity_type: string;
   entity_id: string;
   timestamp: string;
+  before_state?: Record<string, unknown> | null;
+  after_state?: Record<string, unknown> | null;
   // Related data
   user?: User;
 }

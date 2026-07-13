@@ -1,7 +1,7 @@
 'use client';
 
 import { Icons } from './icons';
-import { Button } from './button';
+import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
 interface EmptyStateProps {
@@ -27,14 +27,15 @@ export function EmptyState({ icon, title, description, actionLabel, actionHref, 
       {actionLabel && (
         actionHref ? (
           <Link href={actionHref}>
-            <Button className="h-14 px-10 bg-primary text-white font-black rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 transition-all">
-              {actionLabel}
-            </Button>
+             <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />}>
+                      {actionLabel}
+                      </Button>
           </Link>
         ) : (
-          <Button onClick={onAction} className="h-14 px-10 bg-primary text-white font-black rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 transition-all">
-            {actionLabel}
-          </Button>
+
+                    <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />}>
+                      {actionLabel}
+                      </Button>
         )
       )}
     </div>

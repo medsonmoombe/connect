@@ -50,6 +50,11 @@ import {
   Phone,
   Trash2,
   X,
+  Copy,
+  Eye,
+  EyeOff,
+  Users,
+  RefreshCw,
 } from "lucide-react";
 
 export const Icons = {
@@ -119,6 +124,12 @@ export const Icons = {
   chevronDown: ChevronDown,
   user: User,
   trash: Trash2,
+  copy: Copy,
+  eye: Eye,
+  eyeOff: EyeOff,
+  users: Users,
+  refreshCw: RefreshCw,
+  x: X,
   logo: (props: any) => (
     <Leaf
       {...props}
@@ -189,4 +200,8 @@ export {
   Info,
   Phone,
   Trash2,
+  X,
+  Eye,
+  EyeOff,
+  RefreshCw,
 };

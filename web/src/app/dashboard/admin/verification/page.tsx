@@ -1,246 +1,662 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { usersApi, projectsApi, auditLogsApi } from '@/services/api';
-import { projectService } from '@/services/projects';
-import { User, Project } from '@/types';
-import { Icons } from '@/components/ui/icons';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import * as ReactDOM from 'react-dom';
+import { DataTable, Column } from '@/components/ui/data-table';
+import { Drawer } from '@/components/ui/drawer';
+import { Badge, BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Icons } from '@/components/ui/icons';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/hooks/useAuth';
 
-export default function VerificationQueuePage() {
-  const [activeQueue, setActiveQueue] = useState<'USERS' | 'PROJECTS'>('USERS');
-  const [pendingUsers, setPendingUsers] = useState<User[]>([]);
-  const [pendingProjects, setPendingProjects] = useState<Project[]>([]);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const { user: currentUser } = useAuth();
+type OrgStatus = 'pending_verification' | 'verified' | 'rejected' | 'needs_update';
+
+interface PendingOrg {
+  id: string;
+  name: string;
+  primary_role: string;
+  country: string;
+  status: OrgStatus;
+  created_at: string;
+  admin_note?: string;
+  description?: string;
+  website?: string;
+  team_size?: number;
+  years_operating?: number;
+  logo_url?: string;
+  is_new_company_with_experienced_team?: boolean;
+  management_team_experience?: Record<string, any>;
+  preferences?: Record<string, any> | null;
+  company_members: {
+    role: string;
+    user_id: string;
+    user_profiles: { id: string; full_name: string; email: string; avatar_url?: string; created_at?: string } | null;
+  }[];
+}
+
+const STATUS_BADGE: Record<OrgStatus, { variant: BadgeVariant; label: string }> = {
+  pending_verification: { variant: 'yellow', label: 'Pending' },
+  verified:             { variant: 'green',  label: 'Verified' },
+  rejected:             { variant: 'red',    label: 'Rejected' },
+  needs_update:         { variant: 'orange', label: 'Needs Update' },
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  DEVELOPER:        'Developer',
+  CAPITAL_PARTNER:  'Capital Partner',
+  TECHNICAL_PARTNER:'Technical Partner',
+  GRANT_PROVIDER:   'Grant Provider',
+  POWER_TRADER:     'Power Trader',
+};
+
+const STATUS_TABS: { value: OrgStatus; label: string }[] = [
+  { value: 'pending_verification', label: 'Pending' },
+  { value: 'needs_update',         label: 'Needs Update' },
+  { value: 'verified',             label: 'Verified' },
+  { value: 'rejected',             label: 'Rejected' },
+];
+
+// ── Three-dot menu (portal-based) ──────────────────────────────────────────
+
+function RowMenu({ items }: {
+  items: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean }[]
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number; origin: string }>({ top: 0, right: 0, origin: 'top' });
 
   useEffect(() => {
-    fetchQueues();
-  }, []);
+    const handler = (e: MouseEvent) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
 
-  const fetchQueues = async () => {
+  const MENU_HEIGHT = items.length * 36 + 8;
+
+  const toggle = () => {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUp = spaceBelow < MENU_HEIGHT;
+      setPos({
+        top: openUp ? rect.top - MENU_HEIGHT : rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+        origin: openUp ? 'bottom' : 'top',
+      });
+    }
+    setOpen(v => !v);
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={toggle}
+        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+      >
+        <Icons.moreVertical className="size-4" />
+      </button>
+      {open && ReactDOM.createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999, transformOrigin: pos.origin }}
+          className="w-48 bg-white border border-slate-200 rounded-xl shadow-lg py-1 animate-in fade-in duration-150"
+        >
+          {items.map((item, i) => (
+            <button
+              key={i}
+              disabled={item.disabled}
+              onClick={() => { setOpen(false); item.onClick(); }}
+              className={cn(
+                'w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors',
+                item.disabled
+                  ? 'text-slate-300 cursor-not-allowed'
+                  : item.danger
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-slate-700 hover:bg-slate-50'
+              )}
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────
+
+export default function VerificationQueuePage() {
+  const [orgs, setOrgs] = useState<PendingOrg[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<OrgStatus>('pending_verification');
+  const [selected, setSelected] = useState<PendingOrg | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [note, setNote] = useState('');
+
+  const [loadingApprove, setLoadingApprove] = useState(false);
+  const [loadingReject, setLoadingReject] = useState(false);
+  const [loadingRequestInfo, setLoadingRequestInfo] = useState(false);
+
+  const [confirmReject, setConfirmReject] = useState(false);
+  const [confirmRequestInfo, setConfirmRequestInfo] = useState(false);
+  const [confirmApprove, setConfirmApprove] = useState(false);
+
+  const fetchOrgs = useCallback(async () => {
     setLoading(true);
     try {
-      const [usersRes, projectsRes] = await Promise.all([
-        usersApi.getPendingVerifications(),
-        projectsApi.getAdminAll({ status: 'FEASIBILITY' }) // Assuming FEASIBILITY is the 'submitted' stage for MVP
-      ]);
-      setPendingUsers(usersRes.data || []);
-      setPendingProjects(projectsRes.data || []);
-      
-      if (usersRes.data && usersRes.data.length > 0) setSelectedUser(usersRes.data[0]);
-      if (projectsRes.data && projectsRes.data.length > 0) setSelectedProject(projectsRes.data[0]);
-    } catch (error) {
-      console.error('Error fetching queues:', error);
+      const res = await fetch(`/api/admin/organizations?status=${statusFilter}`);
+      const { data } = await res.json();
+      setOrgs(data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter]);
+
+  useEffect(() => { fetchOrgs(); }, [fetchOrgs]);
+
+  const openViewDrawer = (org: PendingOrg) => {
+    setSelected(org);
+    setNote('');
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setSelected(null);
+    setNote('');
+    setConfirmReject(false);
+    setConfirmRequestInfo(false);
+    setConfirmApprove(false);
+  };
+
+  const handleAction = async (status: 'verified' | 'rejected' | 'needs_update') => {
+    if (!selected) return;
+
+    const setLoading =
+      status === 'verified' ? setLoadingApprove :
+      status === 'rejected' ? setLoadingReject :
+      setLoadingRequestInfo;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/organizations/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note: note || undefined }),
+      });
+
+      if (res.ok) {
+        closeDrawer();
+        fetchOrgs();
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerifyUser = async (userId: string, status: 'VERIFIED' | 'REJECTED') => {
-    setProcessing(true);
-    try {
-      await usersApi.verifyUser(userId, status);
-      await auditLogsApi.create({
-        user_id: currentUser?.id,
-        action_type: status === 'VERIFIED' ? 'USER_VERIFIED' : 'USER_REJECTED',
-        entity_type: 'USER',
-        entity_id: userId
-      });
-      const updated = pendingUsers.filter(u => u.id !== userId);
-      setPendingUsers(updated);
-      setSelectedUser(updated.length > 0 ? updated[0] : null);
-    } catch (error) {
-      console.error('Error verifying user:', error);
-    } finally {
-      setProcessing(false);
-    }
-  };
+  const owner = selected?.company_members?.find(m => m.role === 'OWNER')?.user_profiles;
+  const members = selected?.company_members ?? [];
+  const canAct = statusFilter === 'pending_verification' || statusFilter === 'needs_update';
 
-  const handleValidateProject = async (projectId: string, status: 'VALIDATED' | 'REJECTED') => {
-    setProcessing(true);
-    try {
-      if (status === 'VALIDATED') {
-        // Transition project stage to PRE_CONSTRUCTION as 'validated'
-        await projectService.updateProject(projectId, { project_stage: 'PRE_CONSTRUCTION' });
-        // Trigger matching
-        await projectService.runMatchingEngine(projectId);
-      } else {
-        // Handle rejection - maybe just delete or flag? For now just remove from queue
-      }
-      
-      await auditLogsApi.create({
-        user_id: currentUser?.id,
-        action_type: status === 'VALIDATED' ? 'PROJECT_VALIDATED' : 'PROJECT_REJECTED',
-        entity_type: 'PROJECT',
-        entity_id: projectId
-      });
+  const columns: Column<PendingOrg>[] = [
+    {
+      key: 'name',
+      header: 'Organisation',
+      render: (row) => (
+        <div className="flex items-center gap-3">
+          {row.logo_url ? (
+            <img src={row.logo_url} alt="" className="size-8 rounded-lg object-cover shrink-0" />
+          ) : (
+            <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs shrink-0">
+              {row.name.substring(0, 2).toUpperCase()}
+            </div>
+          )}
+          <span className="text-sm font-bold text-slate-900">{row.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'role',
+      header: 'Type',
+      render: (row) => (
+        <span className="text-sm text-slate-600">{ROLE_LABELS[row.primary_role] ?? row.primary_role}</span>
+      ),
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      render: (row) => {
+        const o = row.company_members?.find(m => m.role === 'OWNER')?.user_profiles;
+        return <span className="text-sm text-slate-600">{o?.full_name ?? '—'}</span>;
+      },
+    },
+    {
+      key: 'country',
+      header: 'Country',
+      render: (row) => <span className="text-sm text-slate-600">{row.country ?? '—'}</span>,
+    },
+    {
+      key: 'applied',
+      header: 'Applied',
+      render: (row) => (
+        <span className="text-sm text-slate-500">
+          {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => {
+        const s = STATUS_BADGE[row.status] ?? { variant: 'slate' as BadgeVariant, label: row.status };
+        return <Badge variant={s.variant}>{s.label}</Badge>;
+      },
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-10 text-right',
+      render: (row) => {
+        const menuItems: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }[] = [
+          {
+            label: 'View details',
+            icon: <Icons.eye className="size-3.5" />,
+            onClick: () => openViewDrawer(row),
+          },
+        ];
 
-      const updated = pendingProjects.filter(p => p.id !== projectId);
-      setPendingProjects(updated);
-      setSelectedProject(updated.length > 0 ? updated[0] : null);
-    } catch (error) {
-      console.error('Error validating project:', error);
-    } finally {
-      setProcessing(false);
-    }
-  };
+        if (canAct) {
+          menuItems.push(
+            {
+              label: 'Approve',
+              icon: <Icons.checkCircle2 className="size-3.5" />,
+              onClick: () => { setSelected(row); setNote(''); setConfirmApprove(true); },
+            },
+            {
+              label: 'Request info',
+              icon: <Icons.info className="size-3.5" />,
+              onClick: () => { setSelected(row); setNote(''); setConfirmRequestInfo(true); },
+            },
+            {
+              label: 'Reject',
+              icon: <Icons.x className="size-3.5" />,
+              danger: true,
+              onClick: () => { setSelected(row); setNote(''); setConfirmReject(true); },
+            },
+          );
+        }
 
-  if (loading) {
-    return (
-      <div className="flex h-[600px] w-full items-center justify-center bg-slate-50/50 rounded-[40px]">
-        <Icons.spinner className="size-8 animate-spin text-green-800" />
-      </div>
-    );
-  }
+        return <RowMenu items={menuItems} />;
+      },
+    },
+  ];
 
   return (
-    <div className="space-y-8">
-      {/* Queue Selector */}
-      <div className="flex gap-4 p-1.5 bg-white rounded-2xl border border-slate-100 shadow-sm w-fit">
-        <button 
-          onClick={() => setActiveQueue('USERS')}
-          className={cn(
-            "px-6 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
-            activeQueue === 'USERS' ? "bg-green-800 text-white shadow-lg" : "text-slate-400 hover:text-slate-600"
-          )}
-        >
-          <Icons.user className="size-3.5" />
-          USERS ({pendingUsers.length})
-        </button>
-        <button 
-          onClick={() => setActiveQueue('PROJECTS')}
-          className={cn(
-            "px-6 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
-            activeQueue === 'PROJECTS' ? "bg-green-800 text-white shadow-lg" : "text-slate-400 hover:text-slate-600"
-          )}
-        >
-          <Icons.zap className="size-3.5" />
-          PROJECTS ({pendingProjects.length})
-        </button>
+    <div className="space-y-8 animate-in fade-in duration-500">
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Verification Queue</h2>
+          <p className="text-slate-500 mt-1 text-sm">Review and verify organisations applying to the platform.</p>
+        </div>
       </div>
 
-      <div className="flex gap-8 h-[calc(100vh-280px)] animate-in fade-in duration-700">
-        {/* Queue Sidebar */}
-        <div className="w-1/3 bg-white rounded-[32px] border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
-            <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">
-              {activeQueue === 'USERS' ? 'User Applications' : 'Project Submissions'}
-            </h3>
-          </div>
-          <div className="flex-grow overflow-y-auto no-scrollbar divide-y divide-slate-50">
-            {activeQueue === 'USERS' ? (
-              pendingUsers.length > 0 ? pendingUsers.map((u) => (
-                <div 
-                  key={u.id} 
-                  onClick={() => setSelectedUser(u)}
-                  className={cn(
-                    "p-6 cursor-pointer transition-all hover:bg-slate-50 flex items-center gap-4",
-                    selectedUser?.id === u.id ? "bg-slate-50 border-l-4 border-green-800" : ""
-                  )}
-                >
-                  <div className="size-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-xs shrink-0">{u.full_name?.substring(0, 2).toUpperCase()}</div>
-                  <div className="min-w-0"><p className="text-sm font-bold text-slate-900 truncate">{u.full_name}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-0.5">{u.role}</p></div>
-                </div>
-              )) : <div className="p-12 text-center text-slate-400 italic text-sm">No pending users.</div>
-            ) : (
-              pendingProjects.length > 0 ? pendingProjects.map((p) => (
-                <div 
-                  key={p.id} 
-                  onClick={() => setSelectedProject(p)}
-                  className={cn(
-                    "p-6 cursor-pointer transition-all hover:bg-slate-50 flex items-center gap-4",
-                    selectedProject?.id === p.id ? "bg-slate-50 border-l-4 border-green-800" : ""
-                  )}
-                >
-                  <div className="size-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0"><Icons.zap className="size-5" /></div>
-                  <div className="min-w-0"><p className="text-sm font-bold text-slate-900 truncate">{p.name}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-0.5">{p.technology_type} • {p.location_country}</p></div>
-                </div>
-              )) : <div className="p-12 text-center text-slate-400 italic text-sm">No pending projects.</div>
+      {/* Status tabs */}
+      <div className="flex gap-2 p-1.5 bg-white rounded-2xl border border-slate-100 shadow-sm w-fit">
+        {STATUS_TABS.map(tab => (
+          <button
+            key={tab.value}
+            onClick={() => setStatusFilter(tab.value)}
+            className={cn(
+              'px-5 py-2 rounded-xl text-xs font-bold transition-all',
+              statusFilter === tab.value
+                ? 'bg-green-800 text-white shadow'
+                : 'text-slate-400 hover:text-slate-600'
             )}
-          </div>
-        </div>
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        {/* Detail View */}
-        <div className="flex-grow bg-white rounded-[32px] border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col overflow-hidden">
-          {activeQueue === 'USERS' && selectedUser ? (
-            <>
-              <div className="p-10 border-b border-slate-50">
-                <div className="flex items-center gap-6 mb-8">
-                  <div className="size-20 rounded-[28px] bg-slate-100 flex items-center justify-center text-slate-400 font-black text-2xl shadow-inner">{selectedUser.full_name?.substring(0, 2).toUpperCase()}</div>
-                  <div>
-                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedUser.full_name}</h2>
-                    <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-1">{selectedUser.email}</p>
-                  </div>
+      {/* Table */}
+      <div className="bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-900">
+            {STATUS_BADGE[statusFilter]?.label} Organisations
+          </h3>
+          <span className="text-xs text-slate-400">{loading ? '—' : `${orgs.length} total`}</span>
+        </div>
+        {loading ? (
+          <div className="divide-y divide-slate-50">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-6 py-4 flex items-center gap-4 animate-pulse">
+                <div className="size-8 rounded-lg bg-slate-100 shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 bg-slate-100 rounded-full w-40" />
+                  <div className="h-2.5 bg-slate-100 rounded-full w-24" />
                 </div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Company</p><p className="text-lg font-bold text-slate-900">{(selectedUser as any).company?.name || selectedUser.company_id || 'N/A'}</p></div>
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Role Applied</p><p className="text-lg font-bold text-slate-900">{selectedUser.role}</p></div>
-                </div>
+                <div className="h-3 bg-slate-100 rounded-full w-20" />
+                <div className="h-3 bg-slate-100 rounded-full w-16" />
+                <div className="h-3 bg-slate-100 rounded-full w-20" />
+                <div className="h-5 bg-slate-100 rounded-full w-14" />
+                <div className="size-6 bg-slate-100 rounded-lg" />
               </div>
-              <div className="p-10 flex-grow">
-                <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em] mb-6">Verification Documents</h4>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                    <div className="flex items-center gap-3"><Icons.fileText className="size-4 text-slate-400" /><span className="text-xs font-bold text-slate-600">KYC_PROFILE.PDF</span></div>
-                    <Button variant="ghost" size="sm" className="text-green-800 font-black text-[10px] uppercase">VIEW</Button>
-                  </div>
-                </div>
+            ))}
+          </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            data={orgs}
+            loading={false}
+            rowKey={(r) => r.id}
+            emptyTitle="No organisations in this queue"
+            emptyDescription="Check another status tab above"
+          />
+        )}
+      </div>
+
+      {/* ── View Drawer ──────────────────────────────────────────── */}
+      <Drawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        title={selected?.name ?? ''}
+        description={ROLE_LABELS[selected?.primary_role ?? ''] ?? selected?.primary_role}
+        size="xl"
+      >
+        {selected && (
+          <div className="space-y-8">
+            {/* ── Organisation Overview ─────────────────────── */}
+            <section>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Organisation Details</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <InfoCard label="Status">
+                  <Badge variant={STATUS_BADGE[selected.status]?.variant ?? 'slate'}>
+                    {STATUS_BADGE[selected.status]?.label ?? selected.status}
+                  </Badge>
+                </InfoCard>
+                <InfoCard label="Type" value={ROLE_LABELS[selected.primary_role] ?? selected.primary_role} />
+                <InfoCard label="Country" value={selected.country ?? '—'} />
+                <InfoCard label="Team Size" value={selected.team_size ? `${selected.team_size} people` : '—'} />
+                <InfoCard label="Years Operating" value={selected.years_operating ? `${selected.years_operating} years` : '—'} />
+                <InfoCard label="Applied" value={new Date(selected.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} />
               </div>
-              <div className="p-8 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between">
-                <div className="flex gap-4">
-                  <Button onClick={() => handleVerifyUser(selectedUser.id, 'REJECTED')} disabled={processing} variant="outline" className="h-12 px-8 rounded-xl border-slate-200 text-red-600 font-bold">REJECT</Button>
-                  <Button onClick={() => handleVerifyUser(selectedUser.id, 'VERIFIED')} disabled={processing} className="h-12 px-10 rounded-xl bg-green-800 text-white font-bold shadow-xl">APPROVE</Button>
+            </section>
+
+            {/* ── Logo ──────────────────────────────────────── */}
+            {selected.logo_url && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Logo</h4>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-4">
+                  <img src={selected.logo_url} alt={`${selected.name} logo`} className="size-16 rounded-xl object-cover" />
+                  <a href={selected.logo_url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-green-700 hover:underline">
+                    View full size
+                  </a>
                 </div>
-              </div>
-            </>
-          ) : activeQueue === 'PROJECTS' && selectedProject ? (
-            <>
-              <div className="p-10 border-b border-slate-50">
-                <div className="flex items-center gap-6 mb-8">
-                  <div className="size-20 rounded-[28px] bg-green-50 flex items-center justify-center text-green-800 font-black text-2xl shadow-inner"><Icons.zap className="size-10" /></div>
-                  <div>
-                    <h2 className="text-3xl font-black text-slate-900 tracking-tight">{selectedProject.name}</h2>
-                    <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-1">{selectedProject.technology_type} • {selectedProject.project_size_mw} MW</p>
-                  </div>
+              </section>
+            )}
+
+            {/* ── Description ──────────────────────────────── */}
+            {selected.description && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Description</h4>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selected.description}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-8">
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Developer</p><p className="text-lg font-bold text-slate-900">{selectedProject.developer?.name}</p></div>
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Capital Required</p><p className="text-lg font-bold text-slate-900">${(selectedProject.capital_required / 1000000).toFixed(1)}M</p></div>
-                </div>
-              </div>
-              <div className="p-10 flex-grow">
-                <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em] mb-6">Data Room Contents</h4>
-                <div className="space-y-4">
-                  {selectedProject.documents?.map(doc => (
-                    <div key={doc.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <div className="flex items-center gap-3"><Icons.fileText className="size-4 text-slate-400" /><span className="text-xs font-bold text-slate-600 uppercase">{doc.document_type}</span></div>
-                      <Link href={doc.file_url} target="_blank"><Button variant="ghost" size="sm" className="text-green-800 font-black text-[10px] uppercase">REVIEW</Button></Link>
+              </section>
+            )}
+
+            {/* ── Website ──────────────────────────────────── */}
+            {selected.website && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Website</h4>
+                <a
+                  href={selected.website.startsWith('http') ? selected.website : `https://${selected.website}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 hover:text-green-800 underline underline-offset-2"
+                >
+                  {selected.website}
+                  <Icons.arrowUpRight className="size-3.5" />
+                </a>
+              </section>
+            )}
+
+            {/* ── Team Experience ──────────────────────────── */}
+            {selected.management_team_experience && Object.keys(selected.management_team_experience).length > 0 && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Management Team Experience</h4>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                  {Object.entries(selected.management_team_experience).map(([key, value]) => (
+                    <div key={key} className="flex justify-between items-start gap-4">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{key.replace(/_/g, ' ')}</span>
+                      <span className="text-sm text-slate-700 text-right">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-              <div className="p-8 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between">
-                <div className="flex gap-4">
-                  <Button onClick={() => handleValidateProject(selectedProject.id, 'REJECTED')} disabled={processing} variant="outline" className="h-12 px-8 rounded-xl border-slate-200 text-red-600 font-bold">REJECT SUBMISSION</Button>
-                  <Button onClick={() => handleValidateProject(selectedProject.id, 'VALIDATED')} disabled={processing} className="h-12 px-10 rounded-xl bg-green-800 text-white font-bold shadow-xl">VALIDATE & PUBLISH</Button>
+                {selected.is_new_company_with_experienced_team && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge variant="blue">New Company, Experienced Team</Badge>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* ── Role-Specific Preferences ──────────────── */}
+            {selected.preferences && Object.keys(selected.preferences).length > 2 && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+                  {ROLE_LABELS[selected.primary_role] ?? selected.primary_role} Preferences
+                </h4>
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                  {Object.entries(selected.preferences).map(([key, value]) => {
+                    if (key === 'id' || key === 'company_id' || key === 'created_at' || key === 'updated_at') return null;
+                    if (value === null || value === undefined || value === '') return null;
+                    const displayValue = Array.isArray(value)
+                      ? value.length > 0 ? value.join(', ') : '—'
+                      : typeof value === 'object'
+                        ? JSON.stringify(value)
+                        : String(value);
+                    if (displayValue === '—' || displayValue === '0' || displayValue === 'false') return null;
+                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                    return (
+                      <div key={key} className="flex justify-between items-start gap-4">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide shrink-0">{label}</span>
+                        <span className="text-sm text-slate-700 text-right">{displayValue}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* ── Owner ────────────────────────────────────── */}
+            <section>
+              <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Owner</h4>
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-4">
+                <div className="size-10 rounded-xl bg-green-800 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-white">
+                    {(owner?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900">{owner?.full_name ?? '—'}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{owner?.email ?? '—'}</p>
                 </div>
               </div>
-            </>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center p-12 text-center">
-              <Icons.shieldCheck className="size-20 text-slate-100 mb-6" />
-              <h3 className="text-xl font-bold text-slate-400">Select an item to review</h3>
-            </div>
-          )}
+            </section>
+
+            {/* ── Members ──────────────────────────────────── */}
+            {members.length > 0 && (
+              <section>
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Team Members ({members.length})</h4>
+                <div className="space-y-2">
+                  {members.map((m, i) => (
+                    <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-3">
+                      <div className="size-8 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
+                        <span className="text-[10px] font-bold text-slate-500">
+                          {(m.user_profiles?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-900 truncate">{m.user_profiles?.full_name ?? '—'}</p>
+                        <p className="text-[10px] text-slate-400">{m.user_profiles?.email ?? '—'}</p>
+                      </div>
+                      <Badge variant={m.role === 'OWNER' ? 'green' : 'slate'}>{m.role}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* ── Previous Admin Note ──────────────────────── */}
+            {selected.admin_note && (
+              <section>
+                <h4 className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-3">Previous Admin Note</h4>
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
+                  <p className="text-sm text-amber-800 leading-relaxed">{selected.admin_note}</p>
+                </div>
+              </section>
+            )}
+
+            {/* ── Action Buttons (direct in drawer for View) ── */}
+            {canAct && (
+              <section className="pt-2 border-t border-slate-100">
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-11 rounded-xl border-red-200 text-red-600 font-bold hover:bg-red-50"
+                    onClick={() => setConfirmReject(true)}
+                    loading={loadingReject}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-11 rounded-xl border-amber-200 text-amber-600 font-bold hover:bg-amber-50"
+                    onClick={() => setConfirmRequestInfo(true)}
+                    loading={loadingRequestInfo}
+                  >
+                    Request Info
+                  </Button>
+                  <Button
+                    className="flex-1 h-11 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold shadow-lg shadow-green-900/20"
+                    onClick={() => setConfirmApprove(true)}
+                    loading={loadingApprove}
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </Drawer>
+
+      {/* ── Confirm: Approve ─────────────────────────────────────── */}
+      <ConfirmDialog
+        open={confirmApprove}
+        onClose={() => setConfirmApprove(false)}
+        onConfirm={() => handleAction('verified')}
+        title="Approve Organisation"
+        description={`Approve "${selected?.name}"? They will be notified by email and gain full access to the platform.${note ? ' A note will be included in the email.' : ''}`}
+        confirmLabel="Approve"
+        confirmVariant="default"
+        loading={loadingApprove}
+      />
+
+      {/* ── Confirm: Reject ─────────────────────────────────────── */}
+      <ConfirmDialog
+        open={confirmReject}
+        onClose={() => setConfirmReject(false)}
+        onConfirm={() => handleAction('rejected')}
+        title="Reject Organisation"
+        description={`Are you sure you want to reject "${selected?.name}"? The owner will be notified by email.${note ? ' Your note will be included.' : ''}`}
+        confirmLabel="Reject"
+        confirmVariant="danger"
+        loading={loadingReject}
+      />
+
+      {/* ── Confirm: Request Info ────────────────────────────────── */}
+      <ConfirmDialog
+        open={confirmRequestInfo}
+        onClose={() => setConfirmRequestInfo(false)}
+        onConfirm={() => handleAction('needs_update')}
+        title="Request Additional Information"
+        description={`Send a request to "${selected?.name}" for more information? The owner will be notified by email.${note ? ' Your note will be included.' : ''}`}
+        confirmLabel="Send Request"
+        confirmVariant="default"
+        loading={loadingRequestInfo}
+      />
+
+      {/* ── Confirm: Request Info — note input ───────────────────── */}
+      <Drawer
+        open={confirmRequestInfo || confirmReject}
+        onClose={() => { setConfirmRequestInfo(false); setConfirmReject(false); setNote(''); }}
+        title={confirmReject ? 'Reject Organisation' : 'Request Information'}
+        description={
+          confirmReject
+            ? `Provide a reason for rejecting "${selected?.name}" (optional, sent via email).`
+            : `What information do you need from "${selected?.name}"? (optional, sent via email).`
+        }
+        size="sm"
+      >
+        <div className="space-y-5">
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder={confirmReject ? 'Reason for rejection...' : 'What additional information is needed...'}
+            className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-green-800/20 transition-shadow"
+          />
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              className="flex-1 h-11 rounded-xl border-slate-200 font-bold"
+              onClick={() => { setConfirmRequestInfo(false); setConfirmReject(false); setNote(''); }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={confirmReject ? 'danger' : 'default'}
+              className="flex-1 h-11 rounded-xl font-bold"
+              onClick={() => {
+                setConfirmRequestInfo(false);
+                setConfirmReject(false);
+                if (confirmReject) handleAction('rejected');
+                else handleAction('needs_update');
+              }}
+              loading={confirmReject ? loadingReject : loadingRequestInfo}
+            >
+              {confirmReject ? 'Reject' : 'Send Request'}
+            </Button>
+          </div>
         </div>
-      </div>
+      </Drawer>
+    </div>
+  );
+}
+
+// ── Info card helper ──────────────────────────────────────────────────────
+
+function InfoCard({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+      {children ?? <p className="text-sm font-bold text-slate-900">{value}</p>}
     </div>
   );
 }

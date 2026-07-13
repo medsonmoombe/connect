@@ -1,5 +1,5 @@
 import { EngagementStatus, Engagement } from '@/types';
-import { supabase } from './supabase';
+import { apiClient } from './api-client';
 import { projectService } from '@/services/projects';
 
 // Engagement State Machine
@@ -98,17 +98,7 @@ export class EngagementService {
    * Fetch an engagement by ID with project and developer info
    */
   static async getEngagement(id: string) {
-    const { data, error } = await supabase
-      .from('engagements')
-      .select(`
-        *,
-        project:projects(*, developer:companies(*)),
-        messages(*)
-      `)
-      .eq('id', id)
-      .single();
-
-    if (error) throw error;
+    const { data } = await apiClient.get<{ data: any }>(`/engagements/${id}`);
     return data;
   }
 
@@ -116,12 +106,7 @@ export class EngagementService {
    * Fetch all engagements for a project
    */
   static async getProjectEngagements(projectId: string) {
-    const { data, error } = await supabase
-      .from('engagements')
-      .select('*, project:projects(name)')
-      .eq('project_id', projectId);
-
-    if (error) throw error;
+    const { data } = await apiClient.get<{ data: any[] }>(`/engagements?project_id=${projectId}`);
     return data;
   }
 
@@ -129,54 +114,20 @@ export class EngagementService {
    * Fetch all engagements for a company (either as developer or counterparty)
    */
   static async getCompanyEngagements(companyId: string) {
-    // This is a bit complex as we need to check both project.developer_id and counterparty_id
-    // For now, let's fetch based on counterparty_id first
-    const { data: asCounterparty, error: err1 } = await supabase
-      .from('engagements')
-      .select('*, project:projects(*, developer:companies(*))')
-      .eq('counterparty_id', companyId);
-
-    if (err1) throw err1;
-
-    // Fetch projects owned by this company to get engagements where they are the developer
-    const { data: myProjects, error: err2 } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('developer_id', companyId);
-
-    if (err2) throw err2;
-
-    const projectIds = myProjects.map(p => p.id);
-    const { data: asDeveloper, error: err3 } = await supabase
-      .from('engagements')
-      .select('*, project:projects(*, developer:companies(*))')
-      .in('project_id', projectIds);
-
-    if (err3) throw err3;
-
-    // Combine and deduplicate
-    const combined = [...asCounterparty, ...asDeveloper];
-    const unique = Array.from(new Map(combined.map(item => [item.id, item])).values());
-    
-    return unique;
+    const { data } = await apiClient.get<{ data: any[] }>(`/engagements?counterparty_id=${companyId}`);
+    return data || [];
   }
 
   /**
    * Create a new engagement (Request Introduction)
    */
   static async requestIntroduction(projectId: string, counterpartyId: string, counterpartyType: 'CAPITAL' | 'TECHNICAL') {
-    const { data, error } = await supabase
-      .from('engagements')
-      .insert([{
-        project_id: projectId,
-        counterparty_id: counterpartyId,
-        counterparty_type: counterpartyType,
-        status: 'INTRO_SENT'
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
+    const { data } = await apiClient.post<{ data: any }>('/engagements', {
+      project_id: projectId,
+      counterparty_id: counterpartyId,
+      counterparty_type: counterpartyType,
+      status: 'INTRO_SENT',
+    });
     return data;
   }
 
@@ -191,54 +142,20 @@ export class EngagementService {
    * Update engagement status with validation
    */
   static async updateStatus(engagementId: string, nextStatus: EngagementStatus) {
-    // 1. Get current status and engagement metadata
-    const { data: current, error: fetchErr } = await supabase
-      .from('engagements')
-      .select('status, project_id, counterparty_type')
-      .eq('id', engagementId)
-      .single();
+    const current = await this.getEngagement(engagementId);
 
-    if (fetchErr) throw fetchErr;
-
-    // 2. Validate transition
     if (current.status !== nextStatus && !isValidTransition(current.status as EngagementStatus, nextStatus)) {
-      if (nextStatus !== 'DROPPED') { // Allow dropping from anywhere
+      if (nextStatus !== 'DROPPED') {
         throw new Error(`Invalid transition from ${current.status} to ${nextStatus}`);
       }
     }
 
-    // 3. Update
-    const { data, error } = await supabase
-      .from('engagements')
-      .update({ 
-        status: nextStatus,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', engagementId)
-      .select()
-      .single();
+    const { data } = await apiClient.patch<{ data: any }>(`/engagements/${engagementId}`, { status: nextStatus });
 
-    if (error) throw error;
-    
-    if (
-      current.counterparty_type === 'TECHNICAL' &&
-      ACCEPTED_TECHNICAL_STATUSES.includes(nextStatus)
-    ) {
+    if (current.counterparty_type === 'TECHNICAL' && ACCEPTED_TECHNICAL_STATUSES.includes(nextStatus)) {
       await projectService.runMatchingEngine(current.project_id);
     }
-    
-    // 4. Create Audit Log Entry
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from('audit_logs').insert([{
-        user_id: user.id,
-        action_type: 'TRANSITION',
-        entity_type: 'ENGAGEMENT',
-        entity_id: engagementId,
-        timestamp: new Date().toISOString()
-      }]);
-    }
-    
+
     return data;
   }
 

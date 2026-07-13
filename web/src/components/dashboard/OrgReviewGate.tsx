@@ -1,0 +1,137 @@
+'use client';
+
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { Icons } from '@/components/ui/icons';
+
+const STATUS_CONFIG = {
+  pending_verification: {
+    title: 'Organization Under Review',
+    description: 'Your organization has been submitted and is being reviewed by our team. You\'ll receive an email once verification is complete.',
+    icon: <Icons.shieldCheck className="w-12 h-12 text-amber-500" />,
+    bg: 'bg-amber-50',
+    border: 'border-amber-200',
+    text: 'text-amber-700',
+    badge: 'bg-amber-100 text-amber-700',
+    badgeLabel: 'Pending Review',
+  },
+  needs_update: {
+    title: 'Additional Information Required',
+    description: 'Our team needs more information about your organization. Please check your email for details, then update your profile.',
+    icon: <Icons.alertTriangle className="w-12 h-12 text-blue-500" />,
+    bg: 'bg-blue-50',
+    border: 'border-blue-200',
+    text: 'text-blue-700',
+    badge: 'bg-blue-100 text-blue-700',
+    badgeLabel: 'Needs Update',
+  },
+  rejected: {
+    title: 'Application Not Approved',
+    description: 'Your organization was not approved at this time. Please check your email for the reason, or contact support.',
+    icon: <Icons.alertTriangle className="w-12 h-12 text-red-500" />,
+    bg: 'bg-red-50',
+    border: 'border-red-200',
+    text: 'text-red-600',
+    badge: 'bg-red-100 text-red-600',
+    badgeLabel: 'Rejected',
+  },
+};
+
+export function OrgReviewGate({ children }: { children: React.ReactNode }) {
+  const { user, signOut } = useAuth();
+
+  // Admins bypass the review gate
+  if (user?.role === 'ADMIN') {
+    return <>{children}</>;
+  }
+
+  // If org is verified, show the dashboard
+  if (user?.verification_status === 'verified') {
+    return <>{children}</>;
+  }
+
+  // If user has no org yet (shouldn't reach here — onboarding layout handles this)
+  if (!user?.company_id) {
+    return <>{children}</>;
+  }
+
+  // Org is not verified — show the review gate
+  const config = STATUS_CONFIG[user?.verification_status as keyof typeof STATUS_CONFIG]
+    ?? STATUS_CONFIG.pending_verification;
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="w-full max-w-2xl">
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
+          {/* Header */}
+          <div className={`${config.bg} border-b ${config.border} px-8 py-6 flex items-center gap-4`}>
+            {config.icon}
+            <div>
+              <h1 className="text-xl font-black text-slate-900">{config.title}</h1>
+              <span className={`inline-block mt-1 px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${config.badge}`}>
+                {config.badgeLabel}
+              </span>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-8 py-8 space-y-6">
+            <p className="text-slate-600 text-sm leading-relaxed">{config.description}</p>
+
+            {/* Org details */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Organization</span>
+                <span className="text-sm font-bold text-slate-900">{user?.verification_status === 'needs_update' ? 'Action Required' : 'In Queue'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email</span>
+                <span className="text-sm font-bold text-slate-900">{user?.email}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Role</span>
+                <span className="text-sm font-bold text-slate-900">{user?.role?.replace('_', ' ')}</span>
+              </div>
+            </div>
+
+            {/* What to expect */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">What happens next</h3>
+              <ul className="space-y-2">
+                <li className="flex items-start gap-3 text-sm text-slate-600">
+                  <Icons.check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                  <span>Our team reviews your organization profile (typically 1-2 business days)</span>
+                </li>
+                <li className="flex items-start gap-3 text-sm text-slate-600">
+                  <Icons.check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                  <span>You&apos;ll receive an email notification once a decision is made</span>
+                </li>
+                <li className="flex items-start gap-3 text-sm text-slate-600">
+                  <Icons.check className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                  <span>Once verified, you&apos;ll have full access to the platform</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1 h-11 rounded-xl border-slate-200 text-slate-600 font-bold"
+                onClick={() => signOut()}
+              >
+                Sign Out
+              </Button>
+              <Button
+                className="flex-1 h-11 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold"
+                onClick={() => window.location.reload()}
+              >
+                Refresh Status
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

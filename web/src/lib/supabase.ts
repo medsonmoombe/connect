@@ -1,15 +1,13 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-if (!supabaseUrl || !supabaseUrl.startsWith('http')) {
-  console.error('ERROR: Invalid or missing NEXT_PUBLIC_SUPABASE_URL. Please check your .env.local file.');
+// DB/realtime client only — do NOT use for auth operations.
+// All auth goes through /api/auth/* routes so the provider is swappable.
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 }
 
-// Only create the client if we have a valid URL to avoid crashing the app
-export const supabase: SupabaseClient = (supabaseUrl && supabaseUrl.startsWith('http'))
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null as any;
-
+export const supabase = createClient();
 export default supabase;

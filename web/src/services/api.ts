@@ -1,500 +1,144 @@
-import { supabase } from '@/lib/supabase';
-import { 
-  Project, 
-  Company, 
-  CapitalPartner, 
-  TechnicalPartner, 
-  Engagement, 
-  Message,
-  ProjectScore,
-  CapitalMatchResult,
-  TechnicalMatchResult,
-  User,
-  UserRole,
-  PaginatedResponse,
-  ApiResponse,
-  AuditLog
+import { apiClient } from '@/lib/api-client';
+import {
+  Project, Company, CapitalPartner, TechnicalPartner,
+  Engagement, Message, User, ApiResponse, AuditLog, PaginatedResponse
 } from '@/types';
-import { projectService } from './projects';
 
-const ACCEPTED_TECHNICAL_STATUSES = [
-  'INTRO_ACCEPTED',
-  'NDA_SIGNED',
-  'DUE_DILIGENCE',
-  'TERM_SHEET',
-  'CONTRACT_SIGNED',
-  'CAPITAL_COMMITTED',
-  'CLOSED',
-];
-
-async function recalculateProjectMatches(projectId: string) {
-  try {
-    await projectService.runMatchingEngine(projectId);
-  } catch (error) {
-    console.error('Error recalculating matches:', error);
-  }
+function wrap<T>(promise: Promise<{ data: T }>): Promise<ApiResponse<T>> {
+  return promise.then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
 }
 
-async function recalculateAllProjectsForPartner() {
-  const { data: projects, error } = await supabase
-    .from('projects')
-    .select('id');
-
-  if (error) {
-    console.error('Error fetching projects for match recalculation:', error);
-    return;
-  }
-
-  await Promise.all((projects || []).map(project => recalculateProjectMatches(project.id)));
-}
-
-// Helper function to handle Supabase responses
-async function handleResponse<T>(response: { data: T | null; error: Error | null }): Promise<ApiResponse<T>> {
-  if (response.error) {
-    return { error: response.error.message };
-  }
-  return { data: response.data as T };
-}
-
-// Companies API
 export const companiesApi = {
-  async getAll(): Promise<ApiResponse<Company[]>> {
-    const response = await supabase.from('companies').select('*');
-    return handleResponse(response);
+  getAll: () => wrap<Company[]>(apiClient.get('/organizations')),
+  getAdminAll: (filters?: { search?: string; type?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.type) params.set('type', filters.type);
+    return wrap<Company[]>(apiClient.get(`/companies?${params}`));
   },
-
-  async getAdminAll(filters?: {
-    search?: string;
-    type?: string;
-  }): Promise<ApiResponse<Company[]>> {
-    let query = supabase
-      .from('companies')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (filters?.type && filters.type !== 'ALL') {
-      query = query.eq('type', filters.type);
-    }
-
-    if (filters?.search) {
-      query = query.ilike('name', `%${filters.search}%`);
-    }
-
-    const response = await query;
-    return handleResponse(response);
-  },
-
-  async getById(id: string): Promise<ApiResponse<Company>> {
-    const response = await supabase.from('companies').select('*').eq('id', id).single();
-    return handleResponse(response);
-  },
-
-  async create(company: Partial<Company>): Promise<ApiResponse<Company>> {
-    const response = await supabase.from('companies').insert(company).select().single();
-    return handleResponse(response);
-  },
-
-  async update(id: string, company: Partial<Company>): Promise<ApiResponse<Company>> {
-    const response = await supabase.from('companies').update(company).eq('id', id).select().single();
-    return handleResponse(response);
-  },
-
-  async delete(id: string): Promise<ApiResponse<null>> {
-    const response = await supabase.from('companies').delete().eq('id', id);
-    return handleResponse(response);
+  getById: (id: string) => wrap<Company>(apiClient.get(`/organizations/${id}`)),
+  create: (company: Partial<Company>) => wrap<Company>(apiClient.post('/organizations', company)),
+  update: (id: string, company: Partial<Company>) => wrap<Company>(apiClient.patch(`/organizations/${id}`, company)),
+  delete: async (id: string): Promise<ApiResponse<null>> => {
+    return apiClient.delete(`/organizations/${id}`).then(() => ({ data: null })).catch(e => ({ error: e.message }));
   },
 };
 
-// Users API
 export const usersApi = {
-  async getById(id: string): Promise<ApiResponse<User>> {
-    const response = await supabase.from('users').select('*').eq('id', id).single();
-    return handleResponse(response);
-  },
-
-  async update(id: string, user: Partial<User>): Promise<ApiResponse<User>> {
-    const response = await supabase.from('users').update(user).eq('id', id).select().single();
-    return handleResponse(response);
-  },
-
-  async getPendingVerifications(): Promise<ApiResponse<User[]>> {
-    const response = await supabase
-      .from('users')
-      .select('*, company:companies(*)')
-      .eq('verification_status', 'PENDING')
-      .order('created_at', { ascending: false });
-    return handleResponse(response);
-  },
-
-  async verifyUser(userId: string, status: 'VERIFIED' | 'REJECTED'): Promise<ApiResponse<User>> {
-    const response = await supabase
-      .from('users')
-      .update({ verification_status: status })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (!response.error && status === 'VERIFIED') {
-      const verifiedUser = response.data;
-      if (
-        verifiedUser?.company_id &&
-        (verifiedUser.role === 'CAPITAL_PARTNER' || verifiedUser.role === 'TECHNICAL_PARTNER')
-      ) {
-        await recalculateAllProjectsForPartner();
-      }
-    }
-    return handleResponse(response);
-  },
+  getAll: () => wrap<User[]>(apiClient.get('/admin/users')),
+  getById: (id: string) => wrap<User>(apiClient.get(`/admin/users?id=${id}`)),
+  update: (id: string, user: Partial<User>) =>
+    wrap<User>(apiClient.patch('/admin/users', { userId: id, ...user })),
+  getPendingVerifications: () =>
+    wrap<User[]>(apiClient.get('/admin/users?pending=true')),
+  verifyUser: (userId: string, status: 'VERIFIED' | 'REJECTED') =>
+    wrap<User>(apiClient.patch('/admin/users', { userId, verification_status: status })),
 };
 
-// Projects API
 export const projectsApi = {
-  async getAll(filters?: {
-    page?: number;
-    pageSize?: number;
-    developer_id?: string;
-    project_stage?: string;
-    location_country?: string;
-  }): Promise<ApiResponse<PaginatedResponse<Project>>> {
-    const page = filters?.page ?? 1;
-    const pageSize = filters?.pageSize ?? 10;
-    const offset = (page - 1) * pageSize;
-
-    let query = supabase
-      .from('projects')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + pageSize - 1);
-
-    if (filters?.developer_id) {
-      query = query.eq('developer_id', filters.developer_id);
-    }
-    if (filters?.project_stage) {
-      query = query.eq('project_stage', filters.project_stage);
-    }
-    if (filters?.location_country) {
-      query = query.eq('location_country', filters.location_country);
-    }
-
-    const response = await query;
-    
-    if (response.error) {
-      return { error: response.error.message };
-    }
-
-    return {
-      data: {
-        data: response.data as Project[],
-        total: response.count ?? 0,
-        page,
-        pageSize,
-        totalPages: Math.ceil((response.count ?? 0) / pageSize),
-      },
-    };
+  getAll: async (filters?: { page?: number; pageSize?: number; developer_id?: string; project_stage?: string; location_country?: string }): Promise<ApiResponse<PaginatedResponse<Project>>> => {
+    const params = new URLSearchParams();
+    if (filters?.project_stage) params.set('stage', filters.project_stage);
+    if (filters?.location_country) params.set('country', filters.location_country);
+    return apiClient.get<{ data: Project[] }>(`/projects?${params}`)
+      .then(r => ({
+        data: {
+          data: r.data,
+          total: r.data.length,
+          page: filters?.page ?? 1,
+          pageSize: filters?.pageSize ?? 10,
+          totalPages: 1,
+        }
+      }))
+      .catch(e => ({ error: e.message }));
   },
-
-  async getAdminAll(filters?: {
-    search?: string;
-    status?: string;
-  }): Promise<ApiResponse<Project[]>> {
-    let query = supabase
-      .from('projects')
-      .select('*, developer:companies!developer_id(*)')
-      .order('created_at', { ascending: false });
-
-    if (filters?.status && filters.status !== 'ALL') {
-      query = query.eq('project_stage', filters.status);
-    }
-
-    if (filters?.search) {
-      query = query.ilike('name', `%${filters.search}%`);
-    }
-
-    const response = await query;
-    return handleResponse(response);
+  getAdminAll: (filters?: { search?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'ALL') params.set('stage', filters.status);
+    if (filters?.search) params.set('search', filters.search);
+    return wrap<Project[]>(apiClient.get(`/projects?${params}`));
   },
-
-  async getById(id: string): Promise<ApiResponse<Project>> {
-    const response = await supabase
-      .from('projects')
-      .select('*, developer:companies!developer_id(*)')
-      .eq('id', id)
-      .single();
-    return handleResponse(response);
-  },
-
-  async getAnalytics(projectId: string): Promise<ApiResponse<any>> {
-    const [viewsRes, engagementsRes] = await Promise.all([
-      supabase
-        .from('audit_logs')
-        .select('*')
-        .eq('entity_id', projectId)
-        .in('action_type', ['PROJECT_VIEW', 'DATAROOM_ACCESS']),
-      supabase
-        .from('engagements')
-        .select('*')
-        .eq('project_id', projectId)
-    ]);
-
-    if (viewsRes.error) return { error: viewsRes.error.message };
-    if (engagementsRes.error) return { error: engagementsRes.error.message };
-
-    const views = viewsRes.data || [];
-    const engagements = engagementsRes.data || [];
-
-    const stats = {
-      totalViews: views.filter(v => v.action_type === 'PROJECT_VIEW').length,
-      dataroomAccess: views.filter(v => v.action_type === 'DATAROOM_ACCESS').length,
-      funnel: {
-        intro: engagements.length,
-        nda: engagements.filter(e => ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET', 'CLOSED'].includes(e.status)).length,
-        dueDiligence: engagements.filter(e => ['DUE_DILIGENCE', 'TERM_SHEET', 'CLOSED'].includes(e.status)).length,
-        termSheet: engagements.filter(e => ['TERM_SHEET', 'CLOSED'].includes(e.status)).length,
-        closed: engagements.filter(e => e.status === 'CLOSED').length
-      }
-    };
-
-    return { data: stats };
-  },
+  getById: (id: string) => wrap<Project>(apiClient.get(`/projects/${id}`)),
+  getAnalytics: (projectId: string) => wrap<any>(apiClient.get(`/projects/${projectId}/analytics`)),
 };
 
-// Capital Partners API
 export const capitalPartnersApi = {
-  async getAll(): Promise<ApiResponse<CapitalPartner[]>> {
-    const response = await supabase
-      .from('capital_partners')
-      .select('*, company:companies(*)');
-    return handleResponse(response);
-  },
-
-  async getById(id: string): Promise<ApiResponse<CapitalPartner>> {
-    const response = await supabase
-      .from('capital_partners')
-      .select('*, company:companies(*)')
-      .eq('id', id)
-      .single();
-    return handleResponse(response);
-  },
-
-  async create(partner: Partial<CapitalPartner>): Promise<ApiResponse<CapitalPartner>> {
-    const response = await supabase.from('capital_partners').insert(partner).select().single();
-    return handleResponse(response);
-  },
-
-  async update(id: string, partner: Partial<CapitalPartner>): Promise<ApiResponse<CapitalPartner>> {
-    const response = await supabase.from('capital_partners').update(partner).eq('id', id).select().single();
-    if (!response.error) {
-      await recalculateAllProjectsForPartner();
-    }
-    return handleResponse(response);
-  },
+  getAll: () => wrap<CapitalPartner[]>(apiClient.get('/partners?type=capital')),
+  getById: (id: string) => wrap<CapitalPartner>(apiClient.get(`/partners?type=capital&id=${id}`)),
+  create: (partner: Partial<CapitalPartner>) => wrap<CapitalPartner>(apiClient.post('/partners', { type: 'capital', ...partner })),
+  update: (id: string, partner: Partial<CapitalPartner>) => wrap<CapitalPartner>(apiClient.patch(`/partners?type=capital&id=${id}`, partner)),
 };
 
-// Technical Partners API
 export const technicalPartnersApi = {
-  async getAll(): Promise<ApiResponse<TechnicalPartner[]>> {
-    const response = await supabase
-      .from('technical_partners')
-      .select('*, company:companies(*)');
-    return handleResponse(response);
-  },
-
-  async getById(id: string): Promise<ApiResponse<TechnicalPartner>> {
-    const response = await supabase
-      .from('technical_partners')
-      .select('*, company:companies(*)')
-      .eq('id', id)
-      .single();
-    return handleResponse(response);
-  },
-
-  async create(partner: Partial<TechnicalPartner>): Promise<ApiResponse<TechnicalPartner>> {
-    const response = await supabase.from('technical_partners').insert(partner).select().single();
-    return handleResponse(response);
-  },
-
-  async update(id: string, partner: Partial<TechnicalPartner>): Promise<ApiResponse<TechnicalPartner>> {
-    const response = await supabase.from('technical_partners').update(partner).eq('id', id).select().single();
-    if (!response.error) {
-      await recalculateAllProjectsForPartner();
-    }
-    return handleResponse(response);
-  },
+  getAll: () => wrap<TechnicalPartner[]>(apiClient.get('/partners?type=technical')),
+  getById: (id: string) => wrap<TechnicalPartner>(apiClient.get(`/partners?type=technical&id=${id}`)),
+  create: (partner: Partial<TechnicalPartner>) => wrap<TechnicalPartner>(apiClient.post('/partners', { type: 'technical', ...partner })),
+  update: (id: string, partner: Partial<TechnicalPartner>) => wrap<TechnicalPartner>(apiClient.patch(`/partners?type=technical&id=${id}`, partner)),
 };
 
-// Matching API
 export const matchingApi = {
-  async getCapitalMatches(projectId: string): Promise<ApiResponse<CapitalMatchResult[]>> {
-    const response = await supabase
-      .from('capital_match_results')
-      .select('*, capital_partner:capital_partners(*, company:companies(*))')
-      .eq('project_id', projectId)
-      .order('compatibility_score', { ascending: false })
-      .limit(5);
-    return handleResponse(response);
+  getCapitalMatches: async (projectId: string): Promise<ApiResponse<any[]>> => {
+    return apiClient.get<{ capital: any[] }>(`/projects/${projectId}?resource=matches`)
+      .then(r => ({ data: r.capital })).catch(e => ({ error: e.message }));
   },
-
-  async getTechnicalMatches(projectId: string): Promise<ApiResponse<TechnicalMatchResult[]>> {
-    const response = await supabase
-      .from('technical_match_results')
-      .select('*, technical_partner:technical_partners(*, company:companies(*))')
-      .eq('project_id', projectId)
-      .order('compatibility_score', { ascending: false })
-      .limit(5);
-    return handleResponse(response);
-  },
-
-  async triggerMatching(projectId: string): Promise<ApiResponse<void>> {
-    const response = await supabase.functions.invoke('trigger-matching', {
-      body: { project_id: projectId },
-    });
-    return handleResponse(response);
+  getTechnicalMatches: async (projectId: string): Promise<ApiResponse<any[]>> => {
+    return apiClient.get<{ technical: any[] }>(`/projects/${projectId}?resource=matches`)
+      .then(r => ({ data: r.technical })).catch(e => ({ error: e.message }));
   },
 };
 
-// Engagements API
 export const engagementsApi = {
-  async getAll(filters?: { project_id?: string; counterparty_id?: string }): Promise<ApiResponse<Engagement[]>> {
-    let query = supabase
-      .from('engagements')
-      .select('*, project:projects(*), messages(*)')
-      .order('created_at', { ascending: false });
-
-    if (filters?.project_id) {
-      query = query.eq('project_id', filters.project_id);
-    }
-    if (filters?.counterparty_id) {
-      query = query.eq('counterparty_id', filters.counterparty_id);
-    }
-
-    const response = await query;
-    return handleResponse(response);
+  getAll: (filters?: { project_id?: string; counterparty_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.project_id) params.set('project_id', filters.project_id);
+    if (filters?.counterparty_id) params.set('counterparty_id', filters.counterparty_id);
+    return wrap<Engagement[]>(apiClient.get(`/engagements?${params}`));
   },
-
-  async getById(id: string): Promise<ApiResponse<Engagement>> {
-    const response = await supabase
-      .from('engagements')
-      .select('*, project:projects(*), messages(*)')
-      .eq('id', id)
-      .single();
-    return handleResponse(response);
-  },
-
-  async create(engagement: Partial<Engagement>): Promise<ApiResponse<Engagement>> {
-    const response = await supabase.from('engagements').insert(engagement).select().single();
-    return handleResponse(response);
-  },
-
-  async updateStatus(id: string, status: string): Promise<ApiResponse<Engagement>> {
-    const response = await supabase
-      .from('engagements')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    
-    if (!response.error && ACCEPTED_TECHNICAL_STATUSES.includes(status)) {
-      const engagement = response.data;
-      if (engagement.counterparty_type === 'TECHNICAL') {
-        await recalculateProjectMatches(engagement.project_id);
-      }
-    }
-    return handleResponse(response);
-  },
+  getById: (id: string) => wrap<Engagement>(apiClient.get(`/engagements/${id}`)),
+  create: (engagement: Partial<Engagement>) => wrap<Engagement>(apiClient.post('/engagements', engagement)),
+  updateStatus: (id: string, status: string) => wrap<Engagement>(apiClient.patch(`/engagements/${id}`, { status })),
 };
 
-// Messages API
 export const messagesApi = {
-  async getByEngagement(engagementId: string): Promise<ApiResponse<Message[]>> {
-    const response = await supabase
-      .from('messages')
-      .select('*, sender:users(*)')
-      .eq('engagement_id', engagementId)
-      .order('created_at', { ascending: true });
-    return handleResponse(response);
-  },
-
-  async create(message: Partial<Message>): Promise<ApiResponse<Message>> {
-    const response = await supabase.from('messages').insert(message).select().single();
-    return handleResponse(response);
-  },
+  getByEngagement: (engagementId: string) =>
+    wrap<Message[]>(apiClient.get(`/messages?engagement_id=${engagementId}`)),
+  create: (message: Partial<Message>) => wrap<Message>(apiClient.post('/messages', message)),
 };
 
-// Onboarding API
 export const onboardingApi = {
-  async completeUserProfile(userId: string, data: { full_name: string }): Promise<ApiResponse<User>> {
-    const response = await supabase
-      .from('users')
-      .update(data)
-      .eq('id', userId)
-      .select()
-      .single();
-    return handleResponse(response);
-  },
-
-  async setupCompany(userId: string, companyData: Partial<Company>): Promise<ApiResponse<{ user: User; company: Company }>> {
-    // 1. Create the company
-    const { data: company, error: companyError } = await supabase
-      .from('companies')
-      .insert(companyData)
-      .select()
-      .single();
-
-    if (companyError) return { error: companyError.message };
-
-    // 2. Link user to the company
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .update({ company_id: company.id })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (userError) return { error: userError.message };
-
-    return { data: { user: user as User, company: company as Company } };
-  },
-
-  async joinCompany(userId: string, companyId: string): Promise<ApiResponse<User>> {
-    const response = await supabase
-      .from('users')
-      .update({ company_id: companyId })
-      .eq('id', userId)
-      .select()
-      .single();
-    return handleResponse(response);
-  },
-
-  async saveRolePreferences(role: UserRole, companyId: string, data: any): Promise<ApiResponse<any>> {
-    let table = '';
-    if (role === 'CAPITAL_PARTNER') table = 'capital_partners';
-    else if (role === 'TECHNICAL_PARTNER') table = 'technical_partners';
-    
-    if (!table) return { message: 'No specific preferences needed for this role' };
-
-    const response = await supabase
-      .from(table)
-      .upsert({ company_id: companyId, ...data })
-      .select()
-      .single();
-    
-    return handleResponse(response);
-  }
+  completeUserProfile: (_userId: string, data: { full_name: string }) =>
+    wrap<User>(apiClient.post('/onboarding', { action: 'update_profile', ...data })),
+  setupCompany: (_userId: string, companyData: Partial<Company>) =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'setup_company', company: companyData })),
+  joinCompany: (_userId: string, companyId: string) =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'join_company', companyId })),
+  saveRolePreferences: (role: string, companyId: string, data: any) =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'save_preferences', role, preferences: data })),
+  completeOnboarding: () =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'complete_onboarding' })),
 };
 
-// Audit Logs API
 export const auditLogsApi = {
-  async getAll(): Promise<ApiResponse<AuditLog[]>> {
-    const response = await supabase
-      .from('audit_logs')
-      .select('*, user:users(*)')
-      .order('timestamp', { ascending: false })
-      .limit(50);
-    return handleResponse(response);
-  },
+  getAll: () => wrap<AuditLog[]>(apiClient.get('/admin/audit-logs')),
+  create: (log: { action_type: string; entity_type: string; entity_id: string }) =>
+    wrap<AuditLog>(apiClient.post('/audit-logs', log)),
+};
 
-  async create(log: Partial<AuditLog>): Promise<ApiResponse<AuditLog>> {
-    const response = await supabase.from('audit_logs').insert(log).select().single();
-    return handleResponse(response);
-  },
+export interface AdminHealthData {
+  totalUsers: number;
+  pendingVerifications: number;
+  totalProjects: number;
+  totalCompanies: number;
+  totalCapital: number;
+  totalEngagements: number;
+  trends: {
+    users: { pct: number; positive: boolean };
+    projects: { pct: number; positive: boolean };
+    companies: { pct: number; positive: boolean };
+    capital: { pct: number; positive: boolean };
+  };
+}
+
+export const adminHealthApi = {
+  get: () => wrap<AdminHealthData>(apiClient.get('/admin/health')),
 };

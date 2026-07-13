@@ -1,262 +1,347 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { Icons } from '@/components/ui/icons';
 import { Button } from '@/components/ui/button';
-import { ReactNode } from 'react';
-import { companiesApi, projectsApi, auditLogsApi } from '@/services/api';
+import { StatCard } from '@/components/ui/stat-card';
+import { KpiBarSkeleton, Skeleton } from '@/components/ui/skeleton';
+import { useAdminHealth, useAuditLogs } from '@/hooks/queries';
 import { AuditLog } from '@/types';
 
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  change: string;
-  isPositive: boolean;
-  icon: ReactNode;
+function formatCapital(n: number) {
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `$${Math.round(n / 1_000_000)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return '$0';
 }
 
-function StatCard({ title, value, change, isPositive, icon }: StatCardProps) {
+function formatTime(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return date.toLocaleDateString();
+}
+
+function getActionMeta(log: AuditLog): { label: string; category: 'user' | 'org' | 'project' | 'engagement' | 'system' } {
+  const entityName = log.after_state?.name
+    || log.after_state?.full_name
+    || log.after_state?.file_name
+    || null;
+
+  const name = entityName ? ` "${entityName}"` : '';
+
+  switch (log.action_type) {
+    case 'USER_SIGNED_UP':        return { label: `New user signed up${name}`, category: 'user' };
+    case 'USER_PROVISIONED':      return { label: `Admin provisioned user${name}`, category: 'user' };
+    case 'USER_UPDATED':          return { label: `Updated user profile${name}`, category: 'user' };
+    case 'ONBOARDING_COMPLETED':  return { label: `Completed onboarding${name}`, category: 'user' };
+    case 'ONBOARDING_SETUP_COMPANY': return { label: `Created company "${log.after_state?.name || 'Unknown'}"`, category: 'org' };
+    case 'ONBOARDING_JOIN_COMPANY':  return { label: `Joined company`, category: 'org' };
+    case 'COMPANY_CREATED':       return { label: `Created company "${log.after_state?.name || 'Unknown'}"`, category: 'org' };
+    case 'COMPANY_UPDATED':       return { label: `Updated company "${log.after_state?.name || 'Unknown'}"`, category: 'org' };
+    case 'ORG_VERIFIED':          return { label: `Verified company "${log.after_state?.name || log.after_state?.status || 'Unknown'}"`, category: 'org' };
+    case 'ORG_REJECTED':          return { label: `Rejected company "${log.before_state?.name || 'Unknown'}"`, category: 'org' };
+    case 'ORG_NEEDS_UPDATE':      return { label: `Requested update from "${log.before_state?.name || 'Unknown'}"`, category: 'org' };
+    case 'PROJECT_CREATED':       return { label: `Submitted project "${log.after_state?.name || 'Unknown'}"`, category: 'project' };
+    case 'PROJECT_UPDATED':       return { label: `Updated project "${log.after_state?.name || 'Unknown'}"`, category: 'project' };
+    case 'PROJECT_ANALYZED':      return { label: `AI analyzed project${name}`, category: 'project' };
+    case 'ENGAGEMENT_CREATED':    return { label: `New engagement created`, category: 'engagement' };
+    case 'ENGAGEMENT_UPDATED':    return { label: `Engagement status changed`, category: 'engagement' };
+    case 'INVITE_ISSUED':         return { label: `Sent invite to ${log.after_state?.email || 'user'}`, category: 'system' };
+    case 'AI_ANALYSIS_COMPLETED': return { label: `AI portfolio analysis completed`, category: 'system' };
+    case 'DOCUMENT_UPLOADED':     return { label: `Uploaded document${name}`, category: 'project' };
+    default:                      return { label: log.action_type.toLowerCase().replace(/_/g, ' '), category: 'system' };
+  }
+}
+
+const CATEGORY_STYLES = {
+  user:        { bg: 'bg-blue-50',    icon: 'bg-blue-100 text-blue-600',    IconComponent: Icons.shieldCheck },
+  org:         { bg: 'bg-emerald-50', icon: 'bg-emerald-100 text-emerald-600', IconComponent: Icons.building },
+  project:     { bg: 'bg-purple-50',  icon: 'bg-purple-100 text-purple-600', IconComponent: Icons.folder },
+  engagement:  { bg: 'bg-orange-50',  icon: 'bg-orange-100 text-orange-600', IconComponent: Icons.briefcase },
+  system:      { bg: 'bg-slate-50',   icon: 'bg-slate-100 text-slate-500',   IconComponent: Icons.zap },
+};
+
+function TrendBadge({ pct, positive }: { pct: number; positive: boolean }) {
+  if (pct === 0) return null;
   return (
-    <div className="bg-white p-6 rounded-[20px] border border-slate-100 shadow-xl shadow-slate-200/50">
-      <div className="flex justify-between items-start mb-4">
-        <div className="p-3 bg-slate-50 rounded-xl text-green-800">
-          {icon}
+    <span className={`text-[10px] font-semibold ${
+      positive ? 'text-green-600' : 'text-red-500'
+    }`}>
+      {positive ? '+' : '-'}{pct}% vs last 30d
+    </span>
+  );
+}
+
+function ActivitySkeleton() {
+  return (
+    <div className="divide-y divide-slate-50">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="px-5 py-3.5 flex items-center gap-3.5">
+          <Skeleton className="size-9 rounded-xl shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-3.5 w-48" />
+            <Skeleton className="h-2.5 w-16" />
+          </div>
         </div>
-        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-          isPositive ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-        }`}>
-          {change}
-        </span>
+      ))}
+    </div>
+  );
+}
+
+function CommandCenterSkeleton() {
+  return (
+    <div className="rounded-2xl p-5 text-white relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
+      <div className="space-y-5 animate-pulse">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-xl bg-white/10" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-32 bg-white/20" />
+            <Skeleton className="h-2.5 w-24 bg-white/10" />
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex justify-between"><Skeleton className="h-2.5 w-20 bg-white/10" /><Skeleton className="h-2.5 w-10 bg-white/10" /></div>
+            <Skeleton className="h-1 w-full bg-white/10 rounded-full" />
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between"><Skeleton className="h-2.5 w-16 bg-white/10" /><Skeleton className="h-2.5 w-8 bg-white/10" /></div>
+            <Skeleton className="h-1 w-full bg-white/10 rounded-full" />
+          </div>
+          <Skeleton className="h-10 w-full bg-white/5 rounded-xl" />
+        </div>
+        <Skeleton className="h-9 w-full bg-white/10 rounded-xl" />
       </div>
-      <h3 className="text-slate-500 text-sm font-medium mb-1">{title}</h3>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
     </div>
   );
 }
 
 export default function AdminDashboardPage() {
   const { user } = useAuth();
-  const [stats, setStats] = useState({
-    users: 0,
-    projects: 0,
-    companies: 0,
-    capital: '$0'
-  });
-  const [activities, setActivities] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: health, isLoading: loadingHealth } = useAdminHealth();
+  const { data: activities = [], isLoading: loadingAudit } = useAuditLogs();
 
-  useEffect(() => {
-    async function fetchStats() {
-      try {
-        const [companiesRes, projectsRes, auditRes] = await Promise.all([
-          companiesApi.getAll(),
-          projectsApi.getAdminAll(),
-          auditLogsApi.getAll()
-        ]);
 
-        const projectsCount = projectsRes.data?.length || 0;
-        const companiesCount = companiesRes.data?.length || 0;
-        const totalCapital = projectsRes.data?.reduce((acc, p) => acc + (p.capital_required || 0), 0) || 0;
 
-        setStats({
-          users: 1284, // Placeholder
-          projects: projectsCount,
-          companies: companiesCount,
-          capital: totalCapital > 1000000000 
-            ? `$${(totalCapital / 1000000000).toFixed(1)}B` 
-            : `$${(totalCapital / 1000000).toFixed(0)}M`
-        });
-
-        setActivities(auditRes.data || []);
-      } catch (err) {
-        console.error('Error fetching admin stats:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchStats();
-  }, []);
-
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diff < 60) return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
-    return date.toLocaleDateString();
-  };
-
-  const getActionLabel = (log: AuditLog) => {
-    switch (log.action_type) {
-      case 'PROJECT_VIEW': return 'viewed project';
-      case 'USER_VERIFIED': return 'verified user';
-      case 'USER_REJECTED': return 'rejected user';
-      case 'TRANSITION': return 'transitioned engagement';
-      default: return log.action_type.toLowerCase().replace(/_/g, ' ');
-    }
-  };
+  const loading = loadingHealth || loadingAudit;
 
   return (
     <div className="space-y-8">
-      {/* Welcome Section */}
-      <div className="flex justify-between items-end">
+      {/* ── Welcome Section ──────────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-slate-900">Welcome back, {user?.full_name?.split(' ')[0] || 'Admin'}</h2>
-          <p className="text-slate-500 mt-1">Here's a summary of the platform's current performance and status.</p>
+          <p className="dash-section-label mb-1">Admin Overview</p>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Welcome back, {user?.full_name?.split(' ')[0] || 'Admin'}
+          </h2>
+          <p className="text-sm text-slate-500 font-medium mt-1">
+            Platform performance and status at a glance.
+          </p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" className="rounded-xl border-slate-200 bg-white" onClick={() => window.print()}>
-            <Icons.download className="mr-2 size-4" /> Export Report
+        <div className="flex gap-2.5">
+          <Button
+            variant="outline"
+            className="h-9 px-4 rounded-xl"
+            icon={<Icons.download />}
+            onClick={() => window.print()}
+          >
+            Export
           </Button>
           <Link href="/dashboard/admin/users">
-            <Button className="rounded-xl bg-green-800 hover:bg-green-900 shadow-lg shadow-green-900/20">
-              <Icons.plus className="mr-2 size-4" /> Provision User
+            <Button
+              className="h-9 px-4 rounded-xl"
+              icon={<Icons.plus />}
+            >
+              Provision User
             </Button>
           </Link>
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 min-h-[140px]">
-        <StatCard 
-          title="Total Users" 
-          value={loading ? "..." : stats.users} 
-          change="+12.5%" 
-          isPositive={true}
-          icon={<Icons.shieldCheck className="size-6" />}
-        />
-        <StatCard 
-          title="Active Projects" 
-          value={loading ? "..." : stats.projects} 
-          change="+8.2%" 
-          isPositive={true}
-          icon={<Icons.folder className="size-6" />}
-        />
-        <StatCard 
-          title="Platform Companies" 
-          value={loading ? "..." : stats.companies} 
-          change="+3.1%" 
-          isPositive={true}
-          icon={<Icons.building className="size-6" />}
-        />
-        <StatCard 
-          title="Total Capital Pipeline" 
-          value={loading ? "..." : stats.capital} 
-          change="+18.4%" 
-          isPositive={true}
-          icon={<Icons.dollar className="size-6" />}
-        />
-      </div>
-
-      {/* Main Grid Sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Activity */}
-        <div className="lg:col-span-2 bg-white rounded-[20px] border border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden">
-          <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="font-bold text-slate-900">Recent System Activity</h3>
-            <Link href="/dashboard/admin/users">
-              <Button variant="ghost" size="sm" className="text-green-800 font-bold text-xs hover:bg-green-50">VIEW ALL</Button>
-            </Link>
-          </div>
-          <div className="divide-y divide-slate-50">
-            {loading ? (
-              <div className="p-12 text-center"><Icons.spinner className="size-6 animate-spin mx-auto text-green-800" /></div>
-            ) : activities.length > 0 ? activities.slice(0, 8).map((log, i) => (
-              <div key={log.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="size-10 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs uppercase">
-                    {log.user?.full_name?.substring(0, 2) || 'AD'}
-                  </div>
-                  <div>
-                    <p className="text-sm">
-                      <span className="font-bold text-slate-900">{log.user?.full_name || 'System'}</span>
-                      <span className="text-slate-500 mx-1">{getActionLabel(log)}</span>
-                      <span className="font-medium text-green-700">{log.entity_type}</span>
-                    </p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mt-0.5">{formatTime(log.timestamp)}</p>
-                  </div>
-                </div>
-                <div className="size-2 rounded-full bg-green-500" />
-              </div>
-            )) : (
-              <div className="p-12 text-center text-slate-400 italic">No recent activity.</div>
-            )}
-          </div>
+      {/* ── Stats Grid ───────────────────────────────────── */}
+      {loadingHealth ? (
+        <KpiBarSkeleton />
+      ) : health && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Users"
+            value={health.totalUsers}
+            icon={Icons.shieldCheck}
+            trend={{ label: `${health.trends.users.pct > 0 ? '+' : ''}${health.trends.users.pct}% vs last 30d`, positive: health.trends.users.positive }}
+          />
+          <StatCard
+            label="Active Projects"
+            value={health.totalProjects}
+            icon={Icons.folder}
+            trend={{ label: `${health.trends.projects.pct > 0 ? '+' : ''}${health.trends.projects.pct}% vs last 30d`, positive: health.trends.projects.positive }}
+          />
+          <StatCard
+            label="Platform Companies"
+            value={health.totalCompanies}
+            icon={Icons.building}
+            trend={{ label: `${health.trends.companies.pct > 0 ? '+' : ''}${health.trends.companies.pct}% vs last 30d`, positive: health.trends.companies.positive }}
+          />
+          <StatCard
+            label="Capital Pipeline"
+            value={formatCapital(health.totalCapital)}
+            icon={Icons.dollarSign}
+            trend={{ label: `${health.trends.capital.pct > 0 ? '+' : ''}${health.trends.capital.pct}% vs last 30d`, positive: health.trends.capital.positive }}
+          />
         </div>
+      )}
 
-        {/* System Health / Alerts */}
-        <div className="space-y-6">
-          <div className="bg-slate-900 rounded-[32px] p-8 text-white shadow-2xl shadow-slate-900/40 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-green-500/20 transition-all duration-700"></div>
-            
-            <div className="relative z-10">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="p-3 bg-green-500/20 rounded-2xl text-green-400 border border-green-500/20">
-                  <Icons.zap className="size-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg leading-none">Command Center</h3>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Live Intelligence</p>
-                </div>
-              </div>
-            
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest">
-                    <span className="text-slate-400">API Latency</span>
-                    <span className="text-green-400 font-mono">24ms</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-                    <div className="bg-green-500 h-full w-[95%] shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-                  </div>
-                </div>
+      {/* ── Main Grid ────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs font-bold uppercase tracking-widest">
-                    <span className="text-slate-400">DB Load</span>
-                    <span className="text-green-400 font-mono">12%</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
-                    <div className="bg-green-500 h-full w-[12%] shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-800">
-                  <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Verification Queue</span>
-                    <span className="px-3 py-1 bg-green-500 text-slate-900 text-[10px] font-black rounded-full">14 PENDING</span>
-                  </div>
-                </div>
-              </div>
+        {/* ── Recent Activity ──────────────────────────────── */}
+        <div className="lg:col-span-2 dash-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+            <div>
+              <p className="dash-section-label mb-0.5">System Activity</p>
+              <h3 className="text-sm font-semibold text-slate-900">Recent Actions</h3>
             </div>
-
-            <Link href="/dashboard/admin/settings">
-              <Button className="w-full mt-8 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-bold">
-                SYSTEM CONSOLE
+            <Link href="/dashboard/admin/users">
+              <Button variant="ghost" size="sm" className="text-primary font-semibold text-[11px] uppercase tracking-[0.1em] h-8 px-3">
+                View All
               </Button>
             </Link>
           </div>
+          {loadingAudit ? (
+            <ActivitySkeleton />
+          ) : (activities ?? []).length > 0 ? (
+            <div className="divide-y divide-slate-50">
+              {(activities ?? []).slice(0, 5).map((log) => {
+                const meta = getActionMeta(log);
+                const style = CATEGORY_STYLES[meta.category];
+                const CatIcon = style.IconComponent;
+                return (
+                  <div key={log.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60">
+                    <div className="flex items-center gap-3.5">
+                      <div className={`size-9 rounded-xl flex items-center justify-center shrink-0 ${style.icon}`}>
+                        <CatIcon className="size-4" />
+                      </div>
+                      <div>
+                        <p className="text-[13px] leading-snug">
+                          <span className="font-semibold text-slate-900">{log.user?.full_name || 'System'}</span>
+                          <span className="text-slate-500 mx-1">{meta.label}</span>
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em] mt-0.5">
+                          {formatTime(log.timestamp)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="size-1.5 rounded-full bg-primary/40 shrink-0" />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="p-12 text-center text-[13px] text-slate-400 font-medium">
+              No recent activity.
+            </div>
+          )}
+        </div>
 
-          <div className="bg-white rounded-[20px] border border-slate-100 p-6 shadow-xl shadow-slate-200/50">
-            <h3 className="font-bold text-slate-900 mb-4">Quick Links</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <Link href="/dashboard/admin/users" className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-green-800/20 hover:bg-green-50/50 transition-all group">
-                <Icons.shieldCheck className="size-5 text-slate-400 group-hover:text-green-800 mb-2" />
-                <p className="text-xs font-bold text-slate-900">User Audit</p>
+        {/* ── Right Column ─────────────────────────────────── */}
+        <div className="space-y-5">
+
+          {/* Command Center */}
+          {loadingHealth ? (
+            <CommandCenterSkeleton />
+          ) : health && (
+            <div className="rounded-2xl p-5 text-white relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
+              <div className="absolute top-0 right-0 w-28 h-28 bg-primary/10 rounded-full blur-3xl -mr-14 -mt-14" />
+
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2.5 rounded-xl bg-primary/20 text-primary-light border border-primary/20">
+                    <Icons.zap className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold leading-none">Command Center</p>
+                    <p className="dash-section-label mt-1 text-slate-500">Live Intelligence</p>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="dash-section-label text-slate-500">Total Engagements</span>
+                      <span className="text-xs font-bold text-green-400 font-mono">{health.totalEngagements}</span>
+                    </div>
+                    <div className="dash-progress">
+                      <div className="dash-progress-fill" style={{ width: `${Math.min(100, (health.totalEngagements / Math.max(health.totalProjects, 1)) * 100)}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="dash-section-label text-slate-500">Projects Active</span>
+                      <span className="text-xs font-bold text-green-400 font-mono">{health.totalProjects}</span>
+                    </div>
+                    <div className="dash-progress">
+                      <div className="dash-progress-fill" style={{ width: `${Math.min(100, health.totalProjects)}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-white/10">
+                    <Link href="/dashboard/admin/users?pending=true" className="flex justify-between items-center bg-white/5 px-3.5 py-2.5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors">
+                      <span className="dash-section-label text-slate-500">Verification Queue</span>
+                      <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg ${health.pendingVerifications > 0 ? 'bg-primary text-white' : 'bg-white/10 text-slate-400'}`}>
+                        {health.pendingVerifications} PENDING
+                      </span>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+
+              <Link href="/dashboard/admin/users">
+                <Button variant="white" className="w-full mt-6 h-9 font-semibold text-[13px]">
+                  Manage Users
+                </Button>
               </Link>
-              <Link href="/dashboard/admin/users" className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-green-800/20 hover:bg-green-50/50 transition-all group">
-                <Icons.settings className="size-5 text-slate-400 group-hover:text-green-800 mb-2" />
-                <p className="text-xs font-bold text-slate-900">Settings</p>
+            </div>
+          )}
+
+          {/* Quick Links */}
+          <div className="dash-card p-5">
+            <p className="dash-section-label mb-3">Quick Links</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Link href="/dashboard/admin/users" className="dash-quick-link group">
+                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">
+                  <Icons.shieldCheck className="size-4 text-slate-400 group-hover:text-primary" />
+                </span>
+                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">User Audit</p>
+              </Link>
+              <Link href="/dashboard/admin/projects" className="dash-quick-link group">
+                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">
+                  <Icons.folder className="size-4 text-slate-400 group-hover:text-primary" />
+                </span>
+                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">All Projects</p>
+              </Link>
+              <Link href="/dashboard/admin/companies" className="dash-quick-link group">
+                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">
+                  <Icons.building className="size-4 text-slate-400 group-hover:text-primary" />
+                </span>
+                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">Companies</p>
+              </Link>
+              <Link href="/dashboard/admin/ai-overview" className="dash-quick-link group">
+                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">
+                  <Icons.cpu className="size-4 text-slate-400 group-hover:text-primary" />
+                </span>
+                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">AI Analysis</p>
               </Link>
             </div>
           </div>
+
         </div>
       </div>
     </div>
   );
 }
-
