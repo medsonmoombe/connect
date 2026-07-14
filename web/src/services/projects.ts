@@ -1,6 +1,5 @@
 import { apiClient } from '@/lib/api-client';
 import { Project, ProjectTechRequirements, ProjectDocument, CapitalMatchResult, TechnicalMatchResult } from '@/types';
-import { calculateCapitalMatchScore, calculateTechnicalMatchScore } from '@/lib/scoring';
 import { storageService } from '@/lib/storage';
 
 export const projectService = {
@@ -12,28 +11,7 @@ export const projectService = {
 
   async runMatchingEngine(projectId: string) {
     try {
-      const project = await this.getProjectDetails(projectId);
-      if (!project) return;
-
-      const [{ data: capitalPartners }, { data: technicalPartners }] = await Promise.all([
-        apiClient.get<{ data: any[] }>('/partners?type=capital'),
-        apiClient.get<{ data: any[] }>('/partners?type=technical'),
-      ]);
-
-      const { data: engagements } = await apiClient.get<{ data: any[] }>(`/engagements?project_id=${projectId}`);
-      const ACCEPTED = ['INTRO_ACCEPTED', 'NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET', 'CONTRACT_SIGNED', 'CAPITAL_COMMITTED', 'CLOSED'];
-      const hasAcceptedEPC = (engagements || []).some(e => e.counterparty_type === 'TECHNICAL' && ACCEPTED.includes(e.status));
-
-      if (capitalPartners) {
-        for (const match of capitalPartners.map(p => calculateCapitalMatchScore(project, p, hasAcceptedEPC))) {
-          await apiClient.post('/projects/' + projectId + '/matches/capital', match).catch(() => {});
-        }
-      }
-      if (technicalPartners) {
-        for (const match of technicalPartners.map(p => calculateTechnicalMatchScore(project, p))) {
-          await apiClient.post('/projects/' + projectId + '/matches/technical', match).catch(() => {});
-        }
-      }
+      await apiClient.post('/matching/run', { project_id: projectId });
     } catch (err) {
       console.error('Error running matching engine:', err);
     }

@@ -2,12 +2,32 @@ import { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getSupabaseAdmin, fetchProfileWithMemberships } from '@/lib/supabase-server';
 import { badRequest, serverError, writeAuditLog } from '@/lib/api-helpers';
+import { checkLockout, recordLoginAttempt } from '@/lib/lockout';
+import { sendAccountLockedEmail } from '@/lib/email';
 import { cookies } from 'next/headers';
 
 export async function POST(req: NextRequest) {
   try {
     const { email, password } = await req.json();
     if (!email || !password) return badRequest('email and password are required');
+
+    const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null;
+    const userAgent = req.headers.get('user-agent') ?? null;
+
+    // Check if account is locked
+    const lockout = await checkLockout(email);
+    if (lockout.locked) {
+      return Response.json(
+        {
+          error: {
+            code: 'ACCOUNT_LOCKED',
+            message: 'Your account has been temporarily locked due to too many failed login attempts.',
+            lockedUntil: lockout.lockedUntil,
+          }
+        },
+        { status: 403 }
+      );
+    }
 
     const cookieStore = await cookies();
 
@@ -28,7 +48,57 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error || !data.user) {
-      return Response.json({ error: 'Invalid email or password' }, { status: 401 });
+      // Record failed attempt
+      const admin = getSupabaseAdmin();
+      const { data: profile } = await admin
+        .from('user_profiles')
+        .select('id')
+        .eq('email', email.toLowerCase())
+        .single();
+
+      const attemptResult = await recordLoginAttempt({
+        email,
+        userId: profile?.id,
+        success: false,
+        ipAddress: ipAddress ?? undefined,
+        userAgent: userAgent ?? undefined,
+      });
+
+      if (attemptResult.locked) {
+        // Send account locked email
+        const lockedProfile = profile ? await fetchProfileWithMemberships(admin, profile.id) : null;
+        const fullName = (lockedProfile as any)?.full_name || email;
+        await sendAccountLockedEmail({
+          to: email,
+          fullName,
+          lockedUntil: attemptResult.lockedUntil!,
+        });
+
+        await writeAuditLog({ userId: profile?.id ?? null, action: 'ACCOUNT_LOCKED', entityType: 'user', entityId: profile?.id ?? email, req });
+
+        return Response.json(
+          {
+            error: {
+              code: 'ACCOUNT_LOCKED',
+              message: 'Your account has been temporarily locked due to too many failed login attempts.',
+              lockedUntil: attemptResult.lockedUntil,
+              attemptsRemaining: 0,
+            }
+          },
+          { status: 403 }
+        );
+      }
+
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_CREDENTIALS',
+            message: 'Invalid email or password',
+            attemptsRemaining: attemptResult.attemptsRemaining,
+          }
+        },
+        { status: 401 }
+      );
     }
 
     const admin = getSupabaseAdmin();
@@ -44,6 +114,31 @@ export async function POST(req: NextRequest) {
       await supabase.auth.signOut();
       return Response.json({ error: 'Your organisation has been deactivated. Please contact your administrator.' }, { status: 403 });
     }
+
+    // Check password expiry
+    const passwordExpiryDays = membership?.companies?.password_expiry_days ?? 0;
+    if (passwordExpiryDays > 0 && profile?.password_changed_at) {
+      const changedAt = new Date(profile.password_changed_at).getTime();
+      const now = Date.now();
+      const daysSinceChange = Math.floor((now - changedAt) / (1000 * 60 * 60 * 24));
+      if (daysSinceChange > passwordExpiryDays) {
+        // Return a flag so the frontend can redirect to password change
+        return Response.json({
+          profile,
+          password_expired: true,
+          password_expired_days: daysSinceChange,
+        });
+      }
+    }
+
+    // Record successful login (clears failed attempts context)
+    await recordLoginAttempt({
+      email,
+      userId: data.user.id,
+      success: true,
+      ipAddress: ipAddress ?? undefined,
+      userAgent: userAgent ?? undefined,
+    });
 
     await writeAuditLog({ userId: data.user.id, action: 'USER_LOGGED_IN', entityType: 'auth', entityId: data.user.id, req });
 

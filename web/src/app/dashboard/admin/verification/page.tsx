@@ -7,8 +7,10 @@ import { Drawer } from '@/components/ui/drawer';
 import { Badge, BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import { StatCard } from '@/components/ui/stat-card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 type OrgStatus = 'pending_verification' | 'verified' | 'rejected' | 'needs_update';
 
@@ -145,6 +147,12 @@ export default function VerificationQueuePage() {
   const [selected, setSelected] = useState<PendingOrg | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [stats, setStats] = useState<Record<OrgStatus, number>>({
+    pending_verification: 0,
+    needs_update: 0,
+    verified: 0,
+    rejected: 0,
+  });
 
   const [loadingApprove, setLoadingApprove] = useState(false);
   const [loadingReject, setLoadingReject] = useState(false);
@@ -160,6 +168,20 @@ export default function VerificationQueuePage() {
       const res = await fetch(`/api/admin/organizations?status=${statusFilter}`);
       const { data } = await res.json();
       setOrgs(data ?? []);
+      
+      // Fetch stats for all statuses
+      const statuses: OrgStatus[] = ['pending_verification', 'needs_update', 'verified', 'rejected'];
+      const statsPromises = statuses.map(s => 
+        fetch(`/api/admin/organizations?status=${s}`).then(r => r.json())
+      );
+      const results = await Promise.all(statsPromises);
+      const newStats: Record<OrgStatus, number> = {
+        pending_verification: results[0].data?.length ?? 0,
+        needs_update: results[1].data?.length ?? 0,
+        verified: results[2].data?.length ?? 0,
+        rejected: results[3].data?.length ?? 0,
+      };
+      setStats(newStats);
     } finally {
       setLoading(false);
     }
@@ -195,13 +217,22 @@ export default function VerificationQueuePage() {
       const res = await fetch(`/api/admin/organizations/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, note: note || undefined }),
+        body: JSON.stringify({ action: 'update_status', status, note: note || undefined }),
       });
 
       if (res.ok) {
+        const statusLabel = STATUS_BADGE[status]?.label ?? status;
+        toast.success(`Organisation ${statusLabel.toLowerCase()}`, {
+          description: `"${selected.name}" has been ${statusLabel.toLowerCase()}.`,
+        });
         closeDrawer();
         fetchOrgs();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to update status');
       }
+    } catch {
+      toast.error('An error occurred while updating status');
     } finally {
       setLoading(false);
     }
@@ -308,11 +339,40 @@ export default function VerificationQueuePage() {
     <div className="space-y-8 animate-in fade-in duration-500">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Verification Queue</h2>
-          <p className="text-slate-500 mt-1 text-sm">Review and verify organisations applying to the platform.</p>
+          <p className="dash-section-label mb-1">Admin Verification</p>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Verification Queue</h2>
+          <p className="text-sm text-slate-500 font-medium mt-1">Review and verify organisations applying to the platform.</p>
         </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Pending"
+          value={stats.pending_verification}
+          icon={Icons.info}
+          valueClassName="text-amber-600"
+        />
+        <StatCard
+          label="Needs Update"
+          value={stats.needs_update}
+          icon={Icons.alertTriangle}
+          valueClassName="text-blue-600"
+        />
+        <StatCard
+          label="Verified"
+          value={stats.verified}
+          icon={Icons.checkCircle2}
+          valueClassName="text-green-600"
+        />
+        <StatCard
+          label="Rejected"
+          value={stats.rejected}
+          icon={Icons.x}
+          valueClassName="text-red-600"
+        />
       </div>
 
       {/* Status tabs */}
@@ -334,11 +394,12 @@ export default function VerificationQueuePage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden">
+      <div className="dash-card overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">
-            {STATUS_BADGE[statusFilter]?.label} Organisations
-          </h3>
+          <div>
+            <p className="dash-section-label mb-0.5">{STATUS_BADGE[statusFilter]?.label} Organisations</p>
+            <h3 className="text-sm font-semibold text-slate-900">Queue</h3>
+          </div>
           <span className="text-xs text-slate-400">{loading ? '—' : `${orgs.length} total`}</span>
         </div>
         {loading ? (

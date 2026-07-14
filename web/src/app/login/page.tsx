@@ -6,6 +6,18 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { useAuth } from '@/hooks/useAuth';
+import { MfaVerification } from '@/components/auth/MfaVerification';
+
+function checkMfaRequired(user: any): boolean {
+  if (!user) return false;
+  if (user.is_platform_admin) return true;
+  if (user.org_member_role === 'OWNER') return true;
+  if (user.org_member_role === 'ADMIN') return true;
+  if (user.role === 'ADMIN') return true;
+  if (user.org_mfa_enforced) return true;
+  if (user.mfa_enabled) return true;
+  return false;
+}
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -13,7 +25,8 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn } = useAuth();
+  const [needsMfa, setNeedsMfa] = useState(false);
+  const { signIn, user, mfa_verified, setMfaVerified, signOut } = useAuth();
   const searchParams = useSearchParams();
   const notice = searchParams.get('notice');
   const verified = searchParams.get('verified');
@@ -24,19 +37,47 @@ function LoginForm() {
     setIsLoading(true);
     setError(null);
     try {
-      await signIn(email, password);
-      window.location.href = '/dashboard';
+      const builtUser = await signIn(email, password);
+      if (checkMfaRequired(builtUser)) {
+        setNeedsMfa(true);
+      } else {
+        window.location.href = '/dashboard';
+      }
     } catch (err: any) {
-      const msg = err.message || 'Invalid email or password.';
-      setError(
-        msg.includes('rate') || msg.includes('429') || msg.includes('Too many')
-          ? 'Too many attempts. Please wait a few minutes.'
-          : msg
-      );
+      if (err.code === 'ACCOUNT_LOCKED') {
+        setError(err.lockedUntil
+          ? `Account locked until ${new Date(err.lockedUntil).toLocaleTimeString()}. Please contact support.`
+          : 'Account temporarily locked due to too many failed attempts.');
+      } else if (err.attemptsRemaining !== undefined && err.attemptsRemaining !== null) {
+        setError(`Invalid email or password. ${err.attemptsRemaining} attempt${err.attemptsRemaining !== 1 ? 's' : ''} remaining before account lockout.`);
+      } else {
+        const msg = err.message || 'Invalid email or password.';
+        setError(
+          msg.includes('rate') || msg.includes('429') || msg.includes('Too many')
+            ? 'Too many attempts. Please wait a few minutes.'
+            : msg
+        );
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (needsMfa && user && checkMfaRequired(user) && !mfa_verified) {
+    return (
+      <MfaVerification
+        email={user.email}
+        onVerified={() => {
+          setMfaVerified(true);
+          window.location.href = '/dashboard';
+        }}
+        onSignOut={() => {
+          setNeedsMfa(false);
+          signOut();
+        }}
+      />
+    );
+  }
 
   const banner = error
     ? { icon: 'alertTriangle' as const, color: 'red' as const, text: error, animate: true }
@@ -54,6 +95,8 @@ function LoginForm() {
     ? { icon: 'alertTriangle' as const, color: 'red' as const, text: 'Your account has been deactivated. Please contact support.' }
     : notice === 'org-deactivated'
     ? { icon: 'alertTriangle' as const, color: 'red' as const, text: 'Your organisation has been deactivated. Please contact your administrator.' }
+    : notice === 'locked'
+    ? { icon: 'lock' as const, color: 'red' as const, text: 'Your account has been temporarily locked due to too many failed login attempts. Please contact support.' }
     : null;
 
   const bannerStyles = {

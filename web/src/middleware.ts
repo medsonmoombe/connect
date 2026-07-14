@@ -54,6 +54,17 @@ export async function middleware(req: NextRequest) {
       if (!isAdmin) {
         return NextResponse.redirect(new URL('/dashboard', req.url));
       }
+
+      // Admin API routes require MFA verification (cookie must be set)
+      if (pathname.startsWith('/api/admin')) {
+        const mfaVerified = req.cookies.get('mfa_verified')?.value === '1';
+        if (!mfaVerified) {
+          return NextResponse.json(
+            { error: 'MFA verification required. Please verify your identity.' },
+            { status: 403 }
+          );
+        }
+      }
     } catch {
       return NextResponse.redirect(new URL('/dashboard', req.url));
     }

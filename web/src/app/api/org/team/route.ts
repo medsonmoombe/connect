@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const inviteLink = `${appUrl}/signup?token=${invite.token}`;
-    console.log(`\n[Org/Team] Invite link for ${email}:\n${inviteLink}\n`);
+    console.log(`[Org/Team] Invite link generated for ${email}`);
 
     await sendInviteEmail({ to: email, token: invite.token, expiresAt, companyName: company?.name ?? undefined });
 

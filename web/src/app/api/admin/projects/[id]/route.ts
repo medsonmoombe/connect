@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, forbidden, badRequest, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { createNotification, notificationBuilders } from '@/lib/notify';
+import { notifyUser, notificationBuilders } from '@/lib/notify';
+import * as emailTemplates from '@/lib/email-templates';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -63,23 +64,38 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         req,
       });
 
-      // Notify the developer org's owner
+      // Notify the developer org's owner (in-app + email)
       const { data: members } = await admin
         .from('company_members')
-        .select('user_id')
+        .select('user_id, users!inner(id, email, full_name)')
         .is('deleted_at', null)
         .eq('company_id', project.developer_id)
-        .eq('role', 'OWNER')
+        .in('role', ['OWNER', 'ADMIN'])
         .limit(1);
 
       if (members?.[0]) {
-        await createNotification({
-          userId: members[0].user_id,
-          payload: notificationBuilders.systemAnnouncement({
+        const u = (members[0] as any).users;
+        if (u?.id && u?.email) {
+          const payload = notificationBuilders.systemAnnouncement({
             title: `Project status updated: ${status.replace(/_/g, ' ')}`,
             body: `Your project "${project.name}" has been moved to ${status} by an admin. Note: ${note}`,
-          }),
-        });
+          });
+          const emailT = emailTemplates.projectStatusEmail({
+            projectName: project.name,
+            newStatus: status,
+            note,
+            recipientName: u.full_name ?? 'there',
+          });
+          await notifyUser({
+            userId: u.id,
+            payload,
+            channel: 'both',
+            emailTo: u.email,
+            emailTemplate: emailT,
+            emailLogType: 'project_status',
+            emailEntityId: id,
+          });
+        }
       }
 
       return Response.json({ data: { id, status } });

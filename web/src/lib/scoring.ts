@@ -164,11 +164,11 @@ export function calculateCapitalMatchScore(
   score += governanceAlignment * CAPITAL_MATCH_WEIGHTS.governance_preference_alignment;
 
   // Sector Match (10%)
-  const sectorMatch = partner.sector_focus.includes(project.technology_type) ? 100 : 50;
+  const sectorMatch = partner.sector_focus?.includes(project.technology_type) ? 100 : 50;
   score += sectorMatch * CAPITAL_MATCH_WEIGHTS.sector_match;
 
   // Geographic Match (10%)
-  const geoMatch = partner.geographic_focus.includes(project.location_country) ? 100 : 50;
+  const geoMatch = partner.geographic_focus?.includes(project.location_country) ? 100 : 50;
   score += geoMatch * CAPITAL_MATCH_WEIGHTS.geographic_match;
 
   // Project Stage Alignment
@@ -262,7 +262,7 @@ function calculateStructureMatch(project: Project, partner: CapitalPartner): num
   if (!project.capital_structure_type) return 50;
   
   // Direct match in preferred_structures (legacy)
-  if (partner.preferred_structures.includes(project.capital_structure_type)) return 100;
+  if (partner.preferred_structures?.includes(project.capital_structure_type)) return 100;
   
   // Match in new preferred_capital_structure field
   if (partner.preferred_capital_structure?.includes(project.capital_structure_type)) return 100;
@@ -338,6 +338,7 @@ export function calculateTechnicalMatchScore(
 }
 
 function calculateSectorScore(tech: string, experience: string[]): number {
+  if (!experience || experience.length === 0) return 0;
   if (experience.includes(tech)) return 100;
   
   const adjacencies: Record<string, string[]> = {
@@ -371,6 +372,7 @@ function calculateTicketSizeScore(required: number, min: number | undefined, max
 }
 
 function calculateGeoScore(country: string, region: string | undefined, operated: string[], partnerCountry: string | undefined): number {
+  if (!operated || operated.length === 0) return 0;
   if (operated.includes(region || '')) return 100;
   if (operated.includes(country)) return 50;
   if (partnerCountry === country) return 50;
@@ -380,6 +382,8 @@ function calculateGeoScore(country: string, region: string | undefined, operated
 
 // Calculate Service Match
 function calculateServiceMatch(required: string[], available: string[]): number {
+  if (!required || required.length === 0) return 0;
+  if (!available || available.length === 0) return 0;
   const matches = required.filter(s => available.includes(s));
   return (matches.length / required.length) * 100;
 }

@@ -3,6 +3,45 @@
 
 import { getSupabaseAdmin } from './supabase-server';
 import type { NotificationType, NotificationPayload } from './email-templates';
+import { sendEmail } from './email';
+
+// ── Default notification preferences ──────────────────────────────────────────
+// Keys match the NotificationType union (minus system_announcement, which is always on).
+
+export const DEFAULT_NOTIFICATION_PREFS: Record<string, boolean> = {
+  match_found: true,
+  engagement_updates: true,
+  project_status: true,
+  new_messages: false,
+};
+
+// ── Fetch a user's notification preferences ───────────────────────────────────
+
+export async function getUserPreferences(userId: string): Promise<Record<string, boolean>> {
+  try {
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin
+      .from('user_profiles')
+      .select('notification_preferences')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !data) return { ...DEFAULT_NOTIFICATION_PREFS };
+
+    const stored = (data.notification_preferences as Record<string, boolean> | null) ?? {};
+    return { ...DEFAULT_NOTIFICATION_PREFS, ...stored };
+  } catch {
+    return { ...DEFAULT_NOTIFICATION_PREFS };
+  }
+}
+
+// ── Check if a specific notification type is enabled for a user ────────────────
+
+export async function shouldNotify(userId: string, type: NotificationType): Promise<boolean> {
+  if (type === 'system_announcement') return true; // always on
+  const prefs = await getUserPreferences(userId);
+  return prefs[type] !== false;
+}
 
 // ── Create a notification ────────────────────────────────────────────────────
 
@@ -167,6 +206,132 @@ export async function getNotifications(userId: string, limit = 20, offset = 0) {
   }
 }
 
+// ── High-level: send notification + email based on user preferences ────────────
+// Use these instead of calling createNotification + sendEmail separately.
+
+export type NotifyChannel = 'in_app' | 'email' | 'both';
+
+/**
+ * Notify a single user. Respects their notification_preferences.
+ * Returns what was sent so callers can log or inspect.
+ */
+export async function notifyUser(params: {
+  userId: string;
+  payload: NotificationPayload;
+  channel?: NotifyChannel;          // default 'both'
+  emailTo?: string;                 // required if channel includes email
+  emailTemplate?: { subject: string; html: string };
+  emailLogType?: string;
+  emailEntityId?: string;
+}): Promise<{ inApp: boolean; email: boolean }> {
+  const ch = params.channel ?? 'both';
+  const result = { inApp: false, email: false };
+
+  const type = params.payload.type;
+
+  // Always create in-app for system_announcement; otherwise check prefs
+  const sendInApp = ch === 'in_app' || ch === 'both';
+  const sendEmailFlag = (ch === 'email' || ch === 'both') && params.emailTo && params.emailTemplate;
+
+  if (sendInApp) {
+    const allowed = await shouldNotify(params.userId, type);
+    if (allowed) {
+      const res = await createNotification({ userId: params.userId, payload: params.payload });
+      result.inApp = res.success;
+    }
+  }
+
+  if (sendEmailFlag) {
+    const allowed = await shouldNotify(params.userId, type);
+    if (allowed && params.emailTo && params.emailTemplate) {
+      const res = await sendEmail({
+        to: params.emailTo,
+        subject: params.emailTemplate.subject,
+        html: params.emailTemplate.html,
+        logType: params.emailLogType,
+        logEntityId: params.emailEntityId,
+      });
+      result.email = res.success;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Notify multiple users. Respects each user's notification_preferences.
+ * Batch-fetches preferences to minimize DB calls.
+ */
+export async function notifyUsers(params: {
+  userIds: string[];
+  payload: NotificationPayload;
+  channel?: NotifyChannel;
+  /** Map of userId → email address (needed if channel includes email) */
+  emailMap?: Record<string, string>;
+  emailTemplate?: { subject: string; html: string };
+  emailLogType?: string;
+  emailEntityId?: string;
+}): Promise<{ inAppCount: number; emailCount: number }> {
+  const ch = params.channel ?? 'both';
+  let inAppCount = 0;
+  let emailCount = 0;
+
+  // Batch-fetch all preferences in one query
+  const admin = getSupabaseAdmin();
+  const { data: profiles } = await admin
+    .from('user_profiles')
+    .select('user_id, notification_preferences')
+    .in('user_id', params.userIds);
+
+  const prefMap = new Map<string, Record<string, boolean>>();
+  for (const p of profiles ?? []) {
+    const stored = (p.notification_preferences as Record<string, boolean> | null) ?? {};
+    prefMap.set(p.user_id, { ...DEFAULT_NOTIFICATION_PREFS, ...stored });
+  }
+
+  // Filter to users who have this type enabled
+  const allowed = params.userIds.filter(uid => {
+    if (params.payload.type === 'system_announcement') return true;
+    const prefs = prefMap.get(uid) ?? { ...DEFAULT_NOTIFICATION_PREFS };
+    return prefs[params.payload.type] !== false;
+  });
+
+  if (allowed.length === 0) return { inAppCount: 0, emailCount: 0 };
+
+  // Batch insert in-app notifications
+  if (ch === 'in_app' || ch === 'both') {
+    const rows = allowed.map(userId => ({
+      user_id: userId,
+      type: params.payload.type,
+      title: params.payload.title,
+      body: params.payload.body,
+      entity_type: params.payload.entity_type ?? null,
+      entity_id: params.payload.entity_id ?? null,
+      action_url: params.payload.action_url ?? null,
+    }));
+    const { error } = await admin.from('notifications').insert(rows);
+    if (!error) inAppCount = rows.length;
+  }
+
+  // Send individual emails (Resend doesn't support batch send)
+  if ((ch === 'email' || ch === 'both') && params.emailTemplate && params.emailMap) {
+    for (const uid of allowed) {
+      const email = params.emailMap[uid];
+      if (!email) continue;
+      const res = await sendEmail({
+        to: email,
+        subject: params.emailTemplate.subject,
+        html: params.emailTemplate.html,
+        logType: params.emailLogType,
+        logEntityId: params.emailEntityId,
+      });
+      if (res.success) emailCount++;
+    }
+  }
+
+  return { inAppCount, emailCount };
+}
+
 // ── Notification builders (convenience helpers) ──────────────────────────────
 // These build NotificationPayload objects for common scenarios.
 
@@ -215,7 +380,7 @@ export const notificationBuilders = {
     projectName: string;
     newStatus: string;
   }): NotificationPayload => ({
-    type: 'engagement_update',
+    type: 'engagement_updates',
     title: 'Engagement updated',
     body: `Engagement for "${params.projectName}" moved to ${params.newStatus.replace(/_/g, ' ')}.`,
     entity_type: 'engagements',
@@ -226,7 +391,7 @@ export const notificationBuilders = {
     senderName: string;
     preview: string;
   }): NotificationPayload => ({
-    type: 'message_received',
+    type: 'new_messages',
     title: `New message from ${params.senderName}`,
     body: params.preview.length > 100 ? params.preview.slice(0, 100) + '...' : params.preview,
     entity_type: 'messages',

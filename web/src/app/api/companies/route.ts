@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+
+const COMPANY_CREATE_FIELDS = ['name', 'primary_role', 'country', 'description', 'website', 'location', 'size', 'logo_url', 'type'];
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,8 +33,9 @@ export async function POST(req: NextRequest) {
     const user = await getAuthenticatedUser(req);
     const body = await req.json();
     const supabase = getSupabaseAdmin();
+    const safeFields = pickFields(body, COMPANY_CREATE_FIELDS);
 
-    const { data, error } = await supabase.from('companies').insert(body).select().single();
+    const { data, error } = await supabase.from('companies').insert(safeFields).select().single();
     if (error) {
       console.error('[Companies] Insert error:', error.message);
       return serverError();

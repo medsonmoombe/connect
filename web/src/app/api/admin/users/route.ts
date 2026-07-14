@@ -1,26 +1,126 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, forbidden, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { sendAdminUserProvisionedEmail } from '@/lib/email';
 import { createNotification, notificationBuilders } from '@/lib/notify';
 
-// GET /api/admin/users — list all users (Platform Admin only)
+const USER_UPDATE_FIELDS = ['full_name', 'phone', 'job_title', 'role'];
+
+// GET /api/admin/users — paginated user list (Platform Admin only)
+// Query params: page, pageSize, search, typeFilter, orgFilter, sortBy
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user.is_platform_admin) return forbidden();
 
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .select('*, company_members(role, company_id, companies(*))')
-      .order('created_at', { ascending: false });
+    const url = new URL(req.url);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '10', 10)));
+    const search = url.searchParams.get('search')?.trim() || '';
+    const typeFilter = url.searchParams.get('typeFilter') || 'all';
+    const orgFilter = url.searchParams.get('orgFilter') || 'all';
+    const sortBy = url.searchParams.get('sortBy') || 'newest';
+    const from = (page - 1) * pageSize;
 
-    if (error) {
-      console.error('[Admin/Users] Query error:', error.message);
+    const supabase = getSupabaseAdmin();
+
+    // 1. Fetch all companies for filter dropdowns (lightweight)
+    const { data: allCompanies } = await supabase
+      .from('companies')
+      .select('id, name, primary_role, is_platform_org')
+      .is('deleted_at', null)
+      .order('name');
+
+    const orgTypes = [...new Set((allCompanies ?? []).map(c => c.primary_role).filter(Boolean))].sort();
+    const orgNames = (allCompanies ?? []).map(c => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name));
+
+    // 2. Build user query with server-side search + pagination
+    let query = supabase
+      .from('user_profiles')
+      .select('*', { count: 'exact' });
+
+    if (search) {
+      query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+    }
+
+    // Sort
+    switch (sortBy) {
+      case 'name_asc':  query = query.order('full_name', { ascending: true, nullsFirst: true }); break;
+      case 'name_desc': query = query.order('full_name', { ascending: false, nullsFirst: true }); break;
+      case 'oldest':    query = query.order('created_at', { ascending: true }); break;
+      default:          query = query.order('created_at', { ascending: false }); break;
+    }
+
+    // Paginate
+    query = query.range(from, from + pageSize - 1);
+
+    const { data: profiles, error: profilesErr, count } = await query;
+
+    if (profilesErr) {
+      console.error('[Admin/Users] Query error:', profilesErr.message);
       return serverError();
     }
-    return Response.json({ data });
+
+    const total = count ?? 0;
+    const userIds = (profiles ?? []).map(p => p.id);
+
+    if (userIds.length === 0) {
+      return Response.json({ data: [], total, page, pageSize, orgTypes, orgNames });
+    }
+
+    // 3. Fetch memberships for this page only
+    let memberQuery = supabase
+      .from('company_members')
+      .select('user_id, role, company_id, companies(name, primary_role, is_platform_org)')
+      .is('deleted_at', null)
+      .in('user_id', userIds);
+
+    if (orgFilter !== 'all') {
+      memberQuery = memberQuery.eq('company_id', orgFilter);
+    }
+
+    if (typeFilter !== 'all') {
+      memberQuery = memberQuery.eq('companies.primary_role', typeFilter);
+    }
+
+    const { data: memberships } = await memberQuery;
+
+    // Filter: if typeFilter/orgFilter is set, only keep users that have matching memberships
+    const matchingUserIds = new Set((memberships ?? []).map(m => m.user_id));
+    const filteredProfiles = (typeFilter !== 'all' || orgFilter !== 'all')
+      ? (profiles ?? []).filter(p => matchingUserIds.has(p.id))
+      : (profiles ?? []);
+
+    const byUser = new Map<string, typeof memberships>();
+    (memberships ?? []).forEach(m => {
+      if (!byUser.has(m.user_id)) byUser.set(m.user_id, []);
+      byUser.get(m.user_id)!.push(m);
+    });
+
+    const data = filteredProfiles.map(p => ({
+      ...p,
+      company_members: byUser.get(p.id) ?? [],
+    }));
+
+    // 4. Compute summary stats (from full dataset, not paginated)
+    const { count: totalActive } = await supabase
+      .from('user_profiles').select('*', { count: 'exact', head: true }).is('suspended_at', null);
+    const { count: totalSuspended } = await supabase
+      .from('user_profiles').select('*', { count: 'exact', head: true }).not('suspended_at', 'is', null);
+
+    const now = new Date().toISOString();
+    const { count: totalLocked } = await supabase
+      .from('user_profiles').select('*', { count: 'exact', head: true }).not('locked_until', 'is', null).gt('locked_until', now);
+
+    return Response.json({
+      data,
+      total: (typeFilter !== 'all' || orgFilter !== 'all') ? data.length : total,
+      page,
+      pageSize,
+      stats: { totalUsers: total, totalActive: totalActive ?? 0, totalSuspended: totalSuspended ?? 0, totalLocked: totalLocked ?? 0 },
+      orgTypes,
+      orgNames,
+    });
   } catch (e: any) {
     return handleRouteError(e);
   }
@@ -33,7 +133,7 @@ export async function POST(req: NextRequest) {
     const adminUser = await getAuthenticatedUser(req);
     if (!adminUser.is_platform_admin) return forbidden();
 
-    const { email, role, password, fullName, orgName, orgType } = await req.json();
+    const { email, role, password, fullName, orgName, companyId: provCompanyId } = await req.json();
     const actualPassword = password || (Math.random().toString(36).slice(-12) + 'A1!');
 
     const supabase = getSupabaseAdmin();
@@ -65,9 +165,11 @@ export async function POST(req: NextRequest) {
       return serverError();
     }
 
-    // 3. Create company if orgName provided
+    // 3. Link to existing company or create one
     let companyId: string | null = null;
-    if (orgName) {
+    if (provCompanyId) {
+      companyId = provCompanyId;
+    } else if (orgName) {
       const typeToRole: Record<string, string> = {
         DEVELOPER: 'DEVELOPER',
         CAPITAL: 'CAPITAL_PARTNER',
@@ -75,23 +177,15 @@ export async function POST(req: NextRequest) {
         POWER_TRADER: 'POWER_TRADER',
         GRANT_PROVIDER: 'GRANT_PROVIDER',
       };
-      const primaryRole = typeToRole[orgType || 'DEVELOPER'] || 'DEVELOPER';
-
-      const typeMap: Record<string, string> = {
-        DEVELOPER: 'DEVELOPER',
-        CAPITAL: 'CAPITAL',
-        TECHNICAL: 'TECHNICAL',
-        POWER_TRADER: 'POWER_TRADER',
-        GRANT_PROVIDER: 'DEVELOPER',
-      };
+      const primaryRole = typeToRole['DEVELOPER'] || 'DEVELOPER';
 
       const { data: company, error: companyErr } = await supabase
         .from('companies')
         .insert({
           name: orgName,
-          type: typeMap[orgType || 'DEVELOPER'] || 'DEVELOPER',
+          type: 'DEVELOPER',
           primary_role: primaryRole,
-          status: 'verified', // Admin-created companies are auto-verified
+          status: 'verified',
           country: 'Not specified',
         })
         .select()
@@ -142,9 +236,6 @@ export async function POST(req: NextRequest) {
         company_id: companyId,
         generated_password: password ? undefined : actualPassword,
       },
-      message: password
-        ? `User created and added to company.`
-        : `User created. Generated password: ${actualPassword}`,
     }, { status: 201 });
   } catch (e: any) {
     return handleRouteError(e);
@@ -159,15 +250,16 @@ export async function PATCH(req: NextRequest) {
 
     const { userId, ...updates } = await req.json();
     const supabase = getSupabaseAdmin();
+    const safeFields = pickFields(updates, USER_UPDATE_FIELDS);
 
     const { data, error } = await supabase
-      .from('user_profiles').update(updates).eq('id', userId).select().single();
+      .from('user_profiles').update(safeFields).eq('id', userId).select().single();
 
     if (error) {
       console.error('[Admin/Users] Update error:', error.message);
       return serverError();
     }
-    await writeAuditLog({ userId: user.id, action: 'USER_UPDATED', entityType: 'user_profiles', entityId: userId, after: updates, req });
+    await writeAuditLog({ userId: user.id, action: 'USER_UPDATED', entityType: 'user_profiles', entityId: userId, after: safeFields, req });
     return Response.json({ data });
   } catch (e: any) {
     return handleRouteError(e);

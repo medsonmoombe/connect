@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/ui/icons';
 import { ReactNode } from 'react';
@@ -27,6 +28,7 @@ interface DashboardSidebarProps {
   sections?: NavSection[];
   footerWidget?: ReactNode;
   userName?: string;
+  avatarUrl?: string;
   userRole?: string;
   orgName?: string;
   onSignOut: () => void;
@@ -124,12 +126,14 @@ export function DashboardSidebar({
   sections,
 
   userName,
+  avatarUrl,
   userRole,
   orgName,
   onSignOut,
   open,
   onClose,
 }: DashboardSidebarProps) {
+  const router = useRouter();
   // Support both sections[] and flat navItems[] for backward compatibility
   const hasSections = sections && sections.length > 0;
   const flatItems = hasSections ? undefined : navItems;
@@ -226,17 +230,21 @@ export function DashboardSidebar({
             <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-50/80 transition-all duration-200 cursor-default group/user">
               {/* Avatar with gradient ring + online dot */}
               <div className="relative shrink-0">
-                <div className="avatar-ring rounded-xl">
-                  <div className="size-9 rounded-[10px] bg-gradient-to-br from-primary to-primary-light flex items-center justify-center">
-                    <span className="text-xs font-bold text-white tracking-wide">
-                      {(userName || 'User')
-                        .split(' ')
-                        .map((n: string) => n[0])
-                        .slice(0, 2)
-                        .join('')
-                        .toUpperCase()}
-                    </span>
-                  </div>
+                <div className="avatar-ring rounded-xl overflow-hidden">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="size-9 rounded-[10px] object-cover" />
+                  ) : (
+                    <div className="size-9 rounded-[10px] bg-gradient-to-br from-primary to-primary-light flex items-center justify-center">
+                      <span className="text-xs font-bold text-white tracking-wide">
+                        {(userName || 'User')
+                          .split(' ')
+                          .map((n: string) => n[0])
+                          .slice(0, 2)
+                          .join('')
+                          .toUpperCase()}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
               </div>
@@ -255,6 +263,7 @@ export function DashboardSidebar({
               <div className="flex items-center gap-0.5 opacity-0 group-hover/user:opacity-100 transition-opacity duration-200">
                 <button
                   title="Settings"
+                  onClick={() => router.push('/dashboard/settings')}
                   className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200"
                 >
                   <Icons.settings className="size-3.5" />

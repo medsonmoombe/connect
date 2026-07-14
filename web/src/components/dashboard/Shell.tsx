@@ -17,6 +17,14 @@ interface NavConfig {
 
 // ─── Nav configs per role ────────────────────────────────────────────────────
 
+const accountSection = (pathname: string): NavSection => ({
+  label: 'Account',
+  items: [
+    { icon: <Icons.user className="size-[18px]" />, label: 'Profile', active: pathname === '/dashboard/profile', href: '/dashboard/profile' },
+    { icon: <Icons.settings className="size-[18px]" />, label: 'Settings', active: pathname === '/dashboard/settings', href: '/dashboard/settings' },
+  ] as SidebarNavItem[],
+});
+
 function developerNav(pathname: string, isOrgAdmin: boolean): NavConfig {
   return {
     portalLabel: 'Developer Portal',
@@ -39,6 +47,7 @@ function developerNav(pathname: string, isOrgAdmin: boolean): NavConfig {
           ...(isOrgAdmin ? [{ icon: <Icons.users className="size-[18px]" />, label: 'Team', active: pathname === '/dashboard/developer/team', href: '/dashboard/developer/team' } as SidebarNavItem] : []),
         ] as SidebarNavItem[],
       },
+      accountSection(pathname),
     ],
     footerWidget: (
       <div className="sidebar-widget rounded-xl p-3.5">
@@ -81,6 +90,7 @@ function investorNav(pathname: string): NavConfig {
           { icon: <Icons.user className="size-[18px]" />, label: 'Investment Profile', active: false, href: '/dashboard/investor' },
         ] as SidebarNavItem[],
       },
+      accountSection(pathname),
     ],
     footerWidget: (
       <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #166534 0%, #15803d 100%)' }}>
@@ -124,6 +134,7 @@ function technicalNav(pathname: string): NavConfig {
           { icon: <Icons.user className="size-[18px]" />, label: 'Partner Profile', active: false, href: '/dashboard/technical' },
         ] as SidebarNavItem[],
       },
+      accountSection(pathname),
     ],
     footerWidget: (
       <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
@@ -216,6 +227,7 @@ function traderNav(pathname: string): NavConfig {
           { icon: <Icons.user className="size-[18px]" />, label: 'Trader Profile', active: false, href: '/dashboard/trader' },
         ] as SidebarNavItem[],
       },
+      accountSection(pathname),
     ],
     footerWidget: (
       <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
@@ -255,6 +267,7 @@ function grantNav(pathname: string): NavConfig {
           { icon: <Icons.user className="size-[18px]" />, label: 'Grant Profile', active: false, href: '/dashboard/grant' },
         ] as SidebarNavItem[],
       },
+      accountSection(pathname),
     ],
     footerWidget: (
       <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #166534 0%, #15803d 100%)' }}>
@@ -319,6 +332,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         navItems={flatNavItems}
         sections={nav.sections}
         userName={user?.full_name}
+        avatarUrl={user?.avatar_url}
         userRole={user?.role?.replace('_', ' ')}
         orgName={user?.company_name}
         onSignOut={handleSignOut}

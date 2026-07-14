@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     const resetUrl = `${appUrl}/reset-password?token=${rawToken}`;
-    console.log(`\n[ForgotPassword] Reset link for ${email}:\n${resetUrl}\n`);
+    console.log(`[ForgotPassword] Reset link generated for ${email}`);
 
     await sendPasswordResetEmail({ to: email, fullName, resetUrl });
 

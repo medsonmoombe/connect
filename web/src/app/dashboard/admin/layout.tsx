@@ -7,11 +7,12 @@ import { Icons } from '@/components/ui/icons';
 import { ReactNode, useEffect, useState } from 'react';
 import { DashboardSidebar, SidebarNavItem, NavSection } from '@/components/dashboard/Sidebar';
 import { DashboardNavbar } from '@/components/dashboard/Navbar';
+import { MfaVerification } from '@/components/auth/MfaVerification';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, mfa_verified, setMfaVerified } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
 
@@ -43,6 +44,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </div>
         <p className="text-slate-600 font-medium animate-pulse">Verifying administration access...</p>
       </div>
+    );
+  }
+
+  if (!mfa_verified) {
+    return (
+      <MfaVerification
+        email={user.email}
+        onVerified={() => setMfaVerified(true)}
+        onSignOut={() => signOut()}
+      />
     );
   }
 

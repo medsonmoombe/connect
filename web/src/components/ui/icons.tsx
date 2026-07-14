@@ -55,10 +55,13 @@ import {
   EyeOff,
   Users,
   RefreshCw,
+  Pencil,
+  Camera,
 } from "lucide-react";
 
 export const Icons = {
   spinner: Loader2,
+  camera: Camera,
   close: X,
   plus: Plus,
   zap: Zap,
@@ -126,6 +129,7 @@ export const Icons = {
   trash: Trash2,
   copy: Copy,
   eye: Eye,
+  pencil: Pencil,
   eyeOff: EyeOff,
   users: Users,
   refreshCw: RefreshCw,

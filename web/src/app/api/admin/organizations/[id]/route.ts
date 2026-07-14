@@ -62,9 +62,9 @@ export async function GET(
     // Projects
     const { data: projects } = await admin
       .from('projects')
-      .select('id, title, sector, status, country, created_at')
+      .select('id, name, technology_type, status, location_country, created_at')
       .is('deleted_at', null)
-      .eq('company_id', id)
+      .eq('developer_id', id)
       .order('created_at', { ascending: false });
 
     return Response.json({ data: { ...company, company_members, preferences, projects: projects ?? [] } });
@@ -90,7 +90,7 @@ export async function PATCH(
     // Fetch the company
     const { data: company, error: fetchErr } = await admin
       .from('companies')
-      .select('id, name, status, primary_role, description, website, location, size')
+      .select('id, name, status, primary_role, description, website, country, team_size')
       .is('deleted_at', null)
       .eq('id', id)
       .single();
@@ -153,13 +153,13 @@ export async function PATCH(
 
     } else if (action === 'update_details') {
       // Update company details
-      const { name, description, website, location, size } = body;
+      const { name, description, website, country, team_size } = body;
       const updates: Record<string, any> = {};
       if (name !== undefined) updates.name = name;
       if (description !== undefined) updates.description = description;
       if (website !== undefined) updates.website = website;
-      if (location !== undefined) updates.location = location;
-      if (size !== undefined) updates.size = size;
+      if (country !== undefined) updates.country = country;
+      if (team_size !== undefined) updates.team_size = team_size;
 
       if (Object.keys(updates).length === 0) return badRequest('No fields to update');
 
@@ -263,6 +263,40 @@ export async function PATCH(
 
       return Response.json({ data: { id, status: newStatus } });
 
+    } else if (action === 'update_preferences') {
+      const { preferences } = body as { preferences: Record<string, any> };
+
+      const tableMap: Record<string, string> = {
+        CAPITAL_PARTNER: 'capital_partners',
+        TECHNICAL_PARTNER: 'technical_partners',
+        POWER_TRADER: 'power_traders',
+      };
+
+      const table = tableMap[company.primary_role];
+      if (!table) return badRequest('This organisation type does not have preferences');
+
+      const { data, error: prefErr } = await admin
+        .from(table)
+        .upsert({ company_id: id, ...preferences }, { onConflict: 'company_id' })
+        .select()
+        .single();
+
+      if (prefErr) {
+        console.error('[Admin/Orgs] Preferences upsert error:', prefErr.message);
+        return serverError();
+      }
+
+      await writeAuditLog({
+        userId: user.id,
+        action: 'ORG_PREFERENCES_UPDATED',
+        entityType: table,
+        entityId: id,
+        after: preferences,
+        req,
+      });
+
+      return Response.json({ data });
+
     } else {
       return badRequest('Invalid action');
     }
@@ -319,7 +353,7 @@ export async function DELETE(
       .from('projects')
       .select('id')
       .is('deleted_at', null)
-      .eq('company_id', id);
+      .eq('developer_id', id);
 
     for (const p of projects ?? []) {
       await admin.from('project_documents').update({ deleted_at: new Date().toISOString() }).eq('project_id', p.id).is('deleted_at', null);

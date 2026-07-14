@@ -221,16 +221,122 @@ export function adminUserProvisionedEmail(params: { email: string; generatedPass
   return { subject: `Your ${BRAND_NAME} account is ready`, html: shell('Account Created', `Your ${BRAND_NAME} account has been created.`, body) };
 }
 
+export function mfaCodeEmail(params: { fullName: string; code: string }) {
+  const body = `
+    ${h('Your verification code')}
+    ${p(`Hi ${escapeHtml(params.fullName)},`)}
+    ${p(`Use the following 6-digit code to verify your identity on <strong>${BRAND_NAME}</strong>:`)}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+      <tr>
+        <td style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:4px;padding:16px 32px;text-align:center;">
+          <span style="font-size:28px;font-weight:700;color:#1a1a1a;letter-spacing:0.15em;font-family:monospace;">${escapeHtml(params.code)}</span>
+        </td>
+      </tr>
+    </table>
+    ${note('This code expires in 10 minutes. If you did not request this code, you can safely ignore this email.')}
+  `;
+  return { subject: `Your ${BRAND_NAME} verification code`, html: shell('Verification Code', 'Your identity verification code.', body) };
+}
+
+export function accountLockedEmail(params: { fullName: string; lockedUntil: string }) {
+  const unlockTime = new Date(params.lockedUntil).toLocaleString('en-GB', {
+    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const body = `
+    ${h('Account temporarily locked')}
+    ${p(`Hi ${escapeHtml(params.fullName)},`)}
+    ${p(`Your <strong>${BRAND_NAME}</strong> account has been temporarily locked due to multiple failed login attempts.`)}
+    ${dl([['Locked until', unlockTime]])}
+    ${p('If you did not make these attempts, please contact our support team immediately. If you are locked out and need urgent access, reach out to your platform administrator.')}
+  `;
+  return { subject: `Your ${BRAND_NAME} account is locked`, html: shell('Account Locked', 'Your account has been temporarily locked.', body) };
+}
+
+export function matchFoundEmail(params: {
+  projectName: string;
+  partnerName: string;
+  score: number;
+  role: 'developer' | 'partner';
+}) {
+  const isDeveloper = params.role === 'developer';
+  const heading = isDeveloper ? 'A matching partner was found' : 'A matching project was found';
+  const bodyText = isDeveloper
+    ? `<strong>${escapeHtml(params.partnerName)}</strong> is a <strong>${params.score}%</strong> match for your project "<strong>${escapeHtml(params.projectName)}</strong>".`
+    : `Your profile matches "<strong>${escapeHtml(params.projectName)}</strong>" by <strong>${escapeHtml(params.partnerName)}</strong> with <strong>${params.score}%</strong> compatibility.`;
+  const body = `
+    ${h(heading)}
+    ${p(bodyText)}
+    ${cta('View Matches', `${APP_URL}/dashboard`)}
+  `;
+  return { subject: `New match: ${params.projectName}`, html: shell(heading, `${params.partnerName} matches ${params.projectName} at ${params.score}%`, body) };
+}
+
+export function engagementUpdateEmail(params: {
+  projectName: string;
+  newStatus: string;
+  recipientName: string;
+}) {
+  const friendlyStatus = params.newStatus.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const body = `
+    ${h('Engagement status updated')}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`The engagement for "<strong>${escapeHtml(params.projectName)}</strong>" has been moved to <strong>${escapeHtml(friendlyStatus)}</strong>.`)}
+    ${cta('View Engagement', `${APP_URL}/dashboard`)}
+  `;
+  return { subject: `Engagement updated: ${params.projectName}`, html: shell('Engagement Updated', `Engagement moved to ${friendlyStatus}.`, body) };
+}
+
+export function projectStatusEmail(params: {
+  projectName: string;
+  newStatus: string;
+  note?: string;
+  recipientName: string;
+}) {
+  const friendlyStatus = params.newStatus.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const body = `
+    ${h('Project status updated')}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been moved to <strong>${escapeHtml(friendlyStatus)}</strong> by a platform administrator.`)}
+    ${params.note ? note(`Admin note: ${escapeHtml(params.note)}`) : ''}
+    ${cta('View Project', `${APP_URL}/dashboard`)}
+  `;
+  return { subject: `Project status: ${friendlyStatus} — ${params.projectName}`, html: shell('Project Updated', `${params.projectName} moved to ${friendlyStatus}.`, body) };
+}
+
+export function messageReceivedEmail(params: {
+  senderName: string;
+  recipientName: string;
+  preview: string;
+  projectName: string;
+}) {
+  const truncated = params.preview.length > 120 ? params.preview.slice(0, 120) + '...' : params.preview;
+  const body = `
+    ${h(`New message from ${escapeHtml(params.senderName)}`)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`You have a new message regarding "<strong>${escapeHtml(params.projectName)}</strong>":`)}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+      <tr>
+        <td style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:4px;padding:14px 18px;font-size:14px;color:#444;line-height:1.6;">
+          ${escapeHtml(truncated)}
+        </td>
+      </tr>
+    </table>
+    ${cta('Open Conversation', `${APP_URL}/dashboard`)}
+  `;
+  return { subject: `New message from ${params.senderName}`, html: shell('New Message', `${params.senderName} sent you a message.`, body) };
+}
+
 // ── Notification types ────────────────────────────────────────────────────────
 
 export type NotificationType =
   | 'org_status_change'
   | 'new_org_registered'
   | 'user_provisioned'
-  | 'engagement_update'
+  | 'engagement_updates'
   | 'match_found'
   | 'project_update'
-  | 'message_received'
+  | 'project_status'
+  | 'new_messages'
   | 'system_announcement';
 
 export interface NotificationPayload {

@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 type Params = { params: Promise<{ id: string }> };
+
+const COMPANY_UPDATE_FIELDS = ['name', 'description', 'website', 'location', 'size', 'logo_url'];
 
 export async function GET(req: NextRequest, { params }: Params) {
   try {
@@ -36,13 +38,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const body = await req.json();
     const supabase = getSupabaseAdmin();
+    const safeFields = user.is_platform_admin
+      ? pickFields(body, [...COMPANY_UPDATE_FIELDS, 'status', 'is_platform_org', 'primary_role'])
+      : pickFields(body, COMPANY_UPDATE_FIELDS);
 
-    const { data, error } = await supabase.from('companies').update(body).eq('id', id).select().single();
+    const { data, error } = await supabase.from('companies').update(safeFields).eq('id', id).select().single();
     if (error) {
       console.error('[Companies] Update error:', error.message);
       return serverError();
     }
-    await writeAuditLog({ userId: user.id, action: 'COMPANY_UPDATED', entityType: 'companies', entityId: id, after: body, req });
+    await writeAuditLog({ userId: user.id, action: 'COMPANY_UPDATED', entityType: 'companies', entityId: id, after: safeFields, req });
     return Response.json({ data });
   } catch (e: any) {
     return handleRouteError(e);

@@ -539,18 +539,18 @@ export default function TeamPage() {
     <div className="space-y-8 animate-in fade-in duration-500">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Team</h2>
-          <p className="text-slate-500 mt-1 text-sm">
+          <p className="dash-section-label mb-1">Team Management</p>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Team</h2>
+          <p className="text-sm text-slate-500 font-medium mt-1">
             {isOrgAdmin ? 'Manage your team members and invite new colleagues.' : 'View your organisation\'s team.'}
           </p>
         </div>
         {isOrgAdmin && (
           <Button
             variant="outline"
-            size="sm"
-            className="rounded-xl font-semibold border-slate-200 shrink-0"
+            className="h-9 px-4 rounded-xl"
             onClick={openInvitesDrawer}
           >
             <Icons.mail className="size-4 mr-2" />
@@ -561,12 +561,12 @@ export default function TeamPage() {
 
       {/* Invite form */}
       {isOrgAdmin && (
-        <div className="bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
+        <div className="dash-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
             <h3 className="text-sm font-bold text-slate-900">Invite a Team Member</h3>
             <p className="text-xs text-slate-400 mt-0.5">An invite link will be sent to their email address.</p>
           </div>
-          <form onSubmit={handleInvite} className="p-6 space-y-5">
+          <form onSubmit={handleInvite} className="p-5 space-y-5">
             {inviteMsg && (
               <p className={cn('text-sm font-medium', inviteMsg.type === 'success' ? 'text-green-700' : 'text-red-600')}>
                 {inviteMsg.text}
@@ -580,7 +580,7 @@ export default function TeamPage() {
                   placeholder="colleague@company.com"
                   value={inviteEmail}
                   onChange={e => setInviteEmail(e.target.value)}
-                  className="pl-10 h-11 rounded-xl border-slate-200"
+                  className="pl-10 h-9 rounded-xl border-slate-200"
                   required
                 />
               </div>
@@ -588,13 +588,13 @@ export default function TeamPage() {
                 <select
                   value={inviteRole}
                   onChange={e => setInviteRole(e.target.value as 'MEMBER' | 'ADMIN')}
-                  className="h-11 px-3 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="h-9 px-3 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
                 >
                   <option value="MEMBER">Member</option>
                   <option value="ADMIN">Admin</option>
                 </select>
               )}
-              <Button type="submit" disabled={inviting} className="h-11 px-6 rounded-xl shrink-0">
+              <Button type="submit" disabled={inviting} className="h-9 px-4 rounded-xl shrink-0">
                 {inviting
                   ? <Icons.spinner className="size-4 animate-spin" />
                   : <><Icons.plus className="size-4 mr-2" />Send Invite</>}
@@ -605,8 +605,8 @@ export default function TeamPage() {
       )}
 
       {/* Members table */}
-      <div className="bg-white rounded-[24px] border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div className="dash-card overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900">Team Members</h3>
           <span className="text-xs text-slate-400">{members.length} total</span>
         </div>
@@ -652,7 +652,7 @@ export default function TeamPage() {
                 : `${actionMember.user_profiles?.full_name || 'This member'} will be demoted to Member and lose admin privileges.`}
             </p>
             <Button
-              className="w-full h-11 rounded-xl font-bold"
+              className="w-full h-10 rounded-xl font-bold"
               onClick={() => setConfirmRole(true)}
             >
               {newRole === 'ADMIN' ? 'Promote to Admin' : 'Demote to Member'}
@@ -691,7 +691,7 @@ export default function TeamPage() {
               <Input
                 value={editForm.full_name}
                 onChange={e => setEditForm(f => ({ ...f, full_name: e.target.value }))}
-                className="h-11 rounded-xl border-slate-200"
+                className="h-10 rounded-xl border-slate-200"
                 placeholder="Enter full name"
               />
             </div>
@@ -702,7 +702,7 @@ export default function TeamPage() {
               <Input
                 value={actionMember.user_profiles?.email ?? ''}
                 disabled
-                className="h-11 rounded-xl border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+                className="h-10 rounded-xl border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
               />
             </div>
 
@@ -712,7 +712,7 @@ export default function TeamPage() {
               <Input
                 value={editForm.phone}
                 onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
-                className="h-11 rounded-xl border-slate-200"
+                className="h-10 rounded-xl border-slate-200"
                 placeholder="+1 555 000 0000"
                 type="tel"
               />
@@ -724,7 +724,7 @@ export default function TeamPage() {
               <Input
                 value={editForm.job_title}
                 onChange={e => setEditForm(f => ({ ...f, job_title: e.target.value }))}
-                className="h-11 rounded-xl border-slate-200"
+                className="h-10 rounded-xl border-slate-200"
                 placeholder="e.g. Project Manager"
               />
             </div>
@@ -755,7 +755,7 @@ export default function TeamPage() {
             </div>
 
             <Button
-              className="w-full h-11 rounded-xl font-bold"
+              className="w-full h-10 rounded-xl font-bold"
               disabled={editSaving || !editForm.full_name.trim()}
               onClick={handleSaveProfile}
             >

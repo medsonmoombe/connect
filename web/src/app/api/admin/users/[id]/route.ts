@@ -2,28 +2,77 @@ import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, forbidden, badRequest, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { createNotification, notificationBuilders } from '@/lib/notify';
+import { unlockAccount } from '@/lib/lockout';
 
 type Params = { params: Promise<{ id: string }> };
 
 // ── PATCH /api/admin/users/[id]
 // action: 'suspend'    — suspend a user (blocks login via suspended_at check)
 // action: 'reactivate' — lift suspension
+// action: 'unlock'     — unlock a locked account (too many failed logins)
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user.is_platform_admin) return forbidden();
 
     const { id } = await params;
-    const { action, reason } = await req.json();
+    const body = await req.json();
+    const { action, reason } = body;
 
-    if (!['suspend', 'reactivate'].includes(action)) {
-      return badRequest('action must be suspend or reactivate');
+    if (!['suspend', 'reactivate', 'unlock', 'toggle_mfa'].includes(action)) {
+      return badRequest('action must be suspend, reactivate, unlock, or toggle_mfa');
     }
 
     // Cannot suspend yourself
-    if (id === user.id) return badRequest('You cannot suspend your own account');
+    if (id === user.id && action === 'suspend') return badRequest('You cannot suspend your own account');
 
     const admin = getSupabaseAdmin();
+
+    if (action === 'toggle_mfa') {
+      const { mfa_enabled } = body;
+      const { error } = await admin
+        .from('user_profiles')
+        .update({ mfa_enabled: !!mfa_enabled })
+        .eq('id', id);
+
+      if (error) {
+        console.error('[Admin/Users] MFA toggle error:', error.message);
+        return serverError();
+      }
+
+      await writeAuditLog({
+        userId: user.id,
+        action: mfa_enabled ? 'USER_MFA_ENABLED' : 'USER_MFA_DISABLED',
+        entityType: 'user_profiles',
+        entityId: id,
+        after: { mfa_enabled: !!mfa_enabled },
+        req,
+      });
+
+      return Response.json({ success: true, action: 'toggle_mfa', mfa_enabled: !!mfa_enabled });
+    }
+
+    if (action === 'unlock') {
+      await unlockAccount(id, user.id);
+
+      await writeAuditLog({
+        userId: user.id,
+        action: 'USER_UNLOCKED',
+        entityType: 'user_profiles',
+        entityId: id,
+        req,
+      });
+
+      await createNotification({
+        userId: id,
+        payload: notificationBuilders.systemAnnouncement({
+          title: 'Account unlocked',
+          body: 'Your account has been unlocked by an administrator. You can now log in.',
+        }),
+      });
+
+      return Response.json({ success: true, action: 'unlock' });
+    }
 
     const update =
       action === 'suspend'

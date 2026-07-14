@@ -123,6 +123,36 @@ export async function sendAdminUserProvisionedEmail(params: { to: string; email:
   return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'admin_user_provisioned' });
 }
 
+export async function sendMfaCodeEmail(params: { to: string; fullName: string; code: string }) {
+  const t = templates.mfaCodeEmail({ fullName: params.fullName, code: params.code });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'mfa_code' });
+}
+
+export async function sendAccountLockedEmail(params: { to: string; fullName: string; lockedUntil: string }) {
+  const t = templates.accountLockedEmail({ fullName: params.fullName, lockedUntil: params.lockedUntil });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'account_locked' });
+}
+
+export async function sendMatchFoundEmail(params: { to: string; projectName: string; partnerName: string; score: number; role: 'developer' | 'partner' }) {
+  const t = templates.matchFoundEmail({ projectName: params.projectName, partnerName: params.partnerName, score: params.score, role: params.role });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'match_found' });
+}
+
+export async function sendEngagementUpdateEmail(params: { to: string; projectName: string; newStatus: string; recipientName: string }) {
+  const t = templates.engagementUpdateEmail({ projectName: params.projectName, newStatus: params.newStatus, recipientName: params.recipientName });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'engagement_updates' });
+}
+
+export async function sendProjectStatusEmail(params: { to: string; projectName: string; newStatus: string; note?: string; recipientName: string }) {
+  const t = templates.projectStatusEmail({ projectName: params.projectName, newStatus: params.newStatus, note: params.note, recipientName: params.recipientName });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'project_status' });
+}
+
+export async function sendMessageReceivedEmail(params: { to: string; senderName: string; recipientName: string; preview: string; projectName: string }) {
+  const t = templates.messageReceivedEmail({ senderName: params.senderName, recipientName: params.recipientName, preview: params.preview, projectName: params.projectName });
+  return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'message_received' });
+}
+
 // ── Legacy aliases (for backwards compatibility) ─────────────────────────────
 // These match the old function signatures so existing callers don't break.
 

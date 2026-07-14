@@ -202,7 +202,7 @@ export function useAdminOverrideScore() {
 // ── Platform Admin — user suspend/reactivate ─────────────────────────────────
 export function useAdminSuspendUser() {
   const [isPending, setIsPending] = useState(false);
-  const mutateAsync = useCallback(async (userId: string, action: 'suspend' | 'reactivate', reason?: string) => {
+  const mutateAsync = useCallback(async (userId: string, action: 'suspend' | 'reactivate' | 'unlock', reason?: string) => {
     setIsPending(true);
     try {
       const res = await fetch(`/api/admin/users/${userId}`, {

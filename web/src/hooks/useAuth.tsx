@@ -16,6 +16,11 @@ export interface AppUser {
   company_id?: string;
   company_name?: string;
   verification_status: string;
+  admin_note?: string;
+  phone?: string;
+  job_title?: string;
+  mfa_enabled: boolean;
+  org_mfa_enforced: boolean;
   onboarding_complete: boolean;
   company_members?: { role: string; company_id: string; companies: any }[];
   created_at?: string;
@@ -24,10 +29,12 @@ export interface AppUser {
 interface AuthContextType {
   user: AppUser | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  mfa_verified: boolean;
+  signIn: (email: string, password: string) => Promise<AppUser | null>;
   signUp: (email: string, password: string, fullName: string, inviteToken: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  setMfaVerified: (v: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,6 +63,8 @@ function buildUser(profile: any): AppUser {
     email: profile.email,
     full_name: profile.full_name,
     avatar_url: profile.avatar_url,
+    phone: profile.phone ?? undefined,
+    job_title: profile.job_title ?? undefined,
     role,
     is_platform_admin: isPlatformAdmin,
     org_member_role: isPlatformAdmin ? null : (membership?.role ?? null),
@@ -63,6 +72,9 @@ function buildUser(profile: any): AppUser {
     company_id: membership?.company_id,
     company_name: company?.name ?? undefined,
     verification_status: company?.status ?? 'pending_verification',
+    admin_note: company?.admin_note ?? undefined,
+    mfa_enabled: !!profile.mfa_enabled,
+    org_mfa_enforced: !!company?.mfa_enforced,
     onboarding_complete: profile.onboarding_complete,
     company_members: profile.company_members,
     created_at: profile.created_at,
@@ -75,6 +87,7 @@ const SESSION_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mfaVerified, setMfaVerified] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refreshUser = useCallback(async () => {
@@ -82,23 +95,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/auth/session');
       if (res.status === 401) {
         setUser(null);
+        setMfaVerified(false);
         return;
       }
-      const { user: profile, suspended, org_deactivated } = await res.json();
+      const { user: profile, suspended, org_deactivated, locked, locked_until, mfa_verified, password_expired, password_expired_days } = await res.json();
       if (suspended) {
         await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
+        setMfaVerified(false);
         window.location.href = '/login?notice=suspended';
         return;
       }
       if (org_deactivated) {
         await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
+        setMfaVerified(false);
         window.location.href = '/login?notice=org-deactivated';
         return;
       }
-      if (profile) setUser(buildUser(profile));
-      else setUser(null);
+      if (locked) {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        setUser(null);
+        setMfaVerified(false);
+        window.location.href = '/login?notice=locked';
+        return;
+      }
+      if (password_expired) {
+        if (profile) {
+          setUser(buildUser(profile));
+          setMfaVerified(!!mfa_verified);
+        }
+        window.location.href = '/dashboard/settings?notice=password_expired';
+        return;
+      }
+      if (profile) {
+        setUser(buildUser(profile));
+        setMfaVerified(!!mfa_verified);
+      } else {
+        setUser(null);
+        setMfaVerified(false);
+      }
     } catch {
       // Network error — don't clear user, just keep current state
     }
@@ -126,7 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [refreshUser]);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<any> => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -135,11 +171,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     if (!res.ok) {
       const err = data.error;
-      const msg = typeof err === 'string' ? err : err?.message || 'Invalid email or password';
-      const extra = err?.resetAt ? ` Try again at ${new Date(err.resetAt).toLocaleTimeString()}.` : '';
-      throw new Error(msg + extra);
+      // Pass through structured error info (lockedUntil, attemptsRemaining, code)
+      if (typeof err === 'object' && err !== null) {
+        const e = new Error(err.message || 'Login failed') as any;
+        e.code = err.code;
+        e.lockedUntil = err.lockedUntil;
+        e.attemptsRemaining = err.attemptsRemaining;
+        throw e;
+      }
+      const msg = typeof err === 'string' ? err : 'Invalid email or password';
+      throw new Error(msg);
     }
-    if (data.profile) setUser(buildUser(data.profile));
+    if (data.profile) {
+      const built = buildUser(data.profile);
+      setUser(built);
+      setMfaVerified(false);
+      if (data.password_expired) {
+        window.location.href = '/dashboard/settings?notice=password_expired';
+      }
+      return built;
+    }
+    return null;
   };
 
   const signUp = async (email: string, password: string, fullName: string, inviteToken: string) => {
@@ -153,13 +205,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
     setUser(null);
+    setMfaVerified(false);
+    await fetch('/api/auth/logout', { method: 'POST' });
     window.location.href = '/login';
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, mfa_verified: mfaVerified, signIn, signUp, signOut, refreshUser, setMfaVerified }}>
       {children}
     </AuthContext.Provider>
   );

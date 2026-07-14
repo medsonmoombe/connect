@@ -1,8 +1,17 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, unauthorized, serverError, forbidden, writeAuditLog, handleRouteError, pickFields, verifyProjectOwnership } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 type Params = { params: Promise<{ id: string }> };
+
+const PROJECT_UPDATE_FIELDS = [
+  'name', 'technology_type', 'location_country', 'location_region',
+  'project_size_mw', 'capital_required', 'capital_structure_type',
+  'governance_terms', 'risk_disclosures', 'project_stage',
+  'target_financial_close_date', 'target_cod',
+  'has_secured_land', 'land_title_status',
+  'has_reached_financial_close', 'regulatory_approvals',
+];
 
 // GET /api/projects/[id]
 export async function GET(req: NextRequest, { params }: Params) {
@@ -89,6 +98,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     // sub-resource: tech requirements
     if (body._resource === 'tech_requirements') {
       const { _resource, ...rest } = body;
+      if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
       const { data, error } = await supabase
         .from('project_tech_requirements')
         .upsert({ ...rest, project_id: id })
@@ -128,13 +138,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return Response.json({ data });
     }
 
+    // Ownership check for direct project updates
+    if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
+
+    const allowedFields = user.is_platform_admin
+      ? [...PROJECT_UPDATE_FIELDS, 'status']
+      : PROJECT_UPDATE_FIELDS;
+    const safeFields = pickFields(body, allowedFields);
+
     const { data, error } = await supabase
-      .from('projects').update(body).eq('id', id).select().single();
+      .from('projects').update(safeFields).eq('id', id).select().single();
     if (error) {
       console.error('[Projects] Update error:', error.message);
       return serverError();
     }
-    await writeAuditLog({ userId: user.id, action: 'PROJECT_UPDATED', entityType: 'projects', entityId: id, after: body, req });
+    await writeAuditLog({ userId: user.id, action: 'PROJECT_UPDATED', entityType: 'projects', entityId: id, after: safeFields, req });
     return Response.json({ data });
   } catch (e: any) {
     return handleRouteError(e);
@@ -147,6 +165,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const user = await getAuthenticatedUser(req);
     const { id } = await params;
     const supabase = getSupabaseAdmin();
+
+    if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
 
     const { error } = await supabase.from('projects').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) {

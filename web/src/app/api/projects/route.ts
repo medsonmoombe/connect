@@ -1,6 +1,15 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+
+const PROJECT_FIELDS = [
+  'name', 'technology_type', 'location_country', 'location_region',
+  'project_size_mw', 'capital_required', 'capital_structure_type',
+  'governance_terms', 'risk_disclosures', 'project_stage',
+  'target_financial_close_date', 'target_cod',
+  'has_secured_land', 'land_title_status',
+  'has_reached_financial_close', 'regulatory_approvals',
+];
 
 // GET /api/projects
 export async function GET(req: NextRequest) {
@@ -40,14 +49,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (user.role !== 'DEVELOPER') return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const isPlatformAdmin = user.is_platform_admin;
+    if (user.role !== 'DEVELOPER' && !isPlatformAdmin) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await req.json();
     const supabase = getSupabaseAdmin();
 
+    const developerId = isPlatformAdmin ? (body.developer_id || user.company_id) : user.company_id;
+    const allowedFields = isPlatformAdmin ? [...PROJECT_FIELDS, 'status'] : PROJECT_FIELDS;
+    const safeFields = pickFields(body, allowedFields);
+
     const { data, error } = await supabase
       .from('projects')
-      .insert({ ...body, developer_id: user.company_id })
+      .insert({ ...safeFields, developer_id: developerId })
       .select()
       .single();
 

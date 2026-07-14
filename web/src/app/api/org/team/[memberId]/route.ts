@@ -298,7 +298,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       .single();
 
     const inviteLink = `${appUrl}/signup?token=${tokenRow?.token}`;
-    console.log(`\n[Org/Team] Resent invite link for ${invite.email}:\n${inviteLink}\n`);
+    console.log(`[Org/Team] Resent invite link generated for ${invite.email}`);
 
     if (invite.email) {
       await sendInviteEmail({

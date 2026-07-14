@@ -44,6 +44,7 @@ function useBreadcrumbs() {
     companies: 'Companies',
     users: 'Users',
     settings: 'Settings',
+    profile: 'Profile',
     verification: 'Verification',
     'ai-overview': 'AI Overview',
   };
@@ -250,6 +251,18 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           </div>
         </Drawer>
 
+        {/* User role chip */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200">
+          <Icons.user className="size-3.5 text-slate-500 shrink-0" />
+          <span className="text-[11px] font-bold text-slate-600 tracking-wide">
+            {(() => {
+              const r = user?.org_member_role || user?.role || 'member';
+              const label = r.toLowerCase() === 'owner' ? 'admin' : r.replace(/_/g, ' ').toLowerCase();
+              return label.charAt(0).toUpperCase() + label.slice(1);
+            })()}
+          </span>
+        </div>
+
         {/* Divider */}
         <div className="w-px h-5 bg-slate-200/80 mx-1" />
 
@@ -261,10 +274,14 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           >
             {/* Avatar */}
             <div className="relative shrink-0">
-              <div className="navbar-avatar size-8 rounded-lg flex items-center justify-center">
-                <span className="text-[11px] font-bold text-white tracking-wide">
-                  {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
-                </span>
+              <div className="navbar-avatar size-8 rounded-lg flex items-center justify-center overflow-hidden">
+                {user?.avatar_url ? (
+                  <img src={user.avatar_url} alt="" className="size-8 rounded-lg object-cover" />
+                ) : (
+                  <span className="text-[11px] font-bold text-white tracking-wide">
+                    {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                  </span>
+                )}
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
             </div>
@@ -285,10 +302,14 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
               {/* User card */}
               <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center gap-3">
-                  <div className="navbar-avatar size-9 rounded-lg flex items-center justify-center shrink-0">
-                    <span className="text-[11px] font-bold text-white tracking-wide">
-                      {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
-                    </span>
+                  <div className="navbar-avatar size-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+                    {user?.avatar_url ? (
+                      <img src={user.avatar_url} alt="" className="size-9 rounded-lg object-cover" />
+                    ) : (
+                      <span className="text-[11px] font-bold text-white tracking-wide">
+                        {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="text-[13px] font-semibold text-slate-900 truncate">{user?.full_name || 'User'}</p>
@@ -299,7 +320,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
               {/* Menu items */}
               <div className="py-1.5 px-1.5">
                 <button
-                  onClick={() => { setProfileOpen(false); router.push('/dashboard'); }}
+                  onClick={() => { setProfileOpen(false); router.push('/dashboard/profile'); }}
                   className="navbar-menu-item w-full"
                 >
                   <span className="flex items-center justify-center size-7 rounded-lg bg-slate-100 shrink-0">
@@ -308,7 +329,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
                   My Profile
                 </button>
                 <button
-                  onClick={() => { setProfileOpen(false); router.push('/dashboard/admin/settings'); }}
+                  onClick={() => { setProfileOpen(false); router.push(user?.role === 'ADMIN' ? '/dashboard/admin/settings' : '/dashboard/settings'); }}
                   className="navbar-menu-item w-full"
                 >
                   <span className="flex items-center justify-center size-7 rounded-lg bg-slate-100 shrink-0">
