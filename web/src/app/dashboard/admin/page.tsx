@@ -168,7 +168,7 @@ export default function AdminDashboardPage() {
       {loadingHealth ? (
         <KpiBarSkeleton />
       ) : health && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             label="Total Users"
             value={health.totalUsers}
@@ -193,6 +193,16 @@ export default function AdminDashboardPage() {
             icon={Icons.dollarSign}
             trend={{ label: `${health.trends.capital.pct > 0 ? '+' : ''}${health.trends.capital.pct}% vs last 30d`, positive: health.trends.capital.positive }}
           />
+          <Link href="/dashboard/admin/review" className="block">
+            <StatCard
+              label="Pending Reviews"
+              value={health.pendingReviewCount}
+              valueClassName={health.pendingReviewCount > 0 ? 'text-blue-600' : 'text-slate-900'}
+              icon={Icons.eye}
+              iconClassName={health.pendingReviewCount > 0 ? 'text-blue-500' : 'text-slate-400'}
+              trend={{ label: health.pendingReviewCount > 0 ? 'Action required' : 'All caught up', positive: health.pendingReviewCount === 0 }}
+            />
+          </Link>
         </div>
       )}
 
@@ -297,6 +307,12 @@ export default function AdminDashboardPage() {
                         {health.pendingVerifications} PENDING
                       </span>
                     </Link>
+                    <Link href="/dashboard/admin/review" className="flex justify-between items-center bg-white/5 px-3.5 py-2.5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors mt-2">
+                      <span className="dash-section-label text-slate-500">Project Review Queue</span>
+                      <span className={`px-2.5 py-1 text-[10px] font-bold rounded-lg ${health.pendingReviewCount > 0 ? 'bg-blue-500 text-white' : 'bg-white/10 text-slate-400'}`}>
+                        {health.pendingReviewCount} PENDING
+                      </span>
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -319,11 +335,16 @@ export default function AdminDashboardPage() {
                 </span>
                 <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">User Audit</p>
               </Link>
-              <Link href="/dashboard/admin/projects" className="dash-quick-link group">
-                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">
-                  <Icons.folder className="size-4 text-slate-400 group-hover:text-primary" />
+              <Link href="/dashboard/admin/review" className="dash-quick-link group relative">
+                <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-blue-50">
+                  <Icons.eye className="size-4 text-slate-400 group-hover:text-blue-600" />
                 </span>
-                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">All Projects</p>
+                <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">Review Queue</p>
+                {health?.pendingReviewCount > 0 && (
+                  <span className="absolute top-1 right-1 size-4 rounded-full bg-blue-500 text-white text-[9px] font-black flex items-center justify-center">
+                    {health.pendingReviewCount}
+                  </span>
+                )}
               </Link>
               <Link href="/dashboard/admin/companies" className="dash-quick-link group">
                 <span className="flex items-center justify-center size-8 rounded-lg bg-slate-100 mb-2.5 group-hover:bg-primary/10">

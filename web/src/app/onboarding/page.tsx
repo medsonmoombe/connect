@@ -60,10 +60,10 @@ const CAPITAL_STRUCTURES = [
 const PROJECT_STAGES = [
   { value: 'CONCEPT', label: 'Concept' },
   { value: 'FEASIBILITY', label: 'Feasibility' },
-  { value: 'PRE_CONSTRUCTION', label: 'Pre-Construction' },
-  { value: 'READY_TO_BUILD', label: 'Ready to Build' },
-  { value: 'UNDER_CONSTRUCTION', label: 'Under Construction' },
-  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'PERMITTING', label: 'Permitting' },
+  { value: 'FINANCIAL_CLOSE', label: 'Financial Close' },
+  { value: 'CONSTRUCTION', label: 'Construction' },
+  { value: 'OPERATIONS', label: 'Operations' },
 ];
 
 const RISK_LEVELS = [

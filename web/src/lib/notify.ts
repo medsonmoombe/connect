@@ -12,6 +12,10 @@ export const DEFAULT_NOTIFICATION_PREFS: Record<string, boolean> = {
   match_found: true,
   engagement_updates: true,
   project_status: true,
+  project_rejected: true,
+  project_internal_rejected: true,
+  project_pending_internal_review: true,
+  project_approved_internal: true,
   new_messages: false,
 };
 
@@ -406,5 +410,98 @@ export const notificationBuilders = {
     title: params.title,
     body: params.body,
     action_url: '/dashboard',
+  }),
+
+  projectRejected: (params: {
+    projectName: string;
+    reason: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_rejected',
+    title: `Project "${params.projectName}" rejected`,
+    body: `Your project was not approved. Reason: ${params.reason}`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectSubmittedForReview: (params: {
+    projectName: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_status',
+    title: `Project "${params.projectName}" submitted for platform review`,
+    body: `Your project has been submitted and is now awaiting platform admin review.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectInternalRejected: (params: {
+    projectName: string;
+    reason: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_internal_rejected',
+    title: `Project "${params.projectName}" needs rework`,
+    body: `Your internal reviewer requested changes: ${params.reason}`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectPendingInternalReview: (params: {
+    projectName: string;
+    submitterName: string;
+    orgName: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_pending_internal_review',
+    title: `Project pending your review`,
+    body: `${params.submitterName} submitted "${params.projectName}" (${params.orgName}) for your internal review before platform submission.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectSubmittedInternalReview: (params: {
+    projectName: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_status',
+    title: `Project sent for internal review`,
+    body: `"${params.projectName}" has been sent to your designated internal reviewer for approval before platform submission.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectApprovedByInternal: (params: {
+    projectName: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_approved_internal',
+    title: `Project "${params.projectName}" approved internally`,
+    body: `Your project has been approved by your internal reviewer and submitted to the platform for final review.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
+  }),
+
+  projectValidated: (params: {
+    projectName: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_status',
+    title: `Project "${params.projectName}" validated`,
+    body: `Your project has been reviewed and approved by the platform. It is now visible to partners.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/projects/' + params.projectName,
+  }),
+
+  projectStatusChanged: (params: {
+    projectName: string;
+    newStatus: string;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_status',
+    title: `Project "${params.projectName}" status updated`,
+    body: `Your project status has changed to ${params.newStatus.replace(/_/g, ' ')}.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/dashboard/developer',
   }),
 };

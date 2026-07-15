@@ -7,11 +7,14 @@ type Params = { params: Promise<{ id: string }> };
 const PROJECT_UPDATE_FIELDS = [
   'name', 'technology_type', 'location_country', 'location_region',
   'project_size_mw', 'capital_required', 'capital_structure_type',
-  'governance_terms', 'risk_disclosures', 'project_stage',
+  'governance_terms', 'exit_terms', 'risk_disclosures', 'project_stage',
   'target_financial_close_date', 'target_cod',
   'has_secured_land', 'land_title_status',
   'has_reached_financial_close', 'regulatory_approvals',
+  'rejection_reason',
 ];
+
+const EDITABLE_STATUSES = ['draft', 'rejected', 'returned'];
 
 // GET /api/projects/[id]
 export async function GET(req: NextRequest, { params }: Params) {
@@ -140,6 +143,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     // Ownership check for direct project updates
     if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
+
+    // Status-gated edits: only draft and rejected projects can be edited
+    const { data: projStatus } = await supabase
+      .from('projects')
+      .select('status')
+      .eq('id', id)
+      .single();
+
+    if (projStatus && !EDITABLE_STATUSES.includes(projStatus.status) && !user.is_platform_admin) {
+      return Response.json(
+        { error: `Cannot edit project in '${projStatus.status}' status. Only draft/rejected projects can be edited.` },
+        { status: 403 }
+      );
+    }
 
     const allowedFields = user.is_platform_admin
       ? [...PROJECT_UPDATE_FIELDS, 'status']

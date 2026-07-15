@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { projectService } from '@/services/projects';
 import { engagementService } from '@/lib/engagement';
@@ -16,13 +16,16 @@ import { getStateLabel } from '@/lib/engagement';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatCard } from '@/components/ui/stat-card';
 import { KpiBarSkeleton } from '@/components/ui/skeleton';
+import { Drawer } from '@/components/ui/drawer';
 
 export default function DeveloperDashboardPage() {
   return <DeveloperDashboard />;
 }
 
 function DeveloperDashboard() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'dashboard';
+  const [activeTab, setActiveTabState] = useState(initialTab);
   const [projects, setProjects] = useState<Project[]>([]);
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -30,25 +33,43 @@ function DeveloperDashboard() {
   const [techMatches, setTechMatches] = useState<any[]>([]);
   const [capMatches, setCapMatches] = useState<any[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
+  const [pendingReviewProjects, setPendingReviewProjects] = useState<Project[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+  const [reviewDrawerOpen, setReviewDrawerOpen] = useState(false);
 
   const router = useRouter();
   const { user, loading } = useAuth();
+
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabState(tab);
+    const params = new URLSearchParams(window.location.search);
+    if (tab === 'dashboard') {
+      params.delete('tab');
+    } else {
+      params.set('tab', tab);
+    }
+    const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+    window.history.replaceState(null, '', newUrl);
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
       if (user?.company_id) {
         try {
-          const [projData, engData] = await Promise.all([
+          const [projData, engData, pendingData] = await Promise.all([
             projectService.getDeveloperProjects(user.company_id),
             engagementService.getCompanyEngagements(user.company_id),
+            projectService.getPendingInternalReview().catch(() => []),
           ]);
           setProjects(projData);
           setEngagements(engData);
+          setPendingReviewProjects(pendingData);
         } catch (error) {
           console.error('Error fetching dashboard data:', error);
         } finally {
           setLoadingProjects(false);
           setLoadingEngagements(false);
+          setLoadingPending(false);
         }
       }
     }
@@ -120,11 +141,29 @@ function DeveloperDashboard() {
           {loadingProjects ? (
             <KpiBarSkeleton />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={cn(
+              "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4",
+              user?.is_org_admin && "lg:grid-cols-5"
+            )}>
               <StatCard label="Total Projects" value={projects.length.toString()} trend={projects.length > 0 ? { label: 'Active in portfolio' } : undefined} icon={Icons.folder} />
               <StatCard label="Capital Required" value={`$${(totalCapital / 1000000).toFixed(1)}M`} trend={{ label: 'Across all stages' }} icon={Icons.dollarSign} />
               <StatCard label="Active Engagements" value={engagements.length.toString()} trend={{ label: 'In milestone room' }} icon={Icons.messageSquare} />
               <StatCard label="Avg. Readiness" value={projects.length > 0 ? `${avgReadiness}/100` : 'N/A'} trend={{ label: 'Institutional grade' }} icon={Icons.shieldCheck} />
+              {user?.is_org_admin && (
+                <button
+                  onClick={() => setReviewDrawerOpen(true)}
+                  className="dash-card flex flex-col items-start gap-3 p-4 text-left hover:border-amber-200 hover:bg-amber-50/30 transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="dash-section-label text-amber-600">Pending Review</span>
+                    <Icons.eye className="size-4 text-amber-500 group-hover:text-amber-600 transition-colors" />
+                  </div>
+                  <p className="text-2xl font-bold text-slate-900 tracking-tight">{pendingReviewProjects.length}</p>
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                    {pendingReviewProjects.length === 0 ? 'All caught up' : `Project${pendingReviewProjects.length !== 1 ? 's' : ''} awaiting review`}
+                  </span>
+                </button>
+              )}
             </div>
           )}
         </>
@@ -432,8 +471,70 @@ function DeveloperDashboard() {
                 </div>
               </div>
             </div>
-          </div>
+           </div>
         </div>
+
+      {/* ── Pending Review Drawer ──────────────────────────────── */}
+      <Drawer
+        open={reviewDrawerOpen}
+        onClose={() => setReviewDrawerOpen(false)}
+        title="Pending Internal Review"
+        description={`${pendingReviewProjects.length} project${pendingReviewProjects.length !== 1 ? 's' : ''} awaiting your review`}
+        size="xl"
+      >
+        {loadingPending ? (
+          <div className="p-12 text-center">
+            <Icons.spinner className="size-8 animate-spin mx-auto text-primary mb-4" />
+            <p className="text-sm font-bold text-slate-500">Loading projects...</p>
+          </div>
+        ) : pendingReviewProjects.length > 0 ? (
+          <div className="space-y-3">
+            {pendingReviewProjects.map((project) => (
+              <Link
+                key={project.id}
+                href={`/projects/${project.id}?review=1`}
+                onClick={() => setReviewDrawerOpen(false)}
+                className="block p-4 rounded-xl border border-slate-100 hover:border-amber-200 hover:bg-amber-50/40 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="h-10 w-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
+                      <Icons.eye className="size-4 text-amber-600" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-bold text-slate-900 truncate group-hover:text-primary transition-colors">{project.name}</h4>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{project.project_size_mw} MW</span>
+                        <span className="text-slate-200">·</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{project.location_country}</span>
+                        <span className="text-slate-200">·</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{project.project_stage?.replace(/_/g, ' ')}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="text-right hidden sm:block">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Capital</p>
+                      <p className="text-sm font-bold text-slate-900">${(project.capital_required / 1000000).toFixed(1)}M</p>
+                    </div>
+                    <div className="h-8 w-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center group-hover:bg-primary group-hover:border-primary transition-all">
+                      <Icons.chevronRight className="size-4 text-slate-400 group-hover:text-white transition-colors" />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="p-12 text-center">
+            <div className="h-14 w-14 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Icons.check className="size-7 text-emerald-400" />
+            </div>
+            <h4 className="text-base font-bold text-slate-900 mb-1">All caught up</h4>
+            <p className="text-sm text-slate-500 font-medium">No projects pending your internal review.</p>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }

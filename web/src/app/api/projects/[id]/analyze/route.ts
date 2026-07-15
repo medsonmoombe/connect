@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, badRequest, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, badRequest, forbidden, writeAuditLog, handleRouteError, verifyProjectOwnership } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -45,44 +45,68 @@ export async function POST(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
     const { id: projectId } = await params;
-    const { documentPaths } = await req.json();
-
-    if (!documentPaths?.length) return badRequest('documentPaths required');
+    if (!await verifyProjectOwnership(projectId, user.company_id, user.is_platform_admin)) return forbidden();
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return serverError('GEMINI_API_KEY not configured');
 
-    // Download files from Supabase Storage and convert to inline base64 parts
     const supabase = getSupabaseAdmin();
+    const body = await req.json().catch(() => ({}));
+    const requestedPaths = Array.isArray(body?.documentPaths)
+      ? body.documentPaths.filter((path: unknown): path is string => typeof path === 'string')
+      : [];
+
+    const { data: documents, error: documentsError } = await supabase
+      .from('project_documents')
+      .select('storage_path, file_url')
+      .eq('project_id', projectId)
+      .is('deleted_at', null);
+
+    if (documentsError) {
+      console.error('[Analyze] Document query error:', documentsError.message);
+      return serverError();
+    }
+
+    const storedPaths = (documents ?? [])
+      .map((doc) => {
+        if (doc.storage_path) return doc.storage_path;
+
+        try {
+          const url = new URL(doc.file_url);
+          const marker = '/object/public/project-documents/';
+          const idx = url.pathname.indexOf(marker);
+          if (idx !== -1) return decodeURIComponent(url.pathname.slice(idx + marker.length));
+        } catch {}
+
+        return null;
+      })
+      .filter((path): path is string => typeof path === 'string' && path.startsWith(`${projectId}/`));
+
+    const allowedPaths = new Set(storedPaths);
+    const documentPaths = requestedPaths.length
+      ? requestedPaths.filter((path) => allowedPaths.has(path))
+      : storedPaths;
+
+    if (documentPaths.length === 0) {
+      return badRequest('No valid project document storage paths found. Please re-upload the documents.');
+    }
+
+    // Download files from Supabase Storage and convert to inline base64 parts.
+    // Paths are loaded from project_documents and constrained to this project id.
     const fileParts: { inlineData: { data: string; mimeType: string } }[] = [];
 
     for (const storagePath of documentPaths) {
-      // storagePath could be a Supabase path (projectId/timestamp_name.pdf)
-      // or a Firebase Storage path (projects/projectId/timestamp_name.pdf) for old docs
-      const isSupabasePath = !storagePath.startsWith('projects/');
-
-      if (isSupabasePath) {
-        const { data, error } = await supabase.storage
-          .from('project-documents')
-          .download(storagePath);
-        if (error || !data) {
-          console.warn(`Could not download ${storagePath}:`, error?.message);
-          continue;
-        }
-        const buffer = Buffer.from(await data.arrayBuffer());
-        fileParts.push({
-          inlineData: { data: buffer.toString('base64'), mimeType: data.type || 'application/pdf' }
-        });
-      } else {
-        // Old Firebase Storage path — fetch via public URL as fallback
-        const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-        const url = `https://storage.googleapis.com/${bucket}/${storagePath}`;
-        const res = await fetch(url);
-        if (!res.ok) { console.warn(`Could not fetch ${url}`); continue; }
-        const buffer = Buffer.from(await res.arrayBuffer());
-        const mimeType = res.headers.get('content-type') || 'application/pdf';
-        fileParts.push({ inlineData: { data: buffer.toString('base64'), mimeType } });
+      const { data, error } = await supabase.storage
+        .from('project-documents')
+        .download(storagePath);
+      if (error || !data) {
+        console.warn(`Could not download ${storagePath}:`, error?.message);
+        continue;
       }
+      const buffer = Buffer.from(await data.arrayBuffer());
+      fileParts.push({
+        inlineData: { data: buffer.toString('base64'), mimeType: data.type || 'application/pdf' }
+      });
     }
 
     if (fileParts.length === 0) return badRequest('No documents could be loaded for analysis');
@@ -110,7 +134,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     await writeAuditLog({ userId: user.id, action: 'PROJECT_ANALYZED', entityType: 'projects', entityId: projectId, after: { document_count: fileParts.length }, req });
 
     return Response.json({ success: true, data: scoringResult });
-  } catch (e: any) {
+  } catch (e) {
     return handleRouteError(e);
   }
 }

@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, serverError, forbidden, writeAuditLog, handleRouteError, pickFields, verifyProjectOwnership } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, pickFields, verifyProjectOwnership } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 type Params = { params: Promise<{ id: string }> };
 
-const DOCUMENT_FIELDS = ['document_type', 'file_url'];
+const DOCUMENT_FIELDS = ['document_type', 'file_url', 'storage_path'];
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     await writeAuditLog({ userId: user.id, action: 'DOCUMENT_ADDED', entityType: 'project_documents', entityId: data.id, after: body, req });
 
     return Response.json({ data }, { status: 201 });
-  } catch (e: any) {
+  } catch (e) {
     return handleRouteError(e);
   }
 }
@@ -43,13 +43,17 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     if (!documentId) return Response.json({ error: 'document_id required' }, { status: 400 });
 
     const supabase = getSupabaseAdmin();
-    const { error } = await supabase.from('project_documents').update({ deleted_at: new Date().toISOString() }).eq('id', documentId);
+    const { error } = await supabase
+      .from('project_documents')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', documentId)
+      .eq('project_id', id);
     if (error) {
       console.error('[Documents] Delete error:', error.message);
       return serverError();
     }
     return Response.json({ success: true });
-  } catch (e: any) {
+  } catch (e) {
     return handleRouteError(e);
   }
 }

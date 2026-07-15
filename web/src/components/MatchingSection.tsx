@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { CapitalMatchResult, TechnicalMatchResult } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons, ShieldCheck, Zap, MapPin, DollarSign, Check, Send } from '@/components/ui/icons';
@@ -12,9 +13,10 @@ interface MatchingSectionProps {
   projectTechnology?: string;
   capitalMatches: CapitalMatchResult[];
   technicalMatches: TechnicalMatchResult[];
+  isOrgAdmin?: boolean;
 }
 
-export function MatchingSection({ projectId, projectTechnology, capitalMatches, technicalMatches }: MatchingSectionProps) {
+export function MatchingSection({ projectId, projectTechnology, capitalMatches, technicalMatches, isOrgAdmin }: MatchingSectionProps) {
   const [activeTab, setActiveTab] = useState<'CAPITAL' | 'TECHNICAL'>('CAPITAL');
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<string[]>([]);
@@ -24,11 +26,7 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
   const handleExpressInterest = async (partnerId: string, type: 'CAPITAL' | 'TECHNICAL') => {
     setSendingId(partnerId);
     try {
-      await engagementService.requestIntroduction(
-        projectId,
-        partnerId,
-        type
-      );
+      await engagementService.requestIntroduction(projectId, partnerId, type);
       setSentIds([...sentIds, partnerId]);
     } catch (error) {
       console.error('Error expressing interest:', error);
@@ -38,135 +36,141 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
   };
 
   return (
-    <div className="mt-12">
-      <div className="flex items-center justify-between mb-8">
+    <div className="mt-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h2 className="text-3xl font-extrabold text-text-main tracking-tight">AI Matching Engine</h2>
-          <p className="text-text-muted font-medium mt-2">Connecting you with the most compatible partners based on your project profile.</p>
+          <p className="dash-section-label mb-1">AI Matching Engine</p>
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Matched Partners</h2>
         </div>
-        <div className="flex bg-slate-100 p-1 rounded-2xl">
+        <div className="flex bg-slate-100 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab('CAPITAL')}
             className={cn(
-              "px-6 py-2 rounded-xl text-sm font-bold transition-all",
-              activeTab === 'CAPITAL' ? "bg-white text-primary shadow-sm" : "text-text-muted hover:text-text-main"
+              "px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+              activeTab === 'CAPITAL' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
             )}
           >
-            Capital Partners
+            Capital
           </button>
           <button
             onClick={() => setActiveTab('TECHNICAL')}
             className={cn(
-              "px-6 py-2 rounded-xl text-sm font-bold transition-all",
-              activeTab === 'TECHNICAL' ? "bg-white text-primary shadow-sm" : "text-text-muted hover:text-text-main"
+              "px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
+              activeTab === 'TECHNICAL' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
             )}
           >
-            Technical Partners
+            Technical
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {matches.map((match) => {
-          const partner = activeTab === 'CAPITAL' 
-            ? (match as CapitalMatchResult).capital_partner 
-            : (match as TechnicalMatchResult).technical_partner;
-          if (!partner) return null;
-          
-          const isSent = sentIds.includes(partner.id);
-          const isSending = sendingId === partner.id;
+      {/* Match Cards */}
+      {matches.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {matches.map((match) => {
+            const partner = activeTab === 'CAPITAL'
+              ? (match as CapitalMatchResult).capital_partner
+              : (match as TechnicalMatchResult).technical_partner;
+            if (!partner) return null;
 
-          // Anonymization logic for Capital Partners to protect platform moat
-          const isAnonymized = activeTab === 'CAPITAL';
-          const displayName = isAnonymized 
-            ? `${(partner as any).preferred_structures?.[0] || 'Institutional'} Partner`
-            : partner.company?.name;
-          
-          const displayDescription = isAnonymized
-            ? `Verified ${(partner as any).risk_tolerance?.toLowerCase() || 'institutional'} scale investor targeting ${projectTechnology || 'renewable'} infrastructure projects across ${(partner as any).geographic_focus?.slice(0, 2).join(' & ') || 'Sub-Saharan Africa'}.`
-            : partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.';
+            const isSent = sentIds.includes(partner.id);
+            const isSending = sendingId === partner.id;
+            const isAnonymized = activeTab === 'CAPITAL';
 
-          return (
-            <div key={match.id} className="bg-surface border border-gray-100 rounded-[32px] p-6 shadow-soft hover:shadow-medium transition-all group relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-bl-[100px] -z-10 group-hover:bg-primary/10 transition-colors"></div>
-              
-              <div className="flex items-start justify-between mb-6">
-                <div className="h-14 w-14 rounded-2xl bg-white border border-gray-100 shadow-sm flex items-center justify-center overflow-hidden">
-                  {partner.company?.logo_url && !isAnonymized ? (
-                    <img src={partner.company.logo_url} alt={partner.company.name} className="h-10 w-10 object-contain" />
+            const displayName = isAnonymized
+              ? `${(partner as any).preferred_structures?.[0] || 'Institutional'} Partner`
+              : partner.company?.name;
+
+            const displayDescription = isAnonymized
+              ? `Verified ${(partner as any).risk_tolerance?.toLowerCase() || 'institutional'} scale investor targeting ${projectTechnology || 'renewable'} infrastructure projects.`
+              : partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.';
+
+            return (
+              <div key={match.id} className="dash-card p-5 flex flex-col hover:shadow-md transition-all group">
+                {/* Top Row: Icon + Score */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="h-11 w-11 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden">
+                    {partner.company?.logo_url && !isAnonymized ? (
+                      <img src={partner.company.logo_url} alt={partner.company.name} className="h-8 w-8 object-contain" />
+                    ) : (
+                      <Icons.building className="size-5 text-primary" />
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xl font-black text-primary leading-none">{match.compatibility_score}%</span>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Match</p>
+                  </div>
+                </div>
+
+                {/* Name + Description */}
+                <h4 className="text-sm font-bold text-slate-900 mb-1 group-hover:text-primary transition-colors">{displayName}</h4>
+                <p className="text-xs text-slate-500 font-medium mb-4 line-clamp-2 leading-relaxed">{displayDescription}</p>
+
+                {/* Specs */}
+                <div className="space-y-2 mb-5 flex-1">
+                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
+                    <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><MapPin className="size-3 text-primary" /></div>
+                    {activeTab === 'CAPITAL'
+                      ? (partner as any).geographic_focus?.slice(0, 2).join(', ')
+                      : (partner as any).regions_operated?.slice(0, 2).join(', ')}
+                  </div>
+                  {activeTab === 'CAPITAL' ? (
+                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
+                      <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><DollarSign className="size-3 text-primary" /></div>
+                      K{((partner as any).min_ticket_size / 1000000).toFixed(0)}M – K{((partner as any).max_ticket_size / 1000000).toFixed(0)}M
+                    </div>
                   ) : (
-                    <Icons.building className="size-6 text-primary" />
+                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
+                      <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><Zap className="size-3 text-primary" /></div>
+                      {(partner as any).min_mw_capacity} – {(partner as any).max_mw_capacity} MW
+                    </div>
                   )}
-                </div>
-                <div className="flex flex-col items-end">
-                  <div className="text-2xl font-black text-primary leading-none">{match.compatibility_score}%</div>
-                  <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1">Match</div>
-                </div>
-              </div>
-
-              <h3 className="text-xl font-bold text-text-main mb-1 group-hover:text-primary transition-colors">{displayName}</h3>
-              <p className="text-sm text-text-muted font-medium mb-6 line-clamp-2">{displayDescription}</p>
-
-              <div className="space-y-3 mb-8">
-                <div className="flex items-center gap-3 text-xs font-bold text-text-main">
-                  <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center"><MapPin className="size-3 text-primary" /></div>
-                  {activeTab === 'CAPITAL' 
-                    ? (partner as any).geographic_focus?.slice(0, 2).join(', ') 
-                    : (partner as any).regions_operated?.slice(0, 2).join(', ')}
-                </div>
-                {activeTab === 'CAPITAL' ? (
-                  <div className="flex items-center gap-3 text-xs font-bold text-text-main">
-                    <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center"><DollarSign className="size-3 text-primary" /></div>
-                    K{((partner as any).min_ticket_size / 1000000).toFixed(0)}M - K{((partner as any).max_ticket_size / 1000000).toFixed(0)}M
+                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
+                    <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><ShieldCheck className="size-3 text-primary" /></div>
+                    {(partner as any).risk_tolerance || 'Track Record'} Verified
                   </div>
-                ) : (
-                  <div className="flex items-center gap-3 text-xs font-bold text-text-main">
-                    <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center"><Zap className="size-3 text-primary" /></div>
-                    {(partner as any).min_mw_capacity} - {(partner as any).max_mw_capacity} MW
+                </div>
+
+                {/* Action */}
+                {isOrgAdmin && (
+                  <Button
+                    onClick={() => handleExpressInterest(partner.id, activeTab)}
+                    disabled={isSent || isSending}
+                    className={cn(
+                      "w-full h-10 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+                      isSent
+                        ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
+                        : "bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10"
+                    )}
+                  >
+                    {isSending ? (
+                      <Icons.spinner className="size-3.5 animate-spin" />
+                    ) : isSent ? (
+                      <><Check className="size-3.5 mr-1.5" /> Sent</>
+                    ) : (
+                      <><Send className="size-3.5 mr-1.5" /> Express Interest</>
+                    )}
+                  </Button>
+                )}
+                {!isOrgAdmin && isSent && (
+                  <div className="w-full h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center text-xs font-bold uppercase tracking-widest">
+                    <Check className="size-3.5 mr-1.5" /> Interest Sent
                   </div>
                 )}
-                <div className="flex items-center gap-3 text-xs font-bold text-text-main">
-                  <div className="h-6 w-6 rounded-lg bg-slate-50 flex items-center justify-center"><ShieldCheck className="size-3 text-primary" /></div>
-                  {(partner as any).risk_tolerance || 'Track Record'} Verified
-                </div>
               </div>
-
-              <Button
-                onClick={() => handleExpressInterest(partner.id, activeTab)}
-                disabled={isSent || isSending}
-                className={cn(
-                  "w-full h-12 rounded-2xl font-bold transition-all flex items-center justify-center gap-2",
-                  isSent 
-                    ? "bg-green-50 text-green-600 border border-green-100 hover:bg-green-50 cursor-default" 
-                    : "bg-primary text-primary-content hover:bg-primary/90 shadow-lg hover:shadow-primary/20"
-                )}
-              >
-                {isSending ? (
-                  <Icons.spinner className="size-4 animate-spin" />
-                ) : isSent ? (
-                  <>
-                    <Check className="size-4" />
-                    Interest Sent
-                  </>
-                ) : (
-                  <>
-                    <Send className="size-4" />
-                    Express Interest
-                  </>
-                )}
-              </Button>
-            </div>
-          );
-        })}
-      </div>
-
-      {matches.length === 0 && (
-        <div className="bg-slate-50 rounded-[40px] p-12 text-center border-2 border-dashed border-gray-200">
-          <div className="h-16 w-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-6">
-            <Icons.search className="size-8 text-text-muted" />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="dash-card p-10 text-center">
+          <div className="h-12 w-12 bg-slate-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Icons.search className="size-6 text-slate-300" />
           </div>
-          <h3 className="text-xl font-bold text-text-main mb-2">No Matches Found Yet</h3>
-          <p className="text-text-muted font-medium max-w-md mx-auto">Complete your project documentation to help our matching engine find the perfect partners for you.</p>
+          <h4 className="text-sm font-bold text-slate-900 mb-1">No Matches Yet</h4>
+          <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto">
+            Complete your project documentation to help our matching engine find the right partners.
+          </p>
         </div>
       )}
     </div>

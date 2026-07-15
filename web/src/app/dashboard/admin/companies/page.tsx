@@ -113,10 +113,10 @@ const CAPITAL_STRUCTURES = [
 const PROJECT_STAGES = [
   { value: 'CONCEPT', label: 'Concept' },
   { value: 'FEASIBILITY', label: 'Feasibility' },
-  { value: 'PRE_CONSTRUCTION', label: 'Pre-Construction' },
-  { value: 'READY_TO_BUILD', label: 'Ready to Build' },
-  { value: 'UNDER_CONSTRUCTION', label: 'Under Construction' },
-  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'PERMITTING', label: 'Permitting' },
+  { value: 'FINANCIAL_CLOSE', label: 'Financial Close' },
+  { value: 'CONSTRUCTION', label: 'Construction' },
+  { value: 'OPERATIONS', label: 'Operations' },
 ];
 
 const RISK_LEVELS = [
@@ -1621,7 +1621,7 @@ export default function AdminCompaniesPage() {
                       <label className={labelClass}>Project Stage</label>
                       <div className="relative">
                         <select value={projectForm.project_stage} onChange={e => updateProjectForm({ project_stage: e.target.value })} className={selectClass}>
-                          <option value="CONCEPT">Concept</option><option value="FEASIBILITY">Feasibility</option><option value="PRE_CONSTRUCTION">Pre-Construction</option><option value="READY_TO_BUILD">Ready to Build</option><option value="UNDER_CONSTRUCTION">Under Construction</option><option value="OPERATIONAL">Operational</option>
+                          <option value="CONCEPT">Concept</option><option value="FEASIBILITY">Feasibility</option><option value="PERMITTING">Permitting</option><option value="FINANCIAL_CLOSE">Financial Close</option><option value="CONSTRUCTION">Construction</option><option value="OPERATIONS">Operations</option>
                         </select>
                         <Icons.chevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                       </div>

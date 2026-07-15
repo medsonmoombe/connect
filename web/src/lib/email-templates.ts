@@ -303,6 +303,155 @@ export function projectStatusEmail(params: {
   return { subject: `Project status: ${friendlyStatus} — ${params.projectName}`, html: shell('Project Updated', `${params.projectName} moved to ${friendlyStatus}.`, body) };
 }
 
+export function projectSubmittedEmail(params: {
+  projectName: string;
+  recipientName: string;
+  mode: 'direct' | 'internal_review';
+}) {
+  const heading = 'Project submitted for review';
+  const bodyText = params.mode === 'internal_review'
+    ? `Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been sent to your designated internal reviewer for approval before platform submission.`
+    : `Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been submitted to the platform team for review. You will be notified once a decision has been made.`;
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(bodyText)}
+    ${cta('View Project', `${APP_URL}/dashboard/developer`)}
+  `;
+  return { subject: `Project submitted: ${params.projectName}`, html: shell(heading, `${params.projectName} has been submitted.`, body) };
+}
+
+export function projectPendingInternalReviewEmail(params: {
+  projectName: string;
+  submitterName: string;
+  orgName: string;
+  recipientName: string;
+  projectUrl: string;
+}) {
+  const heading = 'Project pending your review';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`<strong>${escapeHtml(params.submitterName)}</strong> has submitted "<strong>${escapeHtml(params.projectName)}</strong>" from <strong>${escapeHtml(params.orgName)}</strong> for your internal review before it is sent to the platform.`)}
+    ${p('Please review the project and either approve it for platform submission or return it with feedback.')}
+    ${cta('Review Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Review required: ${params.projectName}`, html: shell(heading, `${params.projectName} is awaiting your review.`, body) };
+}
+
+export function projectApprovedInternalEmail(params: {
+  projectName: string;
+  recipientName: string;
+  projectUrl: string;
+}) {
+  const heading = 'Project approved by internal reviewer';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been approved by your internal reviewer and submitted to the platform team for final review.`)}
+    ${p('You will be notified once the platform team has made a decision.')}
+    ${cta('View Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Project approved internally: ${params.projectName}`, html: shell(heading, `${params.projectName} approved and submitted to platform.`, body) };
+}
+
+export function projectReturnedEmail(params: {
+  projectName: string;
+  recipientName: string;
+  feedback: string;
+  projectUrl: string;
+}) {
+  const heading = 'Project returned for rework';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been returned by your internal reviewer with the following feedback:`)}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+      <tr>
+        <td style="background:#fff8f0;border:1px solid #fde8cc;border-radius:4px;padding:14px 18px;font-size:14px;color:#444;line-height:1.6;">
+          ${escapeHtml(params.feedback)}
+        </td>
+      </tr>
+    </table>
+    ${p('Please address the feedback and resubmit your project.')}
+    ${cta('Edit & Resubmit', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Action required: ${params.projectName} returned for rework`, html: shell(heading, `${params.projectName} needs changes before resubmission.`, body) };
+}
+
+export function projectUnderReviewEmail(params: {
+  projectName: string;
+  recipientName: string;
+  projectUrl: string;
+}) {
+  const heading = 'Your project is under review';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`The platform team has started reviewing your project "<strong>${escapeHtml(params.projectName)}</strong>". We will notify you once a decision has been made.`)}
+    ${cta('View Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Under review: ${params.projectName}`, html: shell(heading, `${params.projectName} is now under platform review.`, body) };
+}
+
+export function projectValidatedEmail(params: {
+  projectName: string;
+  recipientName: string;
+  projectUrl: string;
+}) {
+  const heading = 'Project validated — now live on the platform';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`Congratulations! Your project "<strong>${escapeHtml(params.projectName)}</strong>" has been reviewed and validated by the platform team. It is now visible to potential capital and technical partners.`)}
+    ${cta('View Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Validated: ${params.projectName} is now live`, html: shell(heading, `${params.projectName} is now live on the platform.`, body) };
+}
+
+export function projectRejectedEmail(params: {
+  projectName: string;
+  recipientName: string;
+  reason: string;
+  projectUrl: string;
+}) {
+  const heading = 'Project not approved';
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`Your project "<strong>${escapeHtml(params.projectName)}</strong>" was reviewed by the platform team and was not approved at this time.`)}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;">
+      <tr>
+        <td style="background:#fff5f5;border:1px solid #fdd;border-radius:4px;padding:14px 18px;font-size:14px;color:#444;line-height:1.6;">
+          <strong>Reason:</strong> ${escapeHtml(params.reason)}
+        </td>
+      </tr>
+    </table>
+    ${p('You may edit your project to address the feedback and resubmit.')}
+    ${cta('Edit Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Not approved: ${params.projectName}`, html: shell(heading, `${params.projectName} was not approved.`, body) };
+}
+
+export function adminProjectSubmittedEmail(params: {
+  projectName: string;
+  orgName: string;
+  projectUrl: string;
+}) {
+  const heading = 'New project submitted for review';
+  const body = `
+    ${h(heading)}
+    ${p('A new project has been submitted and is awaiting your review.')}
+    ${dl([
+      ['Project', params.projectName],
+      ['Organisation', params.orgName],
+      ['Submitted', new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })],
+    ])}
+    ${cta('Review Project', `${APP_URL}${params.projectUrl}`)}
+  `;
+  return { subject: `Review required: ${params.projectName}`, html: shell(heading, `${params.projectName} is awaiting platform review.`, body) };
+}
+
 export function messageReceivedEmail(params: {
   senderName: string;
   recipientName: string;
@@ -336,6 +485,10 @@ export type NotificationType =
   | 'match_found'
   | 'project_update'
   | 'project_status'
+  | 'project_rejected'
+  | 'project_internal_rejected'
+  | 'project_pending_internal_review'
+  | 'project_approved_internal'
   | 'new_messages'
   | 'system_announcement';
 

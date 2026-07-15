@@ -54,12 +54,16 @@ export const projectsApi = {
   },
   getAdminAll: (filters?: { search?: string; status?: string }) => {
     const params = new URLSearchParams();
-    if (filters?.status && filters.status !== 'ALL') params.set('stage', filters.status);
+    if (filters?.status && filters.status !== 'ALL') params.set('status', filters.status);
     if (filters?.search) params.set('search', filters.search);
     return wrap<Project[]>(apiClient.get(`/projects?${params}`));
   },
   getById: (id: string) => wrap<Project>(apiClient.get(`/projects/${id}`)),
   getAnalytics: (projectId: string) => wrap<any>(apiClient.get(`/projects/${projectId}/analytics`)),
+  review: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/review`, {})),
+  validate: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/validate`, {})),
+  reject: (id: string, reason: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/reject`, { reason })),
+  archive: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/archive`, {})),
 };
 
 export const capitalPartnersApi = {

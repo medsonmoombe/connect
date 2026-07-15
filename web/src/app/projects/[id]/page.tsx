@@ -4,180 +4,207 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { projectService } from '@/services/projects';
-import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectDocument, ProjectStage } from '@/types';
+import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectStage } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Icons, ArrowLeft, Download, ShieldCheck, Zap, MapPin, DollarSign, FileText, Check, MoreVertical, Send, Trash2, X } from '@/components/ui/icons';
+import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { MatchingSection } from '@/components/MatchingSection';
-import { storage, functions } from '@/lib/firebase';
-import { ref, deleteObject } from 'firebase/storage';
 import { storageService } from '@/lib/storage';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { engagementService } from '@/lib/engagement';
+import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getReviewRecommendation } from '@/lib/review-intelligence';
+import { ReviewRecommendationCard } from '@/components/ReviewRecommendationCard';
 
-const getErrorMessage = (error: unknown) => {
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as { message?: unknown }).message);
-  }
+const STAGES: { key: ProjectStage; label: string }[] = [
+  { key: 'CONCEPT', label: 'Concept' },
+  { key: 'FEASIBILITY', label: 'Feasibility' },
+  { key: 'PERMITTING', label: 'Permitting' },
+  { key: 'FINANCIAL_CLOSE', label: 'Fin. Close' },
+  { key: 'CONSTRUCTION', label: 'Construction' },
+  { key: 'OPERATIONS', label: 'Operations' },
+];
 
-  return 'Unknown error';
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  draft:                   { label: 'Draft',                  color: 'text-slate-500',   bg: 'bg-slate-50',    border: 'border-slate-100' },
+  pending_internal_review: { label: 'Pending Internal Review', color: 'text-purple-600',  bg: 'bg-purple-50',   border: 'border-purple-100' },
+  returned:                { label: 'Returned for Rework',    color: 'text-orange-600',  bg: 'bg-orange-50',   border: 'border-orange-100' },
+  submitted:               { label: 'Submitted',              color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-100' },
+  under_review:            { label: 'Under Review',           color: 'text-blue-600',    bg: 'bg-blue-50',     border: 'border-blue-100' },
+  validated:               { label: 'Validated',              color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-100' },
+  rejected:                { label: 'Rejected',               color: 'text-red-600',     bg: 'bg-red-50',      border: 'border-red-100' },
+  archived:                { label: 'Archived',               color: 'text-slate-400',   bg: 'bg-slate-50',    border: 'border-slate-100' },
 };
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-8">
+      <Skeleton className="h-40 w-full rounded-2xl" />
+      <div className="grid grid-cols-4 gap-4">
+        {[1,2,3,4].map(i => <Skeleton key={i} className="h-24 rounded-2xl" />)}
+      </div>
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-80 rounded-2xl" />
+        </div>
+        <Skeleton className="h-96 rounded-2xl" />
+      </div>
+    </div>
+  );
+}
 
 export default function ProjectDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
+
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeStage, setActiveStage] = useState(1);
+  const [activeStage, setActiveStage] = useState(0);
   const [capitalMatches, setCapitalMatches] = useState<CapitalMatchResult[]>([]);
   const [technicalMatches, setTechnicalMatches] = useState<TechnicalMatchResult[]>([]);
-  const { user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-  const [isPartner, setIsPartner] = useState(false);
+  const [showAllFlags, setShowAllFlags] = useState(false);
+  const [showAllRecs, setShowAllRecs] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const PREVIEW_COUNT = 3;
+
+  // ── Permissions ────────────────────────────────────────────
+  const isCreator = !!project && !!user && project.created_by === user.id;
+  const isOwner = !!project && !!user && (
+    project.developer_id === user.company_id || user.is_platform_admin
+  );
+  const isPlatformAdmin = !!user?.is_platform_admin;
+  const isPartner = !isOwner && !!user?.company_id;
   const [hasNda, setHasNda] = useState(false);
+  const [isInternalReviewer, setIsInternalReviewer] = useState(false);
+  const [orgMode, setOrgMode] = useState<'direct' | 'internal_review'>('direct');
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
+  const [processingReview, setProcessingReview] = useState(false);
 
   useEffect(() => {
-    async function checkPermissions() {
-      if (project && user) {
-        const owner = project.developer_id === user.company_id || user.role === 'ADMIN';
-        setIsOwner(owner);
-
-        if (!owner && user.company_id) {
+    async function checkPartner() {
+      if (isPartner && user?.company_id && project) {
+        try {
           const engagements = await engagementService.getCompanyEngagements(user.company_id);
-          const projectEng = engagements.find(e => e.project_id === project.id);
-          if (projectEng) {
-            setIsPartner(true);
-            setHasNda(projectEng.status !== 'INTRO_SENT' && projectEng.status !== 'INTRO_ACCEPTED');
-          }
-        }
+          const eng = engagements.find(e => e.project_id === project.id);
+          if (eng) setHasNda(eng.status !== 'INTRO_SENT' && eng.status !== 'INTRO_ACCEPTED');
+        } catch {}
       }
     }
-    checkPermissions();
-  }, [project, user]);
+    checkPartner();
+  }, [isPartner, user, project]);
 
+  // Check if current user is the designated internal reviewer
+  useEffect(() => {
+    async function checkInternalReviewer() {
+      if (!user?.company_id || !project) return;
+      try {
+        const { settings } = await apiClient.get<{ settings: { project_submission_mode?: string; internal_reviewer_id?: string } }>('/org/settings');
+        const mode = settings.project_submission_mode === 'internal_review' ? 'internal_review' : 'direct';
+        setOrgMode(mode);
+        if (mode === 'internal_review' && settings.internal_reviewer_id) {
+          setIsInternalReviewer(settings.internal_reviewer_id === user.id);
+        }
+      } catch {}
+    }
+    checkInternalReviewer();
+  }, [user, project]);
+
+  // ── Fetch project ──────────────────────────────────────────
+  useEffect(() => {
+    async function fetchProject() {
+      if (!params.id) return;
+      try {
+        const data = await projectService.getProjectDetails(params.id as string);
+        setProject(data);
+        const idx = STAGES.findIndex(s => s.key === data.project_stage);
+        setActiveStage(idx !== -1 ? idx : 0);
+
+        const matches = await projectService.getProjectMatches(params.id as string);
+        setCapitalMatches(matches.capital);
+        setTechnicalMatches(matches.technical);
+      } catch (error) {
+        console.error('Error fetching project:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProject();
+  }, [params.id]);
+
+  // ── View tracking ──────────────────────────────────────────
+  useEffect(() => {
+    if (project && user && !isPlatformAdmin) {
+      apiClient.post(`/projects/${project.id}/view`, {}).catch(() => {});
+    }
+  }, [project?.id, user?.id]);
+
+  // ── Handlers ───────────────────────────────────────────────
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !project) return;
-
     setUploading(true);
     try {
-      const { file_url, storage_path } = await storageService.uploadProjectDocument(
-        project.id, file, file.name
-      );
-
-      const newDoc = await projectService.addProjectDocument({
-        project_id: project.id,
-        document_type: file.name,
-        file_url,
-        storage_path
-      });
-
-      setProject({
-        ...project,
-        documents: [...(project.documents || []), newDoc]
-      });
-    } catch (error) {
-      console.error('Upload error:', error);
-      alert('Failed to upload document');
+      const { file_url, storage_path } = await storageService.uploadProjectDocument(project.id, file, file.name);
+      const newDoc = await projectService.addProjectDocument({ project_id: project.id, document_type: file.name, file_url, storage_path });
+      setProject({ ...project, documents: [...(project.documents || []), newDoc] });
+      toast.success('Document uploaded');
+    } catch {
+      toast.error('Failed to upload document');
     } finally {
       setUploading(false);
     }
   };
 
   const handleDeleteDocument = async (docId: string, storagePath: string) => {
-    if (!confirm('Are you sure you want to delete this document?')) return;
-
     try {
-      await projectService.deleteProjectDocument(docId, storagePath);
-      setProject({
-        ...project!,
-        documents: project!.documents?.filter(d => d.id !== docId)
-      });
-    } catch (error) {
-      console.error('Delete error:', error);
-      alert('Failed to delete document');
+      await projectService.deleteProjectDocument(docId, storagePath, project!.id);
+      setProject({ ...project!, documents: project!.documents?.filter(d => d.id !== docId) });
+      toast.success('Document removed');
+    } catch {
+      toast.error('Failed to delete document');
     }
   };
 
   const runAIAnalysis = async () => {
-    if (!project || !project.documents || project.documents.length === 0) {
-      alert('Please upload documents first');
-      return;
-    }
-
+    if (!project?.documents?.length) { toast.error('Upload documents first'); return; }
     setAnalyzing(true);
     try {
-      const documentPaths = project.documents
-        .map(d => {
-          if (d.storage_path) return d.storage_path;
-          try {
-            const url = new URL(d.file_url);
-            const pathPart = url.pathname.split('/o/')[1];
-            return pathPart ? decodeURIComponent(pathPart.split('?')[0]) : null;
-          } catch {
-            return null;
-          }
-        })
-        .filter((p): p is string => p !== null);
+      const responseData = await apiClient.post<{ success: boolean; data: any }>(`/projects/${project.id}/analyze`, {});
+      if (!responseData.success || !responseData.data) throw new Error('AI scoring failed');
 
-      if (documentPaths.length === 0) {
-        throw new Error('No valid document paths found. Please re-upload your documents.');
-      }
+      const s = responseData.data;
+      const regulatory = Math.round(s.breakdown?.regulatory?.score ?? 0);
+      const financial = Math.round(s.breakdown?.financial?.score ?? 0);
+      const developer = Math.round(s.breakdown?.developer?.score ?? 0);
+      const totalScore = Math.round(s.total_score ?? (regulatory + financial + developer));
 
-      const responseData = await apiClient.post<{ success: boolean; data: any }>(
-        `/projects/${project.id}/analyze`,
-        { documentPaths }
-      );
-
-      if (!responseData.success || !responseData.data) {
-        throw new Error('AI failed to generate a valid scoring result.');
-      }
-
-      const scoringData = responseData.data;
-
-      if (!scoringData.breakdown) {
-        throw new Error('AI response is missing the detailed scoring breakdown.');
-      }
-
-      // Extract scores with defaults to prevent crashes and ensure they are integers for Supabase
-      const regulatory = Math.round(scoringData.breakdown.regulatory?.score ?? 0);
-      const financial = Math.round(scoringData.breakdown.financial?.score ?? 0);
-      const developer = Math.round(scoringData.breakdown.developer?.score ?? 0);
-      const totalScore = Math.round(scoringData.total_score ?? (regulatory + financial + developer));
-
-      // Update in DB
       const updatedScores = await projectService.saveProjectScores({
         project_id: project.id,
         capital_readiness_score: totalScore,
         regulatory_score: regulatory,
         financial_score: financial,
         developer_score: developer,
-        breakdown: scoringData.breakdown,
-        risk_flags: (scoringData.risk_signals || []).map((s: any) => `${s.level}: ${s.text}`),
-        recommendations: scoringData.recommendations || [],
-        summary: scoringData.summary || 'Analysis complete.'
+        breakdown: s.breakdown,
+        risk_flags: (s.risk_signals || []).map((r: any) => `${r.level}: ${r.text}`),
+        recommendations: s.recommendations || [],
+        summary: s.summary || 'Analysis complete.'
       });
 
-      setProject({
-        ...project,
-        scores: updatedScores
-      });
-
-      // Trigger matching refresh
-      await projectService.runMatchingEngine(project.id);
-      const matches = await projectService.getProjectMatches(project.id);
-      setCapitalMatches(matches.capital);
-      setTechnicalMatches(matches.technical);
-
-    } catch (error) {
-      console.error('AI Analysis error:', error);
-      alert(`Failed to run AI analysis: ${getErrorMessage(error)}`);
+      setProject({ ...project, scores: updatedScores });
+      toast.success('AI analysis complete');
+    } catch (err: any) {
+      toast.error(`AI analysis failed: ${err.message || 'Unknown error'}`);
     } finally {
       setAnalyzing(false);
     }
@@ -185,887 +212,808 @@ export default function ProjectDetailsPage() {
 
   const handleDeleteProject = async () => {
     if (!project) return;
-    
-    const confirmDelete = window.confirm(
-      `CRITICAL ACTION: Are you sure you want to delete "${project.name}"?\n\nThis will permanently remove:\n- All project metadata\n- All uploaded documents from Google Cloud\n- All AI scoring and matching results\n\nThis action cannot be undone.`
-    );
-
-    if (!confirmDelete) return;
-
+    if (!confirm(`Delete "${project.name}"? This cannot be undone.`)) return;
     setLoading(true);
     try {
       await projectService.deleteProject(project.id);
+      toast.success('Project deleted');
       router.push('/dashboard/developer');
-    } catch (error: any) {
-      console.error('Error deleting project:', error);
-      alert(`Failed to delete project: ${error.message}`);
+    } catch (err: any) {
+      toast.error(`Failed to delete: ${err.message}`);
       setLoading(false);
     }
   };
 
-  const handleManualOverride = async (category: string, score: number) => {
-    if (!project || !project.scores) return;
-
-    const newScores: any = { ...project.scores };
-    if (category === 'regulatory') newScores.regulatory_score = score;
-    if (category === 'financial') newScores.financial_score = score;
-    if (category === 'developer') newScores.developer_score = score;
-
-    // Recalculate total
-    newScores.capital_readiness_score = Math.round(
-      (newScores.regulatory_score || 0) + 
-      (newScores.financial_score || 0) + 
-      (newScores.developer_score || 0)
-    );
-
-    try {
-      const updated = await projectService.saveProjectScores(newScores);
-      setProject({ ...project, scores: updated });
-    } catch (error) {
-      console.error('Override error:', error);
-    }
-  };
-
-  const [submitting, setSubmitting] = useState(false);
-  const [editingChecklist, setEditingChecklist] = useState(false);
-  const [showAllFlags, setShowAllFlags] = useState(false);
-  const [showAllRecs, setShowAllRecs] = useState(false);
-  const PREVIEW_COUNT = 3;
-
-  const reviewRequirements = [
-    { label: 'At least 1 document uploaded', met: (project?.documents?.length ?? 0) > 0 },
-    { label: 'AI analysis completed', met: !!project?.scores },
-    { label: 'Readiness score ≥ 40', met: (project?.scores?.capital_readiness_score ?? 0) >= 40 },
-  ];
-  const canRequestReview = reviewRequirements.every(r => r.met) && project?.status === 'draft';
-
-  const handleRequestReview = async () => {
-    if (!project || !canRequestReview) return;
-    const unmet = reviewRequirements.filter(r => !r.met).map(r => `• ${r.label}`);
-    if (unmet.length > 0) {
-      alert(`Cannot submit for review. Missing requirements:\n${unmet.join('\n')}`);
-      return;
-    }
+  const handleSubmitReview = async () => {
+    if (!project) return;
     setSubmitting(true);
     try {
-      await projectService.updateProject(project.id, { status: 'submitted' });
-      setProject({ ...project, status: 'submitted' });
-      alert('Project submitted for review! The admin team will validate it shortly.');
-    } catch (error: any) {
-      alert(`Failed to submit: ${error.message}`);
+      const result = await projectService.submitProject(project.id);
+      // Refetch full project to get accurate status
+      const updated = await projectService.getProjectDetails(project.id);
+      setProject(updated);
+      if (result.status === 'pending_internal_review') {
+        toast.success('Project sent to your internal reviewer for approval.');
+      } else {
+        toast.success('Project submitted to the platform for review.');
+      }
+    } catch (err: any) {
+      toast.error(`Failed to submit: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
   };
-  const [checklistData, setChecklistData] = useState<{
-    has_secured_land: boolean;
-    land_title_status: 'Traditional' | 'Titled' | 'Not Applicable';
-    has_reached_financial_close: boolean;
-    regulatory_approvals: string[];
-  }>({
-    has_secured_land: false,
-    land_title_status: 'Not Applicable',
-    has_reached_financial_close: false,
-    regulatory_approvals: []
-  });
 
-  useEffect(() => {
-    if (project) {
-      // Try to parse checklist data from risk_disclosures if it looks like JSON
-      let checklistFromRisk: any = {};
-      try {
-        if (project.risk_disclosures?.startsWith('{')) {
-          checklistFromRisk = JSON.parse(project.risk_disclosures);
-        }
-      } catch (e) {
-        console.warn('Failed to parse checklist from risk_disclosures');
-      }
-
-      setChecklistData({
-        has_secured_land: checklistFromRisk.has_secured_land ?? project.has_secured_land ?? false,
-        land_title_status: checklistFromRisk.land_title_status ?? (project.land_title_status as any) ?? 'Not Applicable',
-        has_reached_financial_close: checklistFromRisk.has_reached_financial_close ?? project.has_reached_financial_close ?? false,
-        regulatory_approvals: checklistFromRisk.regulatory_approvals ?? project.regulatory_approvals ?? []
-      });
-    }
-  }, [project]);
-
-  const handleUpdateChecklist = async () => {
+  const handleInternalReview = async (action: 'approve' | 'reject') => {
     if (!project) return;
+    if (action === 'reject' && !reviewComment.trim()) {
+      toast.error('Please provide a reason for returning this project');
+      return;
+    }
+    setProcessingReview(true);
     try {
-      console.log('Updating project with checklist data...');
-      
-      // Since columns might not exist, we'll store the checklist as a JSON string in risk_disclosures
-      const checklistJson = JSON.stringify(checklistData);
-      
-      const updatePayload: any = {
-        risk_disclosures: checklistJson
-      };
-
-      // Also try to update the individual columns in case they DO exist (graceful degradation)
-      // If they don't exist, Supabase might throw an error, so we might need to be careful.
-      // Given the previous error, they likely don't exist.
-      
-      await projectService.updateProject(project.id, updatePayload);
-      
-      setProject({ 
-        ...project, 
-        ...checklistData,
-        risk_disclosures: checklistJson 
-      });
-      setEditingChecklist(false);
-    } catch (error: any) {
-      console.error('Error updating checklist detail:', error);
-      alert(`Failed to update checklist: ${error.message || 'Database column mismatch. Storing in risk_disclosures failed.'}`);
+      await projectService.internalReviewProject(project.id, action, reviewComment.trim() || undefined);
+      // Refetch full project to get accurate status
+      const updated = await projectService.getProjectDetails(project.id);
+      setProject(updated);
+      setReviewAction(null);
+      setReviewComment('');
+      if (action === 'approve') {
+        toast.success('Project approved and submitted to the platform for final review.');
+      } else {
+        toast.success('Project returned to the developer with your feedback.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Review action failed');
+    } finally {
+      setProcessingReview(false);
     }
   };
 
-  useEffect(() => {
-    async function fetchProject() {
-      if (params.id) {
-        try {
-          const data = await projectService.getProjectDetails(params.id as string);
-          setProject(data);
-          // Set stage based on project_stage enum
-          const stages: ProjectStage[] = ['CONCEPT', 'FEASIBILITY', 'PRE_CONSTRUCTION', 'READY_TO_BUILD', 'UNDER_CONSTRUCTION', 'OPERATIONAL'];
-          const stageIndex = stages.indexOf(data.project_stage as any);
-          setActiveStage(stageIndex !== -1 ? stageIndex + 1 : 1);
-          
-          // Fetch matches
-          const matches = await projectService.getProjectMatches(params.id as string);
-          setCapitalMatches(matches.capital);
-          setTechnicalMatches(matches.technical);
-        } catch (error) {
-          console.error('Error fetching project:', error);
-        } finally {
-          setLoading(false);
-        }
-      }
-    }
-    fetchProject();
-  }, [params.id]);
+  const handleManualOverride = async (category: string, score: number) => {
+    if (!project?.scores) return;
+    const newScores: any = { ...project.scores };
+    if (category === 'regulatory') newScores.regulatory_score = score;
+    if (category === 'financial') newScores.financial_score = score;
+    if (category === 'developer') newScores.developer_score = score;
+    newScores.capital_readiness_score = Math.round((newScores.regulatory_score || 0) + (newScores.financial_score || 0) + (newScores.developer_score || 0));
+    try {
+      const updated = await projectService.saveProjectScores(newScores);
+      setProject({ ...project, scores: updated });
+    } catch { toast.error('Override failed'); }
+  };
 
-  useEffect(() => {
-    // Fire-and-forget: server route writes to audit_logs which triggers
-    // the analytics counter increment via Postgres trigger.
-    if (project && user && user.role !== 'ADMIN') {
-      apiClient.post(`/projects/${project.id}/view`, {}).catch(() => {});
+  const handleReviewAction = async (action: 'under_review' | 'validated' | 'rejected' | 'archived') => {
+    if (!project) return;
+    const recommendation = getReviewRecommendation(project.scores);
+    if ((action === 'validated' || action === 'rejected') && !project.scores) {
+      toast.error('Run AI analysis before completing project review.');
+      return;
     }
-  }, [project?.id, user?.id]);
+    if (action === 'validated' && !recommendation.canValidate) {
+      toast.error(recommendation.message);
+      return;
+    }
+    const endpoint = action === 'archived' ? 'archive' : action === 'under_review' ? 'review' : action === 'validated' ? 'validate' : 'reject';
+    try {
+      await apiClient.post(`/projects/${project.id}/${endpoint}`, {});
+      // Refetch full project to get accurate status
+      const updated = await projectService.getProjectDetails(project.id);
+      setProject(updated);
+      const messages: Record<string, string> = {
+        validated: 'Project validated — developer has been notified.',
+        rejected: 'Project rejected — developer has been notified.',
+        archived: 'Project archived.',
+        under_review: 'Review started.',
+      };
+      toast.success(messages[action]);
+    } catch (err: any) {
+      toast.error(err.message || 'Action failed');
+    }
+  };
 
+  // ── Loading ────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-background">
-        <Icons.spinner className="size-8 animate-spin text-primary" />
+      <div className="max-w-6xl mx-auto py-10 px-4">
+        <PageSkeleton />
       </div>
     );
   }
 
   if (!project) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-6 text-center">
-        <h1 className="text-2xl font-bold text-text-main mb-4">Project Not Found</h1>
+      <div className="max-w-6xl mx-auto py-20 text-center">
+        <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+          <Icons.fileText className="size-8 text-slate-300" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Project Not Found</h2>
+        <p className="text-sm text-slate-500 mb-6">This project doesn't exist or you don't have access.</p>
         <Link href="/dashboard/developer">
-          <Button>Back to Dashboard</Button>
+          <Button className="h-10 px-6 rounded-xl">Back to Dashboard</Button>
         </Link>
       </div>
     );
   }
 
+  const stageIndex = activeStage;
+  const progressPct = (stageIndex / (STAGES.length - 1)) * 100;
+  const st = STATUS_CONFIG[project.status || 'draft'] || STATUS_CONFIG.draft;
+  const readinessScore = project.scores?.capital_readiness_score || 0;
+  const canEdit = isCreator && (project.status === 'draft' || project.status === 'rejected' || project.status === 'returned');
+  // Direct mode: show submit only when draft
+  const showSubmitBtn = isCreator && !isInternalReviewer && project.status === 'draft' && orgMode === 'direct';
+  // Internal review mode: show submit when draft (new) or returned (after rework)
+  const showSendToReviewerBtn = isCreator && !isInternalReviewer && (project.status === 'draft' || project.status === 'returned') && orgMode === 'internal_review';
+  // Internal reviewer sees action buttons only when project is pending their review
+  const showInternalReviewBtns = isInternalReviewer && project.status === 'pending_internal_review' && orgMode === 'internal_review';
+  const showStartReview = isPlatformAdmin && project.status === 'submitted';
+  const showValidateReject = isPlatformAdmin && project.status === 'under_review';
+  const showArchive = isPlatformAdmin && project.status === 'validated';
+  const canSeeMatching = project.status === 'validated' && (user?.is_org_admin || user?.is_platform_admin);
+  const reviewRecommendation = getReviewRecommendation(project.scores);
+
   return (
-    <div>
-      {/* Page actions row */}
-      {isOwner && (
-        <div className="flex items-center justify-end gap-3 mb-6">
-          <Button
-            variant="ghost"
-            className="h-10 px-4 rounded-xl text-error hover:bg-error/10 font-bold"
-            onClick={handleDeleteProject}
-          >
-            <Trash2 className="size-4 mr-2" />
-            Delete
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 px-6 rounded-xl border-gray-200 font-bold text-text-main"
-            onClick={() => { navigator.clipboard.writeText(window.location.href); alert('Link copied!'); }}
-          >
-            Share
-          </Button>
-          {user?.role !== 'ADMIN' && (
-            <Button
-              className="h-10 px-6 bg-primary text-primary-content hover:bg-primary/90 font-bold rounded-xl shadow-lg transition-all disabled:opacity-50"
-              onClick={handleRequestReview}
-              disabled={submitting || !canRequestReview}
-            >
-              {submitting ? <Icons.spinner className="size-4 animate-spin mr-2" /> : null}
-              {project?.status === 'submitted' ? 'Under Review' : project?.status === 'validated' ? 'Validated ✓' : 'Request Review'}
-            </Button>
-          )}
-        </div>
-      )}
+    <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
 
-        <div className="max-w-6xl mx-auto">
-          {/* Hero Section */}
-          <div className="p-10 rounded-[40px] bg-surface border border-gray-100 shadow-soft mb-8 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-bl-[200px] -z-10"></div>
-            
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
-              <div>
-                <div className={cn(
-                  'inline-flex items-center gap-2 px-3 py-1 rounded-full mb-6 border font-bold text-[10px] uppercase tracking-widest',
-                  project.status === 'validated' ? 'bg-green-50 text-green-600 border-green-100' :
-                  project.status === 'submitted' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
-                  project.status === 'rejected' ? 'bg-red-50 text-red-600 border-red-100' :
-                  'bg-slate-50 text-slate-500 border-slate-100'
-                )}>
-                  <Check className="size-3" />
-                  <span>{project.status === 'validated' ? 'Validated' : project.status === 'submitted' ? 'Under Review' : project.status === 'rejected' ? 'Rejected' : 'Draft'}</span>
-                </div>
-                <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-text-main leading-tight mb-6">
-                  {project.name}
-                </h1>
-                <div className="flex flex-wrap items-center gap-8 text-sm font-bold text-text-muted uppercase tracking-wider">
-                  <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><Zap className="size-4 text-primary" /> {project.project_size_mw} MW</span>
-                  <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><MapPin className="size-4 text-primary" /> {project.location_country}</span>
-                  <span className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl"><DollarSign className="size-4 text-primary" /> ZMW {(project.capital_required / 1000000).toFixed(1)}M</span>
-                </div>
-              </div>
-              <div className="flex flex-col items-center justify-center p-6 bg-white border border-transparent rounded-3xl  min-w-[140px]">
-                <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Readiness</div>
-                <div className="text-4xl font-black text-primary">{project.scores?.capital_readiness_score || 0}%</div>
-                <div className="w-full bg-gray-100 h-1 rounded-full mt-4 overflow-hidden">
-                   <div className="bg-primary h-full" style={{ width: `${project.scores?.capital_readiness_score || 0}%` }}></div>
-                </div>
-                {isOwner && project?.status === 'draft' && (
-                  <div className="w-full mt-4 space-y-1.5">
-                    {reviewRequirements.map((req, i) => (
-                      <div key={i} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[9px] font-bold ${
-                        req.met ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'
-                      }`}>
-                        {req.met ? <Check className="size-2.5 shrink-0" /> : <X className="size-2.5 shrink-0" />}
-                        <span className="leading-tight">{req.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* ── Back Nav ─────────────────────────────────── */}
+      <button onClick={() => router.back()} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase tracking-widest">
+        <Icons.arrowLeft className="size-3.5" /> Back
+      </button>
 
-            {/* Workflow Stepper */}
-            <div className="relative pt-12 pb-4">
-              <div className="absolute top-[4.25rem] left-0 w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                <div 
-                  className="bg-primary h-full transition-all duration-700" 
-                  style={{ width: `${(activeStage - 1) * 20}%` }} 
-                />
-              </div>
-              <div className="relative flex justify-between">
-                <StepItem number={1} label="Concept" status={activeStage > 1 ? "completed" : activeStage === 1 ? "active" : "pending"} />
-                <StepItem number={2} label="Feasibility" status={activeStage > 2 ? "completed" : activeStage === 2 ? "active" : "pending"} />
-                <StepItem number={3} label="Permitting" status={activeStage > 3 ? "completed" : activeStage === 3 ? "active" : "pending"} />
-                <StepItem number={4} label="Financial Close" status={activeStage > 4 ? "completed" : activeStage === 4 ? "active" : "pending"} />
-                <StepItem number={5} label="Construction" status={activeStage > 5 ? "completed" : activeStage === 5 ? "active" : "pending"} />
-                <StepItem number={6} label="Operations" status={activeStage === 6 ? "active" : "pending"} />
-              </div>
-            </div>
-          </div>
+      {/* ── Hero Card ────────────────────────────────── */}
+      <div className="dash-card p-8 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-48 h-48 bg-primary/5 rounded-bl-[160px] -z-10" />
 
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Project Details */}
-            <div className="lg:col-span-2 space-y-8">
-              {/* Technical Overview */}
-              <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-                <h3 className="text-xl font-bold text-text-main mb-8 flex items-center gap-3">
-                  <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
-                    <Zap className="size-4" />
-                  </div>
-                  Technical Specifications
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-10">
-                  <SpecItem label="Technology" value={project.technology_type || 'N/A'} />
-                  <SpecItem label="Grid Connection" value={project.tech_requirements?.grid_status || 'Pending'} />
-          <SpecItem label="Land Status" value={project.has_secured_land ? "Secured" : "In Progress"} />
-          <SpecItem label="Capital Structure" value={project.capital_structure_type || 'N/A'} />
-          <SpecItem label="Expected Go-Live" value={project.target_cod || "TBD"} />
-          <SpecItem label="Stage" value={project.project_stage} />
-        </div>
-      </div>
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-8">
+          <div className="flex-1">
+            {/* Status Badge */}
+            <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border mb-4", st.bg, st.color, st.border)}>
+              <span className="size-1.5 rounded-full bg-current" />
+              {st.label}
+            </span>
 
-      {/* Checklist View (New) */}
-      <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-xl font-bold text-text-main flex items-center gap-3">
-            <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
-              <Check className="size-4" />
-            </div>
-            Readiness Checklist
-          </h3>
-          {isOwner && (
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="text-primary font-bold"
-              onClick={() => editingChecklist ? handleUpdateChecklist() : setEditingChecklist(true)}
-            >
-              {editingChecklist ? "Save Selection" : "Edit Selection"}
-            </Button>
-          )}
-        </div>
-
-        {editingChecklist ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8 animate-in fade-in slide-in-from-top-2">
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <input 
-                  type="checkbox" 
-                  checked={checklistData.has_secured_land}
-                  onChange={(e) => setChecklistData({ ...checklistData, has_secured_land: e.target.checked })}
-                  className="size-5 rounded border-gray-300 text-primary"
-                />
-                <Label className="text-sm font-bold text-text-main">Have you secured the land?</Label>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Land Title Status</Label>
-                <select 
-                  className="w-full h-11 bg-background border border-gray-100 rounded-xl px-4 text-sm font-medium focus:outline-none"
-                  value={checklistData.land_title_status}
-                  onChange={(e) => setChecklistData({ ...checklistData, land_title_status: e.target.value as any })}
-                >
-                  <option value="Traditional">Traditional</option>
-                  <option value="Titled">Titled</option>
-                  <option value="Not Applicable">Not Applicable</option>
-                </select>
-              </div>
-            </div>
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <input 
-                  type="checkbox" 
-                  checked={checklistData.has_reached_financial_close}
-                  onChange={(e) => setChecklistData({ ...checklistData, has_reached_financial_close: e.target.checked })}
-                  className="size-5 rounded border-gray-300 text-primary"
-                />
-                <Label className="text-sm font-bold text-text-main">Have you reached financial close?</Label>
-              </div>
-              <div className="space-y-3">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-text-muted">Latest Regulatory Approvals</Label>
-                <div className="grid grid-cols-1 gap-2">
-                  {['ZEMA approval letter', 'Grid Connection Agreement', 'Power Purchase Agreement (PPA)', 'Construction Permit'].map((approval) => (
-                    <div key={approval} className="flex items-center gap-2">
-                      <input 
-                        type="checkbox" 
-                        checked={checklistData.regulatory_approvals.includes(approval)}
-                        onChange={(e) => {
-                          const approvals = e.target.checked 
-                            ? [...checklistData.regulatory_approvals, approval]
-                            : checklistData.regulatory_approvals.filter(a => a !== approval);
-                          setChecklistData({ ...checklistData, regulatory_approvals: approvals });
-                        }}
-                        className="size-4 rounded border-gray-300 text-primary"
-                      />
-                      <Label className="text-xs font-medium text-text-muted">{approval}</Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
-            <ChecklistItem label="Land Secured" checked={project.has_secured_land || false} />
-            <ChecklistItem label="Financial Close Reached" checked={project.has_reached_financial_close || false} />
-            <div>
-              <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Land Title Status</p>
-              <p className="text-sm font-bold text-text-main">{project.land_title_status || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Regulatory Approvals</p>
-              <div className="flex flex-wrap gap-2">
-                {project.regulatory_approvals && project.regulatory_approvals.length > 0 ? project.regulatory_approvals.map((a: string) => (
-                  <span key={a} className="px-2 py-1 bg-primary/5 text-primary text-[10px] font-bold rounded-lg border border-primary/10">{a}</span>
-                )) : <span className="text-sm font-bold text-text-muted italic">None stated</span>}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-              {/* AI Scoring Analysis */}
-              <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xl font-bold text-text-main flex items-center gap-3">
-                    <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
-                      <Icons.zap className="size-4" />
-                    </div>
-                    AI Readiness Insights
-                  </h3>
-                  {(isOwner || user?.role === 'ADMIN') && project.scores && (
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-9 px-4 rounded-xl border-gray-200"
-                        onClick={() => setShowOverride(!showOverride)}
-                      >
-                        {showOverride ? 'Close Override' : 'Manual Override'}
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        className="h-9 px-4 bg-primary text-white rounded-xl shadow-lg"
-                        onClick={runAIAnalysis}
-                        disabled={analyzing}
-                      >
-                        {analyzing ? <Icons.spinner className="size-3 animate-spin mr-2" /> : <Icons.zap className="size-3 mr-2" />}
-                        Re-run AI Analysis
-                      </Button>
-                    </div>
-                  )}
-                </div>
-                
-                {project.scores ? (
-                  <>
-                    {showOverride && (
-                      <div className="mb-10 p-6 bg-slate-50 rounded-3xl border border-slate-200 animate-in fade-in slide-in-from-top-4">
-                        <h4 className="text-sm font-bold text-text-main mb-4">Manual Score Adjustment</h4>
-                        <div className="grid md:grid-cols-3 gap-6">
-                          <OverrideSlider label="Regulatory" value={project.scores.regulatory_score || 0} max={40} onChange={(v) => handleManualOverride('regulatory', v)} />
-                          <OverrideSlider label="Financial" value={project.scores.financial_score || 0} max={35} onChange={(v) => handleManualOverride('financial', v)} />
-                          <OverrideSlider label="Developer" value={project.scores.developer_score || 0} max={25} onChange={(v) => handleManualOverride('developer', v)} />
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="grid md:grid-cols-3 gap-6 mb-10">
-                      <ScorePillar 
-                        label="Regulatory" 
-                        score={project.scores.regulatory_score || 0} 
-                        max={40} 
-                        color="bg-blue-600"
-                        details={project.scores.breakdown?.regulatory?.details}
-                      />
-                      <ScorePillar 
-                        label="Financial" 
-                        score={project.scores.financial_score || 0} 
-                        max={35} 
-                        color="bg-green-600"
-                        details={project.scores.breakdown?.financial?.details}
-                      />
-                      <ScorePillar 
-                        label="Developer" 
-                        score={project.scores.developer_score || 0} 
-                        max={25} 
-                        color="bg-amber-600"
-                        details={project.scores.breakdown?.developer?.details}
-                      />
-                    </div>
-
-                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 mb-10">
-                      <h4 className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <Icons.zap className="size-3 text-primary" />
-                        Strategic Executive Summary
-                      </h4>
-                      <p className="text-sm text-text-main leading-relaxed font-medium italic">
-                        "{project.scores.summary || "Project analysis in progress. Our AI is evaluating the documentation stack for institutional alignment."}"
-                      </p>
-                    </div>
-
-                    <div className="grid md:grid-cols-2 gap-8">
-                      <div className="space-y-4">
-                        <h4 className="text-xs font-black text-error uppercase tracking-widest flex items-center gap-2">
-                          <Icons.shieldCheck className="size-3" />
-                          Risk Flags
-                        </h4>
-                        <div className="overflow-hidden transition-all duration-500 ease-in-out"
-                          style={{ maxHeight: showAllFlags ? '2000px' : `${PREVIEW_COUNT * 80}px` }}
-                        >
-                          <ul className="space-y-2">
-                            {project.scores.risk_flags?.map((flag, i) => (
-                              <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-error/5 p-3 rounded-xl border border-error/10">
-                                <span className="size-1.5 rounded-full bg-error mt-1.5 shrink-0" />
-                                {flag}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        {(project.scores.risk_flags?.length ?? 0) > PREVIEW_COUNT && (
-                          <button
-                            onClick={() => setShowAllFlags(v => !v)}
-                            className="text-[10px] font-black uppercase tracking-widest text-error hover:underline cursor-pointer"
-                          >
-                            {showAllFlags ? 'Show Less ↑' : `View ${project.scores.risk_flags!.length - PREVIEW_COUNT} More ↓`}
-                          </button>
-                        )}
-                      </div>
-                      <div className="space-y-4">
-                        <h4 className="text-xs font-black text-primary uppercase tracking-widest flex items-center gap-2">
-                          <Icons.zap className="size-3" />
-                          Strategic Recommendations
-                        </h4>
-                        <div className="overflow-hidden transition-all duration-500 ease-in-out"
-                          style={{ maxHeight: showAllRecs ? '2000px' : `${PREVIEW_COUNT * 80}px` }}
-                        >
-                          <ul className="space-y-2">
-                            {project.scores.recommendations?.map((rec, i) => (
-                              <li key={i} className="text-xs font-bold text-text-main flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
-                                <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-                                {rec}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        {(project.scores.recommendations?.length ?? 0) > PREVIEW_COUNT && (
-                          <button
-                            onClick={() => setShowAllRecs(v => !v)}
-                            className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline cursor-pointer"
-                          >
-                            {showAllRecs ? 'Show Less ↑' : `View ${project.scores.recommendations!.length - PREVIEW_COUNT} More ↓`}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="p-12 text-center bg-slate-50 rounded-[32px] border border-dashed border-slate-200">
-                    <div className="size-16 bg-white rounded-full flex items-center justify-center mx-auto mb-6 text-primary shadow-sm">
-                      <Icons.zap className="size-8" />
-                    </div>
-                    <h4 className="text-xl font-black text-text-main mb-2">No Analysis Found</h4>
-                    <p className="text-sm text-text-muted max-w-sm mx-auto mb-8 font-medium">
-                      Upload your feasibility studies and technical specs to the Data Room, then run the AI Scrutiny engine to generate institutional readiness scores.
-                    </p>
-                    <Button 
-                      onClick={runAIAnalysis}
-                      disabled={analyzing || !project.documents || project.documents.length === 0}
-                      className="h-14 px-10 bg-primary text-white font-black rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 transition-all"
-                    >
-                      {analyzing ? <Icons.spinner className="size-5 animate-spin mr-2" /> : <Icons.zap className="size-5 mr-2" />}
-                      Start AI Scrutiny
-                    </Button>
-                    {!project.documents || project.documents.length === 0 && (
-                      <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-4">
-                        * Upload documents to enable analysis
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Data Room / Documents */}
-              <div className="p-8 rounded-[32px] bg-surface border border-gray-100 shadow-soft">
-                <div className="flex items-center justify-between mb-8">
-                  <h3 className="text-xl font-bold text-text-main flex items-center gap-3">
-                    <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
-                      <ShieldCheck className="size-4" />
-                    </div>
-                    {isOwner ? "Manage Data Room" : isPartner ? "Due Diligence Room" : "Secure Data Room"}
-                  </h3>
-                  <div className="flex gap-2">
-                    {isOwner && (
-                      <>
-                        <input 
-                          type="file" 
-                          ref={fileInputRef} 
-                          className="hidden" 
-                          onChange={handleFileUpload}
-                          accept=".pdf,.doc,.docx"
-                        />
-                        <Button 
-                          variant="outline" 
-                          className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={uploading}
-                        >
-                          {uploading ? <Icons.spinner className="size-3 animate-spin mr-2" /> : <Icons.plus className="size-3 mr-2" />}
-                          Upload Document
-                        </Button>
-                      </>
-                    )}
-                    {(isOwner || hasNda) && (
-                      <Button 
-                        variant="outline" 
-                        className="h-9 px-4 text-[10px] font-bold uppercase tracking-widest rounded-xl border-gray-200"
-                        onClick={() => {
-                          if (!project?.documents || project.documents.length === 0) return;
-                          alert('Please download files individually. Batch downloading is not currently supported by the storage setup.');
-                        }}
-                      >
-                        <Download className="size-3 mr-2" /> Download All
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="grid gap-4">
-                  {(isOwner || hasNda) ? (
-                    project.documents && project.documents.length > 0 ? (
-                      project.documents.map((doc, i) => (
-                        <DocumentItem 
-                          key={i} 
-                          name={doc.document_type} 
-                          size="N/A" 
-                          date={new Date(doc.uploaded_at).toLocaleDateString()}
-                          canDelete={isOwner}
-                          onDelete={() => handleDeleteDocument(doc.id, doc.storage_path || '')}
-                          fileUrl={doc.file_url}
-                        />
-                      ))
-                    ) : (
-                      <div className="p-10 text-center border border-dashed border-gray-200 rounded-2xl">
-                        <p className="text-sm font-bold text-text-muted uppercase tracking-widest">No documents uploaded yet</p>
-                      </div>
-                    )
-                  ) : (
-                    <div className="p-10 text-center bg-slate-50 rounded-2xl border border-gray-100">
-                       <Icons.lock className="size-8 mx-auto text-text-muted mb-4" />
-                       <h4 className="text-sm font-bold text-text-main mb-2">Documentation Locked</h4>
-                       <p className="text-xs text-text-muted max-w-xs mx-auto mb-6">Access to the full data room is restricted until an NDA has been signed by both parties.</p>
-                       {!isPartner && (
-                         <Button className="h-10 px-6 bg-primary text-white rounded-xl shadow-lg font-bold">
-                           Request Introduction
-                         </Button>
-                       )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Engagement Sidebar */}
-            <div className="space-y-8">
-              {/* Analytics Summary */}
-              {!(!isOwner && isPartner) && (
-                <div className="p-8 rounded-[32px] bg-slate-900 text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-bl-[100px]"></div>
-                  <h3 className="text-lg font-bold mb-6">Project Status</h3>
-                  <div className="space-y-6">
-                     <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Status</span>
-                        <span className="text-sm font-bold capitalize">{project.status || 'draft'}</span>
-                     </div>
-                     <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Capital Required</span>
-                        <span className="text-sm font-bold">ZMW {(project.capital_required / 1000000).toFixed(1)}M</span>
-                     </div>
-                     <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Active Matches</span>
-                        <span className="text-lg font-bold text-primary">{capitalMatches.length + technicalMatches.length}</span>
-                     </div>
-                  </div>
-                  <Link href={`/projects/${project.id}/analytics`}>
-                    <Button className="w-full h-12 rounded-xl bg-primary text-primary-content font-bold mt-8 hover:scale-105 transition-all">
-                      View Detailed Analytics
-                    </Button>
-                  </Link>
-                </div>
-              )}
-
-              {/* Engagements */}
-              <div className="rounded-[32px] bg-surface border border-gray-100 shadow-soft overflow-hidden flex flex-col">
-                <div className="p-6 border-b border-gray-50 flex items-center justify-between">
+            {/* Return / Rejection Reason — only show when actually returned or rejected, not after resubmit */}
+            {project.rejection_reason && (project.status === 'rejected' || project.status === 'returned') && (
+              <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-100">
+                <div className="flex items-start gap-2.5">
+                  <Icons.close className="size-4 text-red-500 mt-0.5 shrink-0" />
                   <div>
-                    <h3 className="text-xs font-bold text-text-main uppercase tracking-widest">Active Engagements</h3>
-                    <p className="text-[10px] font-bold text-text-muted mt-1 uppercase">
-                      {isOwner ? `${capitalMatches.length + technicalMatches.length} Matched Partners` : 'Your Engagement'}
+                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-1">
+                      {project.status === 'rejected' ? 'Rejection Reason' : 'Returned for Rework'}
                     </p>
+                    <p className="text-sm text-red-700 font-medium leading-relaxed">{project.rejection_reason}</p>
                   </div>
-                  <Icons.messageSquare className="size-5 text-primary" />
                 </div>
-                <div className="p-6">
-                  {(!isOwner && isPartner) ? (
-                    <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm">
-                      <div className="size-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-[10px]">YOU</div>
-                      <div>
-                        <p className="text-xs font-bold text-text-main mb-1">Your Engagement</p>
-                        <p className="text-[10px] text-text-muted leading-relaxed font-medium">Awaiting response from developer...</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-6 text-center">
-                      <p className="text-xs font-bold text-text-muted uppercase tracking-widest">Engagement details available in the Engagement Center</p>
-                    </div>
-                  )}
+              </div>
+            )}
+
+            {/* Project Name */}
+            <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight mb-4">
+              {project.name}
+            </h1>
+
+            {/* Meta Pills */}
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700">
+                <Icons.zap className="size-3 text-primary" /> {project.project_size_mw} MW
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700">
+                <Icons.mapPin className="size-3 text-primary" /> {project.location_country}{project.location_region ? `, ${project.location_region}` : ''}
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700">
+                <Icons.dollarSign className="size-3 text-primary" /> ZMW {(project.capital_required / 1_000_000).toFixed(1)}M
+              </span>
+              {project.technology_type && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs font-bold text-slate-700">
+                  <Icons.cpu className="size-3 text-primary" /> {project.technology_type}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Readiness Score */}
+          <div className="shrink-0 w-40">
+            <div className="p-5 rounded-2xl bg-white border border-slate-100 text-center">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Readiness</p>
+              <p className="text-4xl font-black text-primary leading-none">{readinessScore}<span className="text-lg">%</span></p>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
+                <div className={cn("h-full rounded-full transition-all duration-700", readinessScore >= 60 ? 'bg-emerald-500' : readinessScore >= 40 ? 'bg-amber-500' : 'bg-red-400')} style={{ width: `${readinessScore}%` }} />
+              </div>
+            </div>
+            {/* Submit checklist — owner + draft/returned only */}
+            {isOwner && (project.status === 'draft' || project.status === 'returned') && (
+              <div className="mt-3 space-y-1">
+                {[
+                  { label: 'Documents uploaded', met: (project.documents?.length ?? 0) > 0 },
+                  { label: 'AI analysis done', met: !!project.scores },
+                  { label: 'Score ≥ 40', met: readinessScore >= 40 },
+                ].map((r, i) => (
+                  <div key={i} className={cn("flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-bold", r.met ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500')}>
+                    {r.met ? <Icons.check className="size-2.5 shrink-0" /> : <Icons.close className="size-2.5 shrink-0" />}
+                    <span className="leading-tight">{r.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Stage Stepper */}
+        <div className="relative pt-6">
+          <div className="absolute top-10 left-0 w-full h-1 bg-slate-100 rounded-full overflow-hidden">
+            <div className="bg-primary h-full rounded-full transition-all duration-700" style={{ width: `${progressPct}%` }} />
+          </div>
+          <div className="relative flex justify-between">
+            {STAGES.map((s, i) => (
+              <div key={s.key} className="flex flex-col items-center gap-2 z-10">
+                <div className={cn(
+                  "size-8 rounded-full flex items-center justify-center text-xs font-black border-2 transition-all",
+                  i < stageIndex && "bg-primary border-primary text-white",
+                  i === stageIndex && "bg-white border-primary text-primary ring-4 ring-primary/10 scale-110",
+                  i > stageIndex && "bg-white border-slate-200 text-slate-400"
+                )}>
+                  {i < stageIndex ? <Icons.check className="size-4" color="#fff" /> : i + 1}
                 </div>
-                <div className="p-6 border-t border-gray-50">
-                  <Button variant="ghost" className="w-full text-[10px] font-bold uppercase tracking-widest text-primary hover:bg-primary/5">
-                    Open Engagement Center
+                <span className={cn("text-[9px] font-bold uppercase tracking-widest text-center max-w-[64px]", i > stageIndex ? 'text-slate-400' : 'text-slate-700')}>
+                  {s.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Action Bar */}
+        {(showSubmitBtn || showSendToReviewerBtn || showInternalReviewBtns || showStartReview || showValidateReject || showArchive || canEdit) && (
+          <div className="flex flex-wrap items-center gap-2 mt-6 pt-6 border-t border-slate-100">
+
+            {/* Pending internal review info banner (developer view) */}
+            {isCreator && project.status === 'pending_internal_review' && (
+              <div className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl bg-purple-50 border border-purple-100">
+                <Icons.eye className="size-4 text-purple-500 shrink-0" />
+                <p className="text-xs font-semibold text-purple-700">Your project is awaiting review by your designated internal reviewer. You'll be notified once it's been reviewed.</p>
+              </div>
+            )}
+
+            {/* Creator: Submit (direct mode) */}
+            {showSubmitBtn && (
+              <Button
+                onClick={handleSubmitReview}
+                disabled={submitting || (project.documents?.length ?? 0) === 0}
+                className="h-9 px-5 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-lg shadow-slate-900/10 hover:bg-slate-800"
+              >
+                {submitting ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
+                Submit for Review
+              </Button>
+            )}
+
+            {/* Creator: Send to internal reviewer (internal_review mode — draft or returned) */}
+            {showSendToReviewerBtn && (
+              <Button
+                onClick={handleSubmitReview}
+                disabled={submitting || (project.documents?.length ?? 0) === 0}
+                className="h-9 px-5 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-lg shadow-slate-900/10 hover:bg-slate-800"
+              >
+                {submitting ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
+                {project.status === 'returned' ? 'Resubmit for Review' : 'Send to Internal Reviewer'}
+              </Button>
+            )}
+
+            {/* Internal Reviewer: Approve / Return */}
+            {showInternalReviewBtns && !reviewAction && (
+              <>
+                <Button onClick={() => setReviewAction('approve')} className="h-9 px-5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
+                  <Icons.check className="size-3.5 mr-1.5" /> Approve & Submit
+                </Button>
+                <Button onClick={() => setReviewAction('reject')} variant="outline" className="h-9 px-5 rounded-xl border-red-200 text-red-600 font-bold text-xs hover:bg-red-50">
+                  <Icons.close className="size-3.5 mr-1.5" /> Return with Comments
+                </Button>
+              </>
+            )}
+
+            {/* Internal Reviewer: Comment box */}
+            {showInternalReviewBtns && reviewAction && (
+              <div className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  {reviewAction === 'approve' ? 'Approve & Submit to Platform' : 'Return with Comments'}
+                </p>
+                {reviewAction === 'reject' && (
+                  <textarea
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    placeholder="Explain what needs to be changed..."
+                    className="w-full h-24 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none"
+                  />
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleInternalReview(reviewAction)}
+                    disabled={processingReview || (reviewAction === 'reject' && !reviewComment.trim())}
+                    className={cn(
+                      "h-8 px-4 rounded-lg font-bold text-xs",
+                      reviewAction === 'approve' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+                    )}
+                  >
+                    {processingReview ? <Icons.spinner className="size-3 animate-spin mr-1.5" /> : null}
+                    {reviewAction === 'approve' ? 'Confirm Approval' : 'Return Project'}
+                  </Button>
+                  <Button onClick={() => { setReviewAction(null); setReviewComment(''); }} variant="ghost" className="h-8 px-4 rounded-lg text-xs font-bold text-slate-500">
+                    Cancel
                   </Button>
                 </div>
               </div>
+            )}
+
+            {/* Platform Admin: Start Review (submitted → under_review) */}
+            {showStartReview && (
+              <Button onClick={() => handleReviewAction('under_review')} className="h-9 px-5 rounded-xl bg-blue-600 text-white font-bold text-xs">
+                <Icons.eye className="size-3.5 mr-1.5" /> Start Review
+              </Button>
+            )}
+
+            {/* Platform Admin: Validate / Reject (under_review → validated or rejected) */}
+            {showValidateReject && (
+              <>
+                <Button
+                  onClick={() => handleReviewAction('validated')}
+                  disabled={!reviewRecommendation.canValidate}
+                  title={!reviewRecommendation.canValidate ? 'Run AI analysis first or review low AI score' : undefined}
+                  className="h-9 px-5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                >
+                  <Icons.check className="size-3.5 mr-1.5" /> {reviewRecommendation.canValidate ? 'Validate' : 'Run Analysis First'}
+                </Button>
+                <Button
+                  onClick={() => handleReviewAction('rejected')}
+                  disabled={!project.scores}
+                  title={!project.scores ? 'Run AI analysis first' : undefined}
+                  variant="outline"
+                  className="h-9 px-5 rounded-xl border-red-200 text-red-600 font-bold text-xs hover:bg-red-50"
+                >
+                  <Icons.close className="size-3.5 mr-1.5" /> Reject
+                </Button>
+              </>
+            )}
+
+            {/* Platform Admin: Archive (validated → archived) */}
+            {showArchive && (
+              <Button onClick={() => handleReviewAction('archived')} variant="outline" className="h-9 px-5 rounded-xl border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50">
+                <Icons.folder className="size-3.5 mr-1.5" /> Archive
+              </Button>
+            )}
+
+            {/* Creator: Edit (only draft or rejected) */}
+            {canEdit && (
+              <Link href={`/dashboard/developer/submit?edit=${project.id}`}>
+                <Button variant="outline" className="h-9 px-5 rounded-xl border-slate-200 font-bold text-xs">
+                  <Icons.pencil className="size-3.5 mr-1.5" /> Edit Project
+                </Button>
+              </Link>
+            )}
+
+            {(isCreator || isPlatformAdmin) && (
+              <Button onClick={handleDeleteProject} variant="ghost" className="h-9 px-4 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs ml-auto">
+                <Icons.trash className="size-3.5 mr-1.5" /> Delete
+              </Button>
+            )}
+            {isPlatformAdmin && project.status === 'validated' && (
+              <Button variant="ghost" className="h-9 px-4 rounded-xl text-slate-400 hover:bg-slate-50 font-bold text-xs ml-auto" onClick={() => handleReviewAction('archived')}>
+                Archive
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showValidateReject && (
+        <ReviewRecommendationCard recommendation={reviewRecommendation} />
+      )}
+
+      {/* ── Main Grid ────────────────────────────────── */}
+      <div className="grid lg:grid-cols-3 gap-6">
+
+        {/* Left Column */}
+        <div className="lg:col-span-2 space-y-6">
+
+          {/* Technical Specs */}
+          <div className="dash-card p-6">
+            <h3 className="dash-section-label mb-5 flex items-center gap-2">
+              <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.zap className="size-3 text-primary" /></div>
+              Technical Specifications
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-5">
+              <SpecItem label="Technology" value={project.technology_type || 'N/A'} />
+              <SpecItem label="Grid Status" value={project.tech_requirements?.grid_status || 'Pending'} />
+              <SpecItem label="Land Status" value={project.has_secured_land ? 'Secured' : 'In Progress'} />
+              <SpecItem label="Capital Structure" value={project.capital_structure_type || 'N/A'} />
+              <SpecItem label="Financial Close" value={project.target_financial_close_date || 'TBD'} />
+              <SpecItem label="COD Target" value={project.target_cod || 'TBD'} />
+              <SpecItem label="Stage" value={project.project_stage?.replace(/_/g, ' ') || 'N/A'} />
+              <SpecItem label="Land Title" value={project.land_title_status || 'N/A'} />
+              {project.regulatory_approvals && project.regulatory_approvals.length > 0 && (
+                <div className="col-span-2 md:col-span-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Regulatory Approvals</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {project.regulatory_approvals.map((a: string) => (
+                      <span key={a} className="px-2 py-0.5 bg-primary/5 text-primary text-[10px] font-bold rounded border border-primary/10">{a}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <MatchingSection 
-            projectId={project.id} 
-            projectTechnology={project.technology_type}
-            capitalMatches={capitalMatches} 
-            technicalMatches={technicalMatches} 
-          />
+          {/* Governance / Risk / Exit — shown for owner or validated */}
+          {(isOwner || project.status === 'validated') && (project.governance_terms || project.exit_terms || project.risk_disclosures) && (
+            <div className="dash-card p-6">
+              <h3 className="dash-section-label mb-5 flex items-center gap-2">
+                <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.shieldCheck className="size-3 text-primary" /></div>
+                Deal Terms
+              </h3>
+              <div className="grid md:grid-cols-3 gap-6">
+                {project.governance_terms && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Governance</p>
+                    <p className="text-xs text-slate-700 font-medium leading-relaxed">{project.governance_terms}</p>
+                  </div>
+                )}
+                {project.exit_terms && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Exit Strategy</p>
+                    <p className="text-xs text-slate-700 font-medium leading-relaxed">{project.exit_terms}</p>
+                  </div>
+                )}
+                {project.risk_disclosures && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Risk Disclosures</p>
+                    <p className="text-xs text-slate-700 font-medium leading-relaxed">{project.risk_disclosures}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* AI Scoring */}
+          <div className="dash-card p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="dash-section-label flex items-center gap-2">
+                <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.zap className="size-3 text-primary" /></div>
+                AI Readiness Insights
+              </h3>
+              {isPlatformAdmin && project.scores && (
+                <div className="flex gap-1.5">
+                  <Button variant="outline" size="sm" className="h-8 px-3 rounded-lg border-slate-200 text-[10px] font-bold" onClick={() => setShowOverride(!showOverride)}>
+                    {showOverride ? 'Close' : 'Override'}
+                  </Button>
+                  <Button size="sm" className="h-8 px-3 rounded-lg bg-primary text-white text-[10px] font-bold" onClick={runAIAnalysis} disabled={analyzing}>
+                    {analyzing ? <Icons.spinner className="size-3 animate-spin mr-1" /> : <Icons.zap className="size-3 mr-1" />}
+                    Re-run
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {project.scores ? (
+              <>
+                {/* Override Panel — platform admin only */}
+                {showOverride && isPlatformAdmin && (
+                  <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Manual Score Adjustment</p>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <OverrideSlider label="Regulatory" value={project.scores.regulatory_score || 0} max={40} onChange={(v) => handleManualOverride('regulatory', v)} />
+                      <OverrideSlider label="Financial" value={project.scores.financial_score || 0} max={35} onChange={(v) => handleManualOverride('financial', v)} />
+                      <OverrideSlider label="Developer" value={project.scores.developer_score || 0} max={25} onChange={(v) => handleManualOverride('developer', v)} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Score Pillars */}
+                <div className="grid md:grid-cols-3 gap-4 mb-6">
+                  <ScorePillar label="Regulatory" score={project.scores.regulatory_score || 0} max={40} color="text-blue-600" details={project.scores.breakdown?.regulatory?.details} />
+                  <ScorePillar label="Financial" score={project.scores.financial_score || 0} max={35} color="text-emerald-600" details={project.scores.breakdown?.financial?.details} />
+                  <ScorePillar label="Developer" score={project.scores.developer_score || 0} max={25} color="text-amber-600" details={project.scores.breakdown?.developer?.details} />
+                </div>
+
+                {/* Executive Summary */}
+                {project.scores.summary && (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                      <Icons.zap className="size-3 text-primary" /> Executive Summary
+                    </p>
+                    <p className="text-xs text-slate-700 leading-relaxed font-medium italic">"{project.scores.summary}"</p>
+                  </div>
+                )}
+
+                {/* Risk Flags + Recommendations */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <CollapsibleList
+                    title="Risk Flags"
+                    titleIcon={<Icons.shieldCheck className="size-3" />}
+                    titleColor="text-red-500"
+                    items={project.scores.risk_flags || []}
+                    showAll={showAllFlags}
+                    onToggle={() => setShowAllFlags(v => !v)}
+                    previewCount={PREVIEW_COUNT}
+                    renderItem={(item) => (
+                      <li key={item} className="text-[11px] font-semibold text-slate-700 flex items-start gap-2 bg-red-50/50 p-2.5 rounded-lg border border-red-100/50">
+                        <span className="size-1.5 rounded-full bg-red-400 mt-1.5 shrink-0" />
+                        {item}
+                      </li>
+                    )}
+                  />
+                  <CollapsibleList
+                    title="Recommendations"
+                    titleIcon={<Icons.zap className="size-3" />}
+                    titleColor="text-primary"
+                    items={project.scores.recommendations || []}
+                    showAll={showAllRecs}
+                    onToggle={() => setShowAllRecs(v => !v)}
+                    previewCount={PREVIEW_COUNT}
+                    renderItem={(item) => (
+                      <li key={item} className="text-[11px] font-semibold text-slate-700 flex items-start gap-2 bg-primary/5 p-2.5 rounded-lg border border-primary/10">
+                        <span className="size-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                        {item}
+                      </li>
+                    )}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="p-10 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                <div className="size-12 bg-white rounded-xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+                  <Icons.zap className="size-6 text-slate-300" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mb-1">No Analysis Yet</h4>
+                <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto mb-2">
+                  AI readiness scoring runs automatically when the project is submitted for review.
+                </p>
+                {project.status === 'draft' && (
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Submit your project to trigger analysis</p>
+                )}
+                {isPlatformAdmin && project.status !== 'draft' && (
+                  <Button onClick={runAIAnalysis} disabled={analyzing || !project.documents?.length} className="h-10 px-6 bg-primary text-white font-bold rounded-xl text-xs shadow-lg shadow-primary/10 mt-3">
+                    {analyzing ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.zap className="size-3.5 mr-1.5" />}
+                    Run AI Analysis
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Data Room / Documents */}
+          <div className="dash-card p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="dash-section-label flex items-center gap-2">
+                <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.fileText className="size-3 text-primary" /></div>
+                {isOwner ? 'Data Room' : isPartner && hasNda ? 'Due Diligence Room' : 'Secure Data Room'}
+              </h3>
+              {isOwner && (
+                <>
+                  <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg" />
+                  <Button variant="outline" className="h-8 px-3 rounded-lg border-slate-200 text-[10px] font-bold" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                    {uploading ? <Icons.spinner className="size-3 animate-spin mr-1" /> : <Icons.plus className="size-3 mr-1" />}
+                    Upload
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {(isOwner || hasNda) ? (
+              project.documents && project.documents.length > 0 ? (
+                <div className="space-y-2">
+                  {project.documents.map((doc, i) => (
+                    <DocumentRow key={i} name={doc.document_type} date={new Date(doc.uploaded_at).toLocaleDateString()} canDelete={isOwner} onDelete={() => handleDeleteDocument(doc.id, doc.storage_path || '')} fileUrl={doc.file_url} />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center border border-dashed border-slate-200 rounded-xl">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No documents uploaded</p>
+                </div>
+              )
+            ) : (
+              <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
+                <Icons.lock className="size-6 mx-auto text-slate-300 mb-3" />
+                <h4 className="text-xs font-bold text-slate-700 mb-1">Locked</h4>
+                <p className="text-[11px] text-slate-500 font-medium max-w-xs mx-auto">Document access requires a signed NDA.</p>
+              </div>
+            )}
+          </div>
         </div>
-    </div>
-  );
-}
 
-function ChecklistItem({ label, checked }: { label: string, checked: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className={cn(
-        "size-5 rounded-full flex items-center justify-center border-2 transition-colors",
-        checked ? "bg-green-500 border-green-500 text-white" : "bg-white border-gray-200 text-transparent"
-      )}>
-        <Check className="size-3" />
-      </div>
-      <span className="text-sm font-bold text-text-main">{label}</span>
-    </div>
-  );
-}
+        {/* ── Right Sidebar ───────────────────────────── */}
+        <div className="space-y-6">
 
-function StepItem({ number, label, status }: { number: number, label: string, status: 'completed' | 'active' | 'pending' }) {
-  return (
-    <div className="flex flex-col items-center gap-3 z-10">
-      <div className={cn(
-        "size-10 rounded-full flex items-center justify-center text-sm font-black border-2 transition-all duration-500 shadow-lg",
-        status === 'completed' && "bg-primary border-primary text-primary-content",
-        status === 'active' && "bg-white border-primary text-primary ring-4 ring-primary/10 scale-110",
-        status === 'pending' && "bg-white border-gray-200 text-text-muted"
-      )}>
-        {status === 'completed' ? <Check className="size-5" color='#fff' /> : number}
-      </div>
-      <span className={cn(
-        "text-[10px] font-bold uppercase tracking-widest text-center max-w-[80px]",
-        status === 'pending' ? "text-text-muted" : "text-text-main"
-      )}>
-        {label}
-      </span>
-    </div>
-  );
-}
+          {/* Project Status Card */}
+          <div className="p-6 rounded-2xl bg-slate-900 text-white shadow-xl shadow-slate-900/20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-bl-[80px]" />
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Project Status</p>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
+                <span className={cn("text-xs font-bold capitalize px-2 py-0.5 rounded-full", st.bg, st.color)}>{st.label}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stage</span>
+                <span className="text-xs font-bold">{project.project_stage?.replace(/_/g, ' ')}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Capital</span>
+                <span className="text-xs font-bold">ZMW {(project.capital_required / 1_000_000).toFixed(1)}M</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Matches</span>
+                <span className="text-lg font-black text-primary">{capitalMatches.length + technicalMatches.length}</span>
+              </div>
+            </div>
+            {isOwner && (
+              <Link href={`/projects/${project.id}/analytics`}>
+                <Button className="w-full h-10 rounded-xl bg-primary text-white font-bold text-xs mt-5 hover:bg-primary/90">
+                  View Analytics
+                </Button>
+              </Link>
+            )}
+          </div>
 
-function DocumentItem({ name, size, date, canDelete, onDelete, fileUrl }: { name: string, size: string, date: string, canDelete?: boolean, onDelete?: () => void, fileUrl?: string }) {
-  const handleDownload = () => {
-    if (fileUrl) {
-      window.open(fileUrl, '_blank');
-    }
-  };
+          {/* Developer Info */}
+          {project.developer && (
+            <div className="dash-card p-5">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Developer</p>
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden">
+                  {project.developer.logo_url ? (
+                    <img src={project.developer.logo_url} alt="" className="h-7 w-7 object-contain" />
+                  ) : (
+                    <Icons.building className="size-4 text-primary" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-900">{project.developer.name}</p>
+                  <p className="text-[10px] text-slate-500 font-medium">{project.developer.country}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
-  return (
-    <div 
-      className="flex items-center justify-between p-5 rounded-[20px] bg-background border border-gray-50 hover:border-primary/30 group transition-all cursor-pointer"
-      onClick={handleDownload}
-    >
-      <div className="flex items-center gap-4">
-        <div className="size-12 rounded-xl bg-white border border-gray-100 flex items-center justify-center text-text-muted group-hover:text-primary transition-colors">
-          <FileText className="size-6" />
+          {/* Engagements */}
+          <div className="dash-card overflow-hidden">
+            <div className="p-4 border-b border-slate-50">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Engagements</p>
+            </div>
+            <div className="p-5">
+              {(!isOwner && isPartner) ? (
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="size-7 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-400">YOU</div>
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-700">Your Engagement</p>
+                    <p className="text-[10px] text-slate-400 font-medium">Awaiting developer response</p>
+                  </div>
+                </div>
+              ) : isOwner ? (
+                <p className="text-[11px] font-bold text-slate-400 text-center">{capitalMatches.length + technicalMatches.length} partner{capitalMatches.length + technicalMatches.length !== 1 ? 's' : ''} matched</p>
+              ) : (
+                <p className="text-[11px] font-bold text-slate-400 text-center">No engagements</p>
+              )}
+            </div>
+            <Link href="/dashboard/developer?tab=engagements">
+              <div className="p-3 border-t border-slate-50 text-center">
+                <span className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Open Engagement Center</span>
+              </div>
+            </Link>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-bold text-text-main group-hover:text-primary transition-colors">{name}</p>
-          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1.5">{size} • {date}</p>
-        </div>
       </div>
-      <div className="flex items-center gap-2">
-        {canDelete && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="rounded-xl hover:bg-error/10 hover:text-error h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        )}
-        <MoreVertical className="size-4 text-text-muted hover:text-text-main" />
-      </div>
+
+      {/* ── Matching Section (validated projects, org admins only) ───── */}
+      {canSeeMatching && (
+        <MatchingSection
+          projectId={project.id}
+          projectTechnology={project.technology_type}
+          capitalMatches={capitalMatches}
+          technicalMatches={technicalMatches}
+          isOrgAdmin={!!(user?.is_org_admin || user?.is_platform_admin)}
+        />
+      )}
     </div>
   );
 }
 
-function OverrideSlider({ label, value, max, onChange }: { label: string, value: number, max: number, onChange: (v: number) => void }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-between">
-        <span className="text-[10px] font-black uppercase text-text-muted tracking-widest">{label}</span>
-        <span className="text-xs font-bold text-primary">{value} / {max}</span>
-      </div>
-      <input 
-        type="range" 
-        min="0" 
-        max={max} 
-        value={value} 
-        onChange={(e) => onChange(parseInt(e.target.value))}
-        className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary"
-      />
-    </div>
-  );
-}
+// ── Sub-components ───────────────────────────────────────────
 
-function SpecItem({ label, value }: { label: string, value: string }) {
+function SpecItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">{label}</p>
-      <p className="text-sm font-bold text-text-main">{value}</p>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+      <p className="text-xs font-bold text-slate-900">{value}</p>
     </div>
   );
 }
 
-function ScoreMetric({ label, score }: { label: string, score: number }) {
+function ScorePillar({ label, score, max, color, details }: { label: string; score: number; max: number; color: string; details?: any }) {
+  const pct = (score / max) * 100;
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-text-main uppercase tracking-widest">{label}</span>
-        <span className="text-sm font-black text-primary">{score}%</span>
-      </div>
-      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-        <div 
-          className="h-full bg-primary transition-all duration-1000 ease-out" 
-          style={{ width: `${score}%` }} 
-        />
-      </div>
-    </div>
-  );
-}
-
-function ScorePillar({ label, score, max, color, details }: { label: string, score: number, max: number, color: string, details?: any }) {
-  const percentage = (score / max) * 100;
-  
-  return (
-    <div className="p-6 rounded-[24px] bg-white border border-gray-100 shadow-sm flex flex-col items-center">
-      <div className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em] mb-4">{label}</div>
-      <div className="relative size-24 flex items-center justify-center mb-4">
+    <div className="p-4 rounded-xl bg-white border border-slate-100 text-center">
+      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-3">{label}</p>
+      <div className="relative size-20 flex items-center justify-center mx-auto mb-3">
         <svg className="size-full -rotate-90">
-          <circle
-            cx="48"
-            cy="48"
-            r="44"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="8"
-            className="text-slate-50"
-          />
-          <circle
-            cx="48"
-            cy="48"
-            r="44"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="8"
-            strokeDasharray={276}
-            strokeDashoffset={276 - (276 * percentage) / 100}
-            strokeLinecap="round"
-            className={cn("transition-all duration-1000 text-opacity-80", color.replace('bg-', 'text-'))}
-          />
+          <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" strokeWidth="6" className="text-slate-100" />
+          <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" strokeWidth="6" strokeDasharray={226} strokeDashoffset={226 - (226 * pct) / 100} strokeLinecap="round" className={cn("transition-all duration-700", color)} />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-black text-text-main">{score}</span>
-          <span className="text-[10px] font-bold text-text-muted">/ {max}</span>
+          <span className="text-lg font-black text-slate-900 leading-none">{score}</span>
+          <span className="text-[9px] font-bold text-slate-400">/ {max}</span>
         </div>
       </div>
-      <div className="w-full space-y-2 mt-2">
-        {details && Object.entries(details).slice(0, 2).map(([key, val]: [string, any]) => (
-          <div key={key} className="flex justify-between items-center text-[9px] font-bold uppercase text-text-muted">
-            <span>{key.replace(/_/g, ' ')}</span>
-            <span className="text-text-main">{val}</span>
+      {details && (
+        <div className="space-y-1">
+          {Object.entries(details).slice(0, 2).map(([key, val]: [string, any]) => (
+            <div key={key} className="flex justify-between text-[9px] font-bold text-slate-400">
+              <span className="truncate">{key.replace(/_/g, ' ')}</span>
+              <span className="text-slate-700 shrink-0 ml-2">{val}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverrideSlider({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</span>
+        <span className="text-[10px] font-bold text-primary">{value}/{max}</span>
+      </div>
+      <input type="range" min="0" max={max} value={value} onChange={(e) => onChange(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-primary" />
+    </div>
+  );
+}
+
+function DocumentRow({ name, date, canDelete, onDelete, fileUrl }: { name: string; date: string; canDelete?: boolean; onDelete?: () => void; fileUrl?: string }) {
+  return (
+    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-primary/20 group transition-all" onClick={() => fileUrl && window.open(fileUrl, '_blank')}>
+      <div className="flex items-center gap-3 cursor-pointer">
+        <div className="h-9 w-9 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors">
+          <Icons.fileText className="size-4" />
+        </div>
+        <div>
+          <p className="text-xs font-bold text-slate-900 group-hover:text-primary transition-colors">{name}</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{date}</p>
+        </div>
+      </div>
+      {canDelete && (
+        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-red-50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); onDelete?.(); }}>
+          <Icons.trash className="size-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleList({ title, titleIcon, titleColor, items, showAll, onToggle, previewCount, renderItem }: {
+  title: string; titleIcon: React.ReactNode; titleColor: string;
+  items: string[]; showAll: boolean; onToggle: () => void; previewCount: number;
+  renderItem: (item: string) => React.ReactNode;
+}) {
+  const visibleItems = showAll ? items : items.slice(0, previewCount);
+  const hasMore = items.length > previewCount;
+
+  return (
+    <div className="space-y-3">
+      <h4 className={cn("text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5", titleColor)}>
+        {titleIcon} {title}
+      </h4>
+      <ul className="space-y-1.5">
+        {visibleItems.map((item, i) => (
+          <div key={item} className="animate-in fade-in slide-in-from-top-1 duration-300" style={{ animationDelay: `${i * 30}ms` }}>
+            {renderItem(item)}
           </div>
         ))}
-      </div>
+      </ul>
+      {hasMore && (
+        <button onClick={onToggle} className={cn("text-[9px] font-black uppercase tracking-widest hover:underline", titleColor)}>
+          {showAll ? 'Show Less' : `+${items.length - previewCount} more`}
+        </button>
+      )}
     </div>
   );
 }

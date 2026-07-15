@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, ReactNode } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSidebar, SidebarNavItem, NavSection } from './Sidebar';
 import { DashboardNavbar } from './Navbar';
@@ -25,24 +25,25 @@ const accountSection = (pathname: string): NavSection => ({
   ] as SidebarNavItem[],
 });
 
-function developerNav(pathname: string, isOrgAdmin: boolean): NavConfig {
+function developerNav(pathname: string, searchParams: string, isOrgAdmin: boolean): NavConfig {
+  const tab = new URLSearchParams(searchParams).get('tab');
   return {
     portalLabel: 'Developer Portal',
     sections: [
       {
         label: 'Main',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/developer', href: '/dashboard/developer' },
-          { icon: <Icons.folder className="size-[18px]" />, label: 'My Projects', active: false, href: '/dashboard/developer' },
-          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Data Room', active: false, href: '/dashboard/developer' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: false, href: '/dashboard/developer', badge: 3 },
-          { icon: <Icons.pieChart className="size-[18px]" />, label: 'Analytics', active: false, href: '/dashboard/developer' },
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/developer' && !tab, href: '/dashboard/developer' },
+          { icon: <Icons.folder className="size-[18px]" />, label: 'My Projects', active: tab === 'projects', href: '/dashboard/developer?tab=projects' },
+          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Data Room', active: tab === 'dataroom', href: '/dashboard/developer?tab=dataroom' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/developer?tab=messages', badge: 3 },
+          { icon: <Icons.pieChart className="size-[18px]" />, label: 'Analytics', active: tab === 'analytics', href: '/dashboard/developer?tab=analytics' },
         ] as SidebarNavItem[],
       },
       {
         label: 'Workspace',
         items: [
-          { icon: <Icons.search className="size-[18px]" />, label: 'Find Partners', active: false, href: '/dashboard/developer' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Find Partners', active: tab === 'find-partners', href: '/dashboard/developer?tab=find-partners' },
           { icon: <Icons.plus className="size-[18px]" />, label: 'Submit Project', active: pathname.includes('/submit'), href: '/dashboard/developer/submit' },
           ...(isOrgAdmin ? [{ icon: <Icons.users className="size-[18px]" />, label: 'Team', active: pathname === '/dashboard/developer/team', href: '/dashboard/developer/team' } as SidebarNavItem] : []),
         ] as SidebarNavItem[],
@@ -70,24 +71,25 @@ function developerNav(pathname: string, isOrgAdmin: boolean): NavConfig {
   };
 }
 
-function investorNav(pathname: string): NavConfig {
+function investorNav(pathname: string, searchParams: string): NavConfig {
+  const tab = new URLSearchParams(searchParams).get('tab');
   return {
     portalLabel: 'Investor Portal',
     sections: [
       {
         label: 'Main',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/investor', href: '/dashboard/investor' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: false, href: '/dashboard/investor' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: false, href: '/dashboard/investor' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: false, href: '/dashboard/investor' },
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/investor' && !tab, href: '/dashboard/investor' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/investor?tab=marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/investor?tab=portfolio' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/investor?tab=messages' },
         ] as SidebarNavItem[],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: false, href: '/dashboard/investor' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Investment Profile', active: false, href: '/dashboard/investor' },
+          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/investor?tab=reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Investment Profile', active: tab === 'profile', href: '/dashboard/investor?tab=profile' },
         ] as SidebarNavItem[],
       },
       accountSection(pathname),
@@ -114,24 +116,25 @@ function investorNav(pathname: string): NavConfig {
   };
 }
 
-function technicalNav(pathname: string): NavConfig {
+function technicalNav(pathname: string, searchParams: string): NavConfig {
+  const tab = new URLSearchParams(searchParams).get('tab');
   return {
     portalLabel: 'Technical Portal',
     sections: [
       {
         label: 'Main',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/technical', href: '/dashboard/technical' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: false, href: '/dashboard/technical' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: false, href: '/dashboard/technical' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: false, href: '/dashboard/technical', badge: 2 },
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/technical' && !tab, href: '/dashboard/technical' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/technical?tab=marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/technical?tab=portfolio' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/technical?tab=messages', badge: 2 },
         ] as SidebarNavItem[],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: false, href: '/dashboard/technical' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Partner Profile', active: false, href: '/dashboard/technical' },
+          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/technical?tab=reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Partner Profile', active: tab === 'profile', href: '/dashboard/technical?tab=profile' },
         ] as SidebarNavItem[],
       },
       accountSection(pathname),
@@ -207,24 +210,25 @@ function adminNav(pathname: string): NavConfig {
   };
 }
 
-function traderNav(pathname: string): NavConfig {
+function traderNav(pathname: string, searchParams: string): NavConfig {
+  const tab = new URLSearchParams(searchParams).get('tab');
   return {
     portalLabel: 'Trading Portal',
     sections: [
       {
         label: 'Main',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/trader', href: '/dashboard/trader' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: false, href: '/dashboard/trader' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: false, href: '/dashboard/trader' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: false, href: '/dashboard/trader' },
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/trader' && !tab, href: '/dashboard/trader' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/trader?tab=marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/trader?tab=portfolio' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/trader?tab=messages' },
         ] as SidebarNavItem[],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: false, href: '/dashboard/trader' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Trader Profile', active: false, href: '/dashboard/trader' },
+          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/trader?tab=reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Trader Profile', active: tab === 'profile', href: '/dashboard/trader?tab=profile' },
         ] as SidebarNavItem[],
       },
       accountSection(pathname),
@@ -247,24 +251,25 @@ function traderNav(pathname: string): NavConfig {
   };
 }
 
-function grantNav(pathname: string): NavConfig {
+function grantNav(pathname: string, searchParams: string): NavConfig {
+  const tab = new URLSearchParams(searchParams).get('tab');
   return {
     portalLabel: 'Grant Portal',
     sections: [
       {
         label: 'Main',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/grant', href: '/dashboard/grant' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: false, href: '/dashboard/grant' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: false, href: '/dashboard/grant' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: false, href: '/dashboard/grant' },
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/grant' && !tab, href: '/dashboard/grant' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/grant?tab=marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/grant?tab=portfolio' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/grant?tab=messages' },
         ] as SidebarNavItem[],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: false, href: '/dashboard/grant' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Grant Profile', active: false, href: '/dashboard/grant' },
+          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/grant?tab=reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Grant Profile', active: tab === 'profile', href: '/dashboard/grant?tab=profile' },
         ] as SidebarNavItem[],
       },
       accountSection(pathname),
@@ -295,6 +300,7 @@ const SKIP_WRAP_PATHS = ['/dashboard/admin'];
 export function DashboardShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
   const pathname = usePathname();
+  const searchParams = useSearchParams().toString();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -307,13 +313,13 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const role = user?.role;
   const isOrgAdmin = user?.is_org_admin ?? false;
   const nav =
-    role === 'DEVELOPER'         ? developerNav(pathname, isOrgAdmin) :
-    role === 'CAPITAL_PARTNER'   ? investorNav(pathname) :
-    role === 'TECHNICAL_PARTNER' ? technicalNav(pathname) :
-    role === 'POWER_TRADER'      ? traderNav(pathname) :
-    role === 'GRANT_PROVIDER'    ? grantNav(pathname) :
+    role === 'DEVELOPER'         ? developerNav(pathname, searchParams, isOrgAdmin) :
+    role === 'CAPITAL_PARTNER'   ? investorNav(pathname, searchParams) :
+    role === 'TECHNICAL_PARTNER' ? technicalNav(pathname, searchParams) :
+    role === 'POWER_TRADER'      ? traderNav(pathname, searchParams) :
+    role === 'GRANT_PROVIDER'    ? grantNav(pathname, searchParams) :
     role === 'ADMIN'             ? adminNav(pathname) :
-    developerNav(pathname, isOrgAdmin); // fallback
+    developerNav(pathname, searchParams, isOrgAdmin); // fallback
 
   const allItems = nav.sections?.flatMap(s => s.items) ?? [];
   const activeLabel = allItems.find(n => n.active)?.label ?? 'Dashboard';

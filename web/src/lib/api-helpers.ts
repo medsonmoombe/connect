@@ -31,7 +31,7 @@ export async function getAuthenticatedUser(req: NextRequest) {
         ? 'ADMIN'
         : company?.primary_role ?? 'DEVELOPER';
 
-  return { ...profile, role, is_platform_admin: isPlatformAdmin, company_id: membership?.company_id, auth_id: user.id, email: user.email };
+  return { ...profile, role, is_platform_admin: isPlatformAdmin, is_org_admin: isOrgAdmin, company_id: membership?.company_id, auth_id: user.id, email: user.email };
 }
 
 // Require a specific company role — throws if not met
@@ -230,4 +230,47 @@ export function mfaRequired() {
     { error: 'MFA verification required. Please verify your identity.' },
     { status: 403 }
   );
+}
+
+/**
+ * Find the creator of a project.
+ * First tries projects.created_by, then falls back to the first OWNER/ADMIN of the developer company.
+ * Returns { id, full_name, email } or null.
+ */
+export async function findProjectCreator(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  developerId: string,
+  createdById?: string | null,
+): Promise<{ id: string; full_name?: string; email?: string } | null> {
+  // Prefer the stored created_by user ID
+  if (createdById) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email')
+      .eq('id', createdById)
+      .single();
+
+    if (profile) return profile;
+  }
+
+  // Fallback: first OWNER/ADMIN of the company
+  const { data: member } = await supabase
+    .from('company_members')
+    .select('user_id')
+    .eq('company_id', developerId)
+    .in('role', ['OWNER', 'ADMIN'])
+    .is('deleted_at', null)
+    .order('role', { ascending: true }) // OWNER first
+    .limit(1)
+    .single();
+
+  if (!member?.user_id) return null;
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, email')
+    .eq('id', member.user_id)
+    .single();
+
+  return profile;
 }

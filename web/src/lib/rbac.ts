@@ -157,6 +157,7 @@ export const ORG_MEMBER_PERMISSIONS: Record<OrgMemberRole, string[]> = {
   MEMBER: [
     'org:read',
     'projects:read',
+    'projects:create',
     'engagements:read',
     'messages:send',
     'messages:read',

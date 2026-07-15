@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       projectsCount,
       projectsRecent,
       projectsPrevious,
+      pendingReviewCount,
       companiesCount,
       companiesRecent,
       companiesPrevious,
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null),
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', thirtyDaysAgo.toISOString()),
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', sixtyDaysAgo.toISOString()).lt('created_at', thirtyDaysAgo.toISOString()),
+      supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).in('status', ['submitted', 'under_review']),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', thirtyDaysAgo.toISOString()),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', sixtyDaysAgo.toISOString()).lt('created_at', thirtyDaysAgo.toISOString()),
@@ -58,6 +60,7 @@ export async function GET(req: NextRequest) {
       data: {
         totalUsers: usersCount.count ?? 0,
         pendingVerifications: pendingCount.count ?? 0,
+        pendingReviewCount: pendingReviewCount.count ?? 0,
         totalProjects: projectsCount.count ?? 0,
         totalCompanies: companiesCount.count ?? 0,
         totalCapital: (capitalRecent.data ?? []).reduce((s: number, p: any) => s + (p.capital_required || 0), 0)

@@ -17,6 +17,15 @@ interface OrgSettings {
   mfa_enforced: boolean;
   password_expiry_days: number;
   min_password_length: number;
+  project_submission_mode: 'direct' | 'internal_review';
+  internal_reviewer_id: string | null;
+}
+
+interface OrgMember {
+  user_id: string;
+  role: string;
+  email: string;
+  full_name: string;
 }
 
 interface OrgStats {
@@ -43,10 +52,11 @@ export default function SettingsPage() {
   // Org settings (admin only)
   const [orgSettings, setOrgSettings] = useState<OrgSettings | null>(null);
   const [orgStats, setOrgStats] = useState<OrgStats | null>(null);
+  const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
   const [orgLoading, setOrgLoading] = useState(false);
   const [savingOrg, setSavingOrg] = useState(false);
   const [togglingOrgMfa, setTogglingOrgMfa] = useState(false);
-  const [orgForm, setOrgForm] = useState({ mfa_enforced: false, password_expiry_days: 0, min_password_length: 8 });
+  const [orgForm, setOrgForm] = useState({ mfa_enforced: false, password_expiry_days: 0, min_password_length: 8, project_submission_mode: 'direct' as 'direct' | 'internal_review', internal_reviewer_id: null as string | null });
 
   // Notifications
   const [notifPrefs, setNotifPrefs] = useState({ match_found: true, engagement_updates: true, project_status: true, new_messages: false });
@@ -74,18 +84,32 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!isOrgAdmin) return;
     setOrgLoading(true);
-    fetch('/api/org/settings')
-      .then(r => r.json())
-      .then(d => {
-        setOrgSettings(d.settings);
-        setOrgStats(d.stats);
-        setOrgForm({
-          mfa_enforced: d.settings?.mfa_enforced ?? false,
-          password_expiry_days: d.settings?.password_expiry_days ?? 0,
-          min_password_length: d.settings?.min_password_length ?? 8,
-        });
-      })
-      .finally(() => setOrgLoading(false));
+
+    // Fetch settings and team members in parallel
+    Promise.all([
+      fetch('/api/org/settings').then(r => r.json()),
+      fetch('/api/org/team').then(r => r.json()),
+    ]).then(([settingsRes, teamRes]) => {
+      setOrgSettings(settingsRes.settings);
+      setOrgStats(settingsRes.stats);
+      // Map team members to the format we need for the reviewer dropdown
+      const teamMembers = (teamRes.data ?? [])
+        .filter((m: any) => !m.is_invite && m.user_profiles)
+        .map((m: any) => ({
+          user_id: m.user_id,
+          role: m.role,
+          email: m.user_profiles.email ?? '',
+          full_name: m.user_profiles.full_name ?? '',
+        }));
+      setOrgMembers(teamMembers);
+      setOrgForm({
+        mfa_enforced: settingsRes.settings?.mfa_enforced ?? false,
+        password_expiry_days: settingsRes.settings?.password_expiry_days ?? 0,
+        min_password_length: settingsRes.settings?.min_password_length ?? 8,
+        project_submission_mode: settingsRes.settings?.project_submission_mode ?? 'direct',
+        internal_reviewer_id: settingsRes.settings?.internal_reviewer_id ?? null,
+      });
+    }).finally(() => setOrgLoading(false));
   }, [isOrgAdmin]);
 
   // Password expiry notice
@@ -456,6 +480,70 @@ export default function SettingsPage() {
                       />
                       <span className="text-sm text-slate-500 font-medium">characters</span>
                     </div>
+                  </div>
+
+                  {/* Project Submission Mode */}
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Project Submission Mode</p>
+                      <p className="text-xs text-slate-400 mt-0.5">Control how project drafts are submitted for review.</p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center gap-3 p-3 rounded-lg bg-white border border-slate-200 cursor-pointer hover:border-primary/50 transition-colors">
+                        <input
+                          type="radio"
+                          name="submission_mode"
+                          value="direct"
+                          checked={orgForm.project_submission_mode === 'direct'}
+                          onChange={() => setOrgForm(prev => ({ ...prev, project_submission_mode: 'direct', internal_reviewer_id: null }))}
+                          className="accent-primary"
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Direct Submission</p>
+                          <p className="text-xs text-slate-400">Org admins can submit project drafts directly for platform review.</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 rounded-lg bg-white border border-slate-200 cursor-pointer hover:border-primary/50 transition-colors">
+                        <input
+                          type="radio"
+                          name="submission_mode"
+                          value="internal_review"
+                          checked={orgForm.project_submission_mode === 'internal_review'}
+                          onChange={() => setOrgForm(prev => ({ ...prev, project_submission_mode: 'internal_review' }))}
+                          className="accent-primary"
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">Internal Review Required</p>
+                          <p className="text-xs text-slate-400">A designated reviewer must approve drafts before they are submitted for platform review.</p>
+                        </div>
+                      </label>
+                    </div>
+                    {orgForm.project_submission_mode === 'internal_review' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold text-slate-600">Designated Internal Reviewer</Label>
+                        <p className="text-[10px] text-slate-400">Only org owners and admins are eligible to be designated as internal reviewers.</p>
+                        <select
+                          value={orgForm.internal_reviewer_id ?? ''}
+                          onChange={e => setOrgForm(prev => ({ ...prev, internal_reviewer_id: e.target.value || null }))}
+                          className="w-full h-10 px-3 pr-8 rounded-xl border border-slate-200 text-sm bg-white text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-green-800/10 focus:border-green-700 transition-colors appearance-none cursor-pointer"
+                        >
+                          <option value="">Select a reviewer...</option>
+                          {orgMembers
+                            .filter(m => ['OWNER', 'ADMIN'].includes(m.role))
+                            .map(m => (
+                              <option key={m.user_id} value={m.user_id}>
+                                {m.full_name || m.email} ({m.role})
+                              </option>
+                            ))}
+                        </select>
+                        {orgMembers.filter(m => ['OWNER', 'ADMIN'].includes(m.role)).length === 0 && (
+                          <p className="text-xs text-amber-600">No owners or admins found in this organisation.</p>
+                        )}
+                        {!orgForm.internal_reviewer_id && (
+                          <p className="text-xs text-amber-600">A reviewer must be selected to enable internal review mode.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex justify-end pt-3 border-t border-slate-100">

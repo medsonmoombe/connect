@@ -66,6 +66,7 @@ export default function AdminSettingsPage() {
   const [weightFinancial, setWeightFinancial] = useState(35);
   const [weightDeveloper, setWeightDeveloper] = useState(25);
   const [autoTrigger, setAutoTrigger] = useState(true);
+  const [savingAi, setSavingAi] = useState(false);
 
   // Maintenance
   const [maintenanceMode, setMaintenanceMode] = useState(false);
@@ -82,6 +83,13 @@ export default function AdminSettingsPage() {
       const res = await fetch('/api/admin/settings');
       const d = await res.json();
       setStats(d.stats);
+      // Load AI settings from DB
+      if (d.aiSettings) {
+        setAutoTrigger(d.aiSettings.auto_trigger ?? false);
+        setWeightRegulatory(d.aiSettings.weights?.regulatory ?? 40);
+        setWeightFinancial(d.aiSettings.weights?.financial ?? 35);
+        setWeightDeveloper(d.aiSettings.weights?.developer ?? 25);
+      }
     } finally {
       setLoading(false);
     }
@@ -103,6 +111,31 @@ export default function AdminSettingsPage() {
       toast.success('Platform settings saved');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveAiSettings = async () => {
+    setSavingAi(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auto_trigger: autoTrigger,
+          weights: {
+            regulatory: weightRegulatory,
+            financial: weightFinancial,
+            developer: weightDeveloper,
+          },
+        }),
+      });
+      if (res.ok) {
+        toast.success('AI analysis settings saved');
+      } else {
+        toast.error('Failed to save AI settings');
+      }
+    } finally {
+      setSavingAi(false);
     }
   };
 
@@ -225,6 +258,12 @@ export default function AdminSettingsPage() {
                   }`} />
                 </button>
               </div>
+            </div>
+            <div className="flex justify-end mt-6 pt-5 border-t border-slate-100">
+              <Button className="h-10 px-6 rounded-xl font-bold" onClick={handleSaveAiSettings} disabled={savingAi}>
+                {savingAi ? <Icons.spinner className="size-4 animate-spin mr-2" /> : null}
+                Save AI Settings
+              </Button>
             </div>
           </div>
         </div>

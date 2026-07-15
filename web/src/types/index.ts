@@ -13,7 +13,7 @@ export type OrgMemberRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 export type CompanyType = 'DEVELOPER' | 'CAPITAL' | 'TECHNICAL' | 'POWER_TRADER';
 
 // Project Stages
-export type ProjectStage = 'CONCEPT' | 'FEASIBILITY' | 'PRE_CONSTRUCTION' | 'READY_TO_BUILD' | 'UNDER_CONSTRUCTION' | 'OPERATIONAL';
+export type ProjectStage = 'CONCEPT' | 'FEASIBILITY' | 'PERMITTING' | 'FINANCIAL_CLOSE' | 'CONSTRUCTION' | 'OPERATIONS';
 
 // Capital Structure Types (No debt instruments allowed)
 export type CapitalStructureType = 'EQUITY' | 'PROFIT_SHARING' | 'LEASING' | 'GRANT';
@@ -69,12 +69,16 @@ export interface Company {
   updated_at: string;
   is_new_company_with_experienced_team?: boolean;
   management_team_experience?: any;
+  project_submission_mode?: 'internal_review' | 'direct';
+  internal_reviewer_id?: string | null;
+  is_platform_org?: boolean;
 }
 
 // Project Type
 export interface Project {
   id: string;
   developer_id: string;
+  created_by?: string;
   name: string;
   technology_type: string;
   location_country: string;
@@ -86,7 +90,8 @@ export interface Project {
   exit_terms?: string;
   risk_disclosures?: string;
   project_stage: ProjectStage;
-  status?: 'draft' | 'submitted' | 'validated' | 'rejected';
+  status?: 'draft' | 'pending_internal_review' | 'returned' | 'submitted' | 'under_review' | 'validated' | 'rejected' | 'archived';
+  rejection_reason?: string | null;
   target_financial_close_date?: string;
   target_cod?: string;
   created_at: string;

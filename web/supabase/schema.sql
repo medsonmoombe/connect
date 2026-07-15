@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ── Enums ────────────────────────────────────────────────────
 CREATE TYPE user_role AS ENUM ('DEVELOPER','CAPITAL_PARTNER','TECHNICAL_PARTNER','ADMIN','POWER_TRADER');
 CREATE TYPE company_type AS ENUM ('DEVELOPER','CAPITAL','TECHNICAL','POWER_TRADER');
-CREATE TYPE project_stage AS ENUM ('CONCEPT','FEASIBILITY','PRE_CONSTRUCTION','READY_TO_BUILD','UNDER_CONSTRUCTION','OPERATIONAL');
+CREATE TYPE project_stage AS ENUM ('CONCEPT','FEASIBILITY','PERMITTING','FINANCIAL_CLOSE','CONSTRUCTION','OPERATIONS');
 CREATE TYPE capital_structure_type AS ENUM ('EQUITY','PROFIT_SHARING','LEASING','GRANT');
 CREATE TYPE risk_tolerance AS ENUM ('LOW','MEDIUM','HIGH');
 CREATE TYPE governance_preference AS ENUM ('PASSIVE','BOARD_SEAT','ACTIVE_ROLE');
@@ -30,6 +30,8 @@ CREATE TABLE companies (
   logo_url                            TEXT,
   is_new_company_with_experienced_team BOOLEAN DEFAULT FALSE,
   management_team_experience          JSONB DEFAULT '{}',
+  project_submission_mode             TEXT DEFAULT 'direct' CHECK (project_submission_mode IN ('internal_review', 'direct')),
+  internal_reviewer_id                TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at                          TIMESTAMPTZ DEFAULT NOW(),
   updated_at                          TIMESTAMPTZ DEFAULT NOW()
 );
@@ -60,7 +62,7 @@ CREATE TABLE projects (
   exit_terms                  TEXT,
   risk_disclosures            TEXT,
   project_stage               project_stage NOT NULL DEFAULT 'FEASIBILITY',
-  status                      TEXT DEFAULT 'draft' CHECK (status IN ('draft','submitted','validated','rejected')),
+  status                      TEXT DEFAULT 'draft' CHECK (status IN ('draft','pending_internal_review','returned','submitted','under_review','validated','rejected','archived')),
   target_financial_close_date DATE,
   target_cod                  DATE,
   has_secured_land            BOOLEAN DEFAULT FALSE,
@@ -70,6 +72,19 @@ CREATE TABLE projects (
   created_at                  TIMESTAMPTZ DEFAULT NOW(),
   updated_at                  TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE project_status_history (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  from_status   TEXT,
+  to_status     TEXT NOT NULL,
+  actor_id      TEXT REFERENCES users(id),
+  reason        TEXT,
+  metadata      JSONB DEFAULT '{}',
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_project_status_history_project ON project_status_history(project_id, created_at DESC);
 
 CREATE TABLE project_documents (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -261,6 +276,7 @@ ALTER TABLE portfolio_analyses         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE companies              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_documents      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE project_tech_requirements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE capital_partners       ENABLE ROW LEVEL SECURITY;
@@ -279,6 +295,7 @@ CREATE POLICY "service_role_all" ON portfolio_analyses         FOR ALL USING (tr
 CREATE POLICY "service_role_all" ON companies              FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON users                  FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON projects               FOR ALL USING (true);
+CREATE POLICY "service_role_all" ON project_status_history FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON project_documents      FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON project_tech_requirements FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON capital_partners       FOR ALL USING (true);

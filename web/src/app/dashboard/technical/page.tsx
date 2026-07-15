@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
@@ -16,7 +16,9 @@ import { StatCard } from '@/components/ui/stat-card';
 import { KpiBarSkeleton } from '@/components/ui/skeleton';
 
 export default function TechnicalDashboard() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'dashboard';
+  const [activeTab, setActiveTabState] = useState(initialTab);
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [marketplaceProjects, setMarketplaceProjects] = useState<Project[]>([]);
   const [techProfile, setTechProfile] = useState<TechnicalPartner | null>(null);
@@ -33,6 +35,18 @@ export default function TechnicalDashboard() {
 
   const router = useRouter();
   const { user, loading } = useAuth();
+
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabState(tab);
+    const params = new URLSearchParams(window.location.search);
+    if (tab === 'dashboard') {
+      params.delete('tab');
+    } else {
+      params.set('tab', tab);
+    }
+    const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
+    window.history.replaceState(null, '', newUrl);
+  }, []);
 
   useEffect(() => {
     if (!loading) {

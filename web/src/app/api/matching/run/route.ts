@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
         .from('projects')
         .select('*')
         .is('deleted_at', null)
-        .eq('status', 'submitted')
+        .eq('status', 'validated')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -177,87 +177,126 @@ export async function POST(req: NextRequest) {
       req,
     });
 
-    // ── 7. Notify project owners about significant matches (score ≥ 70%) ─
-    const SCORE_THRESHOLD = 70;
+    // ── 7. Notify all parties about significant matches (score ≥ 60%) ───
+    const SCORE_THRESHOLD = 60;
     const partnerNameMap = new Map<string, string>();
+    // Map partner id → company_id for partner org lookup
+    const capitalPartnerCompanyMap = new Map<string, string>(); // partner.id → company_id
+    const technicalPartnerCompanyMap = new Map<string, string>();
     for (const p of capitalPartners) {
-      if (p.company) partnerNameMap.set(p.id, p.company.name);
+      if (p.company) { partnerNameMap.set(p.id, p.company.name); capitalPartnerCompanyMap.set(p.id, p.company_id); }
     }
     for (const p of technicalPartners) {
-      if (p.company) partnerNameMap.set(p.id, p.company.name);
+      if (p.company) { partnerNameMap.set(p.id, p.company.name); technicalPartnerCompanyMap.set(p.id, p.company_id); }
     }
 
-    // Group high-score matches by project
+    // Group high-score matches by project (for developer notifications)
     const highScoreByProject = new Map<string, { partnerName: string; score: number }[]>();
+    // Group high-score matches by partner company (for partner notifications)
+    // key: company_id, value: { projectName, developerName, score }
+    const highScoreByPartnerCompany = new Map<string, { projectName: string; developerName: string; score: number }[]>();
+
+    const projectMap = new Map(projects.map(p => [p.id, p]));
+    const developerCompanyIds = [...new Set(projects.map(p => p.developer_id))];
+    const { data: developerCompanies } = await admin.from('companies').select('id, name').in('id', developerCompanyIds);
+    const developerNameMap = new Map((developerCompanies ?? []).map((c: any) => [c.id, c.name]));
+
     for (const m of capitalInserts) {
-      if (m.compatibility_score >= SCORE_THRESHOLD) {
-        const pname = partnerNameMap.get(m.capital_partner_id) ?? 'A partner';
-        const arr = highScoreByProject.get(m.project_id) ?? [];
-        arr.push({ partnerName: pname, score: m.compatibility_score });
-        highScoreByProject.set(m.project_id, arr);
+      if (m.compatibility_score < SCORE_THRESHOLD) continue;
+      const pname = partnerNameMap.get(m.capital_partner_id) ?? 'A partner';
+      const proj = projectMap.get(m.project_id);
+      // developer side
+      const arr = highScoreByProject.get(m.project_id) ?? [];
+      arr.push({ partnerName: pname, score: m.compatibility_score });
+      highScoreByProject.set(m.project_id, arr);
+      // partner side
+      const companyId = capitalPartnerCompanyMap.get(m.capital_partner_id);
+      if (companyId && proj) {
+        const parr = highScoreByPartnerCompany.get(companyId) ?? [];
+        parr.push({ projectName: proj.name, developerName: developerNameMap.get(proj.developer_id) ?? 'A developer', score: m.compatibility_score });
+        highScoreByPartnerCompany.set(companyId, parr);
       }
     }
     for (const m of technicalInserts) {
-      if (m.compatibility_score >= SCORE_THRESHOLD) {
-        const pname = partnerNameMap.get(m.technical_partner_id) ?? 'A partner';
-        const arr = highScoreByProject.get(m.project_id) ?? [];
-        arr.push({ partnerName: pname, score: m.compatibility_score });
-        highScoreByProject.set(m.project_id, arr);
+      if (m.compatibility_score < SCORE_THRESHOLD) continue;
+      const pname = partnerNameMap.get(m.technical_partner_id) ?? 'A partner';
+      const proj = projectMap.get(m.project_id);
+      const arr = highScoreByProject.get(m.project_id) ?? [];
+      arr.push({ partnerName: pname, score: m.compatibility_score });
+      highScoreByProject.set(m.project_id, arr);
+      const companyId = technicalPartnerCompanyMap.get(m.technical_partner_id);
+      if (companyId && proj) {
+        const parr = highScoreByPartnerCompany.get(companyId) ?? [];
+        parr.push({ projectName: proj.name, developerName: developerNameMap.get(proj.developer_id) ?? 'A developer', score: m.compatibility_score });
+        highScoreByPartnerCompany.set(companyId, parr);
       }
     }
 
-    if (highScoreByProject.size > 0) {
-      // Look up developer org owners + emails
-      const devIds = [...new Set(projects.filter(p => highScoreByProject.has(p.id)).map(p => p.developer_id))];
-      const { data: ownerRows } = await admin
+    // Collect all company IDs that need notifications
+    const allCompanyIds = [
+      ...new Set([
+        ...(highScoreByProject.size > 0 ? [...new Set(projects.filter(p => highScoreByProject.has(p.id)).map(p => p.developer_id))] : []),
+        ...highScoreByPartnerCompany.keys(),
+      ])
+    ];
+
+    if (allCompanyIds.length > 0) {
+      const { data: memberRows } = await admin
         .from('company_members')
         .select('user_id, company_id, users!inner(id, email, full_name)')
-        .in('company_id', devIds)
+        .in('company_id', allCompanyIds)
         .in('role', ['OWNER', 'ADMIN'])
         .is('deleted_at', null);
 
-      const projectMap = new Map(projects.map(p => [p.id, p]));
+      // Build email map and group members by company
       const emailMap: Record<string, string> = {};
-
-      for (const owner of ownerRows ?? []) {
-        const u = owner.users as any;
+      const membersByCompany = new Map<string, string[]>(); // company_id → user_ids
+      for (const row of memberRows ?? []) {
+        const u = row.users as any;
         if (!u?.id || !u?.email) continue;
         emailMap[u.id] = u.email;
+        const arr = membersByCompany.get(row.company_id) ?? [];
+        arr.push(u.id);
+        membersByCompany.set(row.company_id, arr);
+      }
 
-        // Find projects owned by this user's company that have high-score matches
-        for (const project of projects) {
-          if (project.developer_id !== owner.company_id) continue;
-          const matches = highScoreByProject.get(project.id);
-          if (!matches || matches.length === 0) continue;
+      // Notify developer org admins
+      for (const project of projects) {
+        const matches = highScoreByProject.get(project.id);
+        if (!matches || matches.length === 0) continue;
+        const userIds = membersByCompany.get(project.developer_id) ?? [];
+        if (userIds.length === 0) continue;
+        matches.sort((a, b) => b.score - a.score);
+        const top = matches[0];
+        const partnerLabel = matches.length === 1
+          ? top.partnerName
+          : `${top.partnerName} +${matches.length - 1} other${matches.length > 2 ? 's' : ''}`;
+        await notifyUsers({
+          userIds,
+          payload: notificationBuilders.matchFound({ projectName: project.name, partnerName: partnerLabel, score: top.score }),
+          channel: 'both',
+          emailMap,
+          emailTemplate: emailTemplates.matchFoundEmail({ projectName: project.name, partnerName: partnerLabel, score: top.score, role: 'developer' }),
+          emailLogType: 'match_found',
+          emailEntityId: project.id,
+        });
+      }
 
-          matches.sort((a, b) => b.score - a.score);
-          const top = matches[0];
-          const partnerLabel = matches.length === 1
-            ? top.partnerName
-            : `${top.partnerName} +${matches.length - 1} other${matches.length > 2 ? 's' : ''}`;
-
-          const payload = notificationBuilders.matchFound({
-            projectName: project.name,
-            partnerName: partnerLabel,
-            score: top.score,
-          });
-          const emailT = emailTemplates.matchFoundEmail({
-            projectName: project.name,
-            partnerName: partnerLabel,
-            score: top.score,
-            role: 'developer',
-          });
-
-          await notifyUsers({
-            userIds: [u.id],
-            payload,
-            channel: 'both',
-            emailMap,
-            emailTemplate: emailT,
-            emailLogType: 'match_found',
-            emailEntityId: project.id,
-          });
-        }
+      // Notify partner org admins
+      for (const [companyId, matches] of highScoreByPartnerCompany) {
+        const userIds = membersByCompany.get(companyId) ?? [];
+        if (userIds.length === 0) continue;
+        matches.sort((a, b) => b.score - a.score);
+        const top = matches[0];
+        await notifyUsers({
+          userIds,
+          payload: notificationBuilders.matchFound({ projectName: top.projectName, partnerName: top.developerName, score: top.score }),
+          channel: 'both',
+          emailMap,
+          emailTemplate: emailTemplates.matchFoundEmail({ projectName: top.projectName, partnerName: top.developerName, score: top.score, role: 'partner' }),
+          emailLogType: 'match_found',
+          emailEntityId: companyId,
+        });
       }
     }
 

@@ -64,6 +64,7 @@ function useMutation<TArgs, TResult>(url: string) {
 export interface AdminHealth {
   totalUsers: number;
   pendingVerifications: number;
+  pendingReviewCount: number;
   totalProjects: number;
   totalCompanies: number;
   totalCapital: number;
@@ -78,6 +79,11 @@ export interface AdminHealth {
 
 export function useAdminHealth() {
   return useFetch<AdminHealth>('/api/admin/health');
+}
+
+// ── Admin Pending Review Projects ───────────────────────────────────────────
+export function useAdminPendingProjects() {
+  return useFetch<any[]>('/api/projects', []);
 }
 
 // ── Audit Logs ──────────────────────────────────────────────────────────────
