@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, forbidden, badRequest, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { sendOrgStatusEmail } from '@/lib/email';
-import { createNotification, notificationBuilders } from '@/lib/notify';
+import { sendOrgStatusEmail, sendEmail } from '@/lib/email';
+import { createNotification, notificationBuilders, notifyUsers } from '@/lib/notify';
+import { notifyOrgAdmins } from '@/lib/notify-helpers';
 
 const ALLOWED_STATUSES = ['verified', 'rejected', 'needs_update', 'pending_verification', 'deactivated'] as const;
 type OrgStatus = typeof ALLOWED_STATUSES[number];
@@ -123,30 +124,66 @@ export async function PATCH(
         req,
       });
 
-      // Notify owner
+      // Notify owner + all org admins
       const { data: members } = await admin
         .from('company_members')
         .select('role, user_id')
         .is('deleted_at', null)
         .eq('company_id', id)
-        .eq('role', 'OWNER')
-        .limit(1);
+        .in('role', ['OWNER', 'ADMIN']);
 
-      const ownerMember = members?.[0];
-      if (ownerMember) {
-        const { data: profile } = await admin
+      const userIds = (members ?? []).map(m => m.user_id);
+      if (userIds.length > 0) {
+        // Fetch emails
+        const { data: profiles } = await admin
           .from('user_profiles')
-          .select('email')
-          .eq('id', ownerMember.user_id)
-          .maybeSingle();
+          .select('id, email, full_name')
+          .in('id', userIds);
 
-        if (profile?.email && ['verified', 'rejected', 'needs_update'].includes(status)) {
-          await sendOrgStatusEmail({ to: profile.email, orgName: company.name, status: status as 'verified' | 'rejected' | 'needs_update', note });
+        const emailMap: Record<string, string> = {};
+        for (const p of profiles ?? []) {
+          if (p.email) emailMap[p.id] = p.email;
         }
-        await createNotification({
-          userId: ownerMember.user_id,
-          payload: notificationBuilders.orgStatusChange({ orgName: company.name, status }),
-        });
+
+        const orgPayload = notificationBuilders.orgStatusChange({ orgName: company.name, status });
+
+        // Send email for all status changes
+        if (['verified', 'rejected', 'needs_update'].includes(status)) {
+          await notifyUsers({
+            userIds,
+            payload: orgPayload,
+            channel: 'both',
+            emailMap,
+            emailTemplate: { subject: `Organisation ${status}: ${company.name}`, html: '' },
+            emailLogType: 'org_status',
+            emailEntityId: id,
+          });
+          // Send proper formatted email to each
+          for (const p of profiles ?? []) {
+            if (p.email) {
+              await sendOrgStatusEmail({ to: p.email, orgName: company.name, status: status as 'verified' | 'rejected' | 'needs_update', note });
+            }
+          }
+        } else {
+          // For deactivated, pending_verification — in-app + email
+          for (const uid of userIds) {
+            await createNotification({
+              userId: uid,
+              payload: orgPayload,
+            });
+          }
+          for (const p of profiles ?? []) {
+            if (p.email) {
+              await sendEmail({
+                to: p.email,
+                subject: `Organisation status changed: ${company.name} — ${status.replace(/_/g, ' ')}`,
+                html: `<p>Your organisation "${company.name}" has been moved to <strong>${status.replace(/_/g, ' ')}</strong> by a platform admin.${note ? ` Reason: ${note}` : ''}</p>`,
+                logType: 'org_status',
+                logEntityId: id,
+              });
+            }
+          }
+        }
       }
 
       return Response.json({ data: { id, status } });
@@ -201,22 +238,43 @@ export async function PATCH(
         req,
       });
 
-      // Notify all members
+      // Notify all members (in-app + email)
       const { data: members } = await admin
         .from('company_members')
         .select('user_id')
         .is('deleted_at', null)
         .eq('company_id', id);
 
-      for (const m of members ?? []) {
-        await createNotification({
-          userId: m.user_id,
-          payload: {
-            type: 'system_announcement',
-            title: 'Organisation Deactivated',
-            body: `Your organisation "${company.name}" has been deactivated by the platform. Please contact support for more information.`,
-            action_url: '/login?notice=org-deactivated',
+      const memberUserIds = (members ?? []).map(m => m.user_id);
+      if (memberUserIds.length > 0) {
+        const { data: profiles } = await admin
+          .from('user_profiles')
+          .select('id, email')
+          .in('id', memberUserIds);
+
+        const emailMap: Record<string, string> = {};
+        for (const p of profiles ?? []) {
+          if (p.email) emailMap[p.id] = p.email;
+        }
+
+        const payload = {
+          type: 'system_announcement' as const,
+          title: 'Organisation Deactivated',
+          body: `Your organisation "${company.name}" has been deactivated by the platform. Please contact support for more information.`,
+          action_url: '/login?notice=org-deactivated',
+        };
+
+        await notifyUsers({
+          userIds: memberUserIds,
+          payload,
+          channel: 'both',
+          emailMap,
+          emailTemplate: {
+            subject: `Organisation deactivated: ${company.name}`,
+            html: `<p>Your organisation "<strong>${company.name}</strong>" has been deactivated by the platform.</p><p>Please contact support for more information.</p>`,
           },
+          emailLogType: 'org_deactivated',
+          emailEntityId: id,
         });
       }
 
@@ -242,22 +300,43 @@ export async function PATCH(
         req,
       });
 
-      // Notify all members
+      // Notify all members (in-app + email)
       const { data: members } = await admin
         .from('company_members')
         .select('user_id')
         .is('deleted_at', null)
         .eq('company_id', id);
 
-      for (const m of members ?? []) {
-        await createNotification({
-          userId: m.user_id,
-          payload: {
-            type: 'system_announcement',
-            title: 'Organisation Reactivated',
-            body: `Your organisation "${company.name}" has been reactivated and is now accessible.`,
-            action_url: '/dashboard',
+      const memberUserIds = (members ?? []).map(m => m.user_id);
+      if (memberUserIds.length > 0) {
+        const { data: profiles } = await admin
+          .from('user_profiles')
+          .select('id, email')
+          .in('id', memberUserIds);
+
+        const emailMap: Record<string, string> = {};
+        for (const p of profiles ?? []) {
+          if (p.email) emailMap[p.id] = p.email;
+        }
+
+        const payload = {
+          type: 'system_announcement' as const,
+          title: 'Organisation Reactivated',
+          body: `Your organisation "${company.name}" has been reactivated and is now accessible.`,
+          action_url: '/dashboard',
+        };
+
+        await notifyUsers({
+          userIds: memberUserIds,
+          payload,
+          channel: 'both',
+          emailMap,
+          emailTemplate: {
+            subject: `Organisation reactivated: ${company.name}`,
+            html: `<p>Your organisation "<strong>${company.name}</strong>" has been reactivated and is now accessible on the platform.</p>`,
           },
+          emailLogType: 'org_reactivated',
+          emailEntityId: id,
         });
       }
 
@@ -296,6 +375,30 @@ export async function PATCH(
       });
 
       return Response.json({ data });
+
+    } else if (action === 'remove_member') {
+      const { userId } = body as { userId: string };
+      if (!userId) return badRequest('userId is required');
+
+      const { error } = await admin
+        .from('company_members')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('company_id', id)
+        .eq('user_id', userId)
+        .is('deleted_at', null);
+
+      if (error) return serverError();
+
+      await writeAuditLog({
+        userId: user.id,
+        action: 'ORG_MEMBER_REMOVED',
+        entityType: 'company_members',
+        entityId: id,
+        after: { removed_user_id: userId },
+        req,
+      });
+
+      return Response.json({ data: { removed: true } });
 
     } else {
       return badRequest('Invalid action');
@@ -359,6 +462,11 @@ export async function DELETE(
       await admin.from('project_documents').update({ deleted_at: new Date().toISOString() }).eq('project_id', p.id).is('deleted_at', null);
       await admin.from('projects').update({ deleted_at: new Date().toISOString() }).eq('id', p.id);
     }
+
+    // Delete partner preference rows (cascade)
+    await admin.from('capital_partners').delete().eq('company_id', id);
+    await admin.from('technical_partners').delete().eq('company_id', id);
+    await admin.from('power_traders').delete().eq('company_id', id);
 
     // Audit log
     await writeAuditLog({

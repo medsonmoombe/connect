@@ -2,16 +2,16 @@ import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, forbidden, badRequest, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { notifyUser, notificationBuilders } from '@/lib/notify';
+import { notifyOrgAdmins } from '@/lib/notify-helpers';
 import * as emailTemplates from '@/lib/email-templates';
+import { transitionProject, type ProjectStatus } from '@/lib/project-state-machine';
 
 type Params = { params: Promise<{ id: string }> };
 
-const VALID_STATUSES = ['draft', 'submitted', 'under_review', 'validated', 'rejected', 'archived'] as const;
-type ProjectStatus = typeof VALID_STATUSES[number];
-
 // ── PATCH /api/admin/projects/[id]
-// Handles two sub-actions via `action` field:
-//   action: 'force_state'   — force project to a new status with a required note
+// Handles sub-actions via `action` field:
+//   action: 'force_state'    — force project to a new status with a required note
+//   action: 'force_live'     — bypass delay: set live + is_visible_to_investors = true immediately
 //   action: 'override_score' — manually set score fields with a note
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
@@ -27,12 +27,50 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (action === 'force_state') {
       const { status, note } = body as { status: ProjectStatus; note: string };
 
-      if (!VALID_STATUSES.includes(status)) {
-        return badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
-      }
       if (!note?.trim()) return badRequest('A note is required for forced state transitions');
 
-      // Fetch current project to get owner
+      const result = await transitionProject({
+        projectId: id,
+        toStatus: status as ProjectStatus,
+        actorId: user.id,
+        reason: note,
+        req,
+      });
+
+      if (!result.success) {
+        return badRequest(result.error || 'Transition failed');
+      }
+
+      const { data: project } = await admin
+        .from('projects')
+        .select('name, developer_id')
+        .eq('id', id)
+        .single();
+
+      if (project?.developer_id) {
+        await notifyOrgAdmins({
+          companyId: project.developer_id,
+          payload: notificationBuilders.projectStatusChanged({
+            projectName: project.name,
+            newStatus: status,
+          }),
+          emailTemplate: {
+            subject: `Project status updated: ${project.name} → ${status}`,
+            html: `<p>Project "<strong>${project.name}</strong>" status has been changed to <strong>${status}</strong> by a platform administrator.</p><p>Reason: ${note}</p>`,
+          },
+          emailLogType: 'admin_state_override',
+          excludeUserIds: [user.id],
+        });
+      }
+
+      return Response.json({ data: { status, note } });
+    }
+
+    // ── Force live (bypass scores_visible_at delay) ──────────────────────────
+    if (action === 'force_live') {
+      const { note } = body as { note: string };
+      if (!note?.trim()) return badRequest('A note is required');
+
       const { data: project, error: fetchErr } = await admin
         .from('projects')
         .select('id, name, status, developer_id')
@@ -41,64 +79,47 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         .single();
 
       if (fetchErr || !project) return badRequest('Project not found');
+      if (project.status !== 'pending_live') return badRequest('Project must be in pending_live status to force-activate');
 
-      const before = { status: project.status };
-
+      const now = new Date().toISOString();
       const { error } = await admin
         .from('projects')
-        .update({ status, admin_note: note, reviewed_by: user.id, reviewed_at: new Date().toISOString() })
+        .update({
+          status: 'live',
+          is_visible_to_investors: true,
+          scores_visible_at: now,
+          admin_note: note,
+          reviewed_by: user.id,
+          reviewed_at: now,
+        })
         .eq('id', id);
 
       if (error) {
-        console.error('[Admin/Projects] Force state error:', error.message);
+        console.error('[Admin/Projects] Force live error:', error.message);
         return serverError();
       }
 
       await writeAuditLog({
         userId: user.id,
-        action: 'PROJECT_STATE_FORCED',
+        action: 'PROJECT_FORCE_ACTIVATED',
         entityType: 'projects',
         entityId: id,
-        before,
-        after: { status, note },
+        before: { is_visible_to_investors: false },
+        after: { is_visible_to_investors: true, note },
         req,
       });
 
-      // Notify the developer org's owner (in-app + email)
-      const { data: members } = await admin
-        .from('company_members')
-        .select('user_id, users!inner(id, email, full_name)')
-        .is('deleted_at', null)
-        .eq('company_id', project.developer_id)
-        .in('role', ['OWNER', 'ADMIN'])
-        .limit(1);
+      // Notify developer org admins (email + in-app)
+      await notifyOrgAdmins({
+        companyId: project.developer_id,
+        payload: notificationBuilders.projectLive({ projectName: project.name }),
+        channel: 'both',
+        emailTemplate: emailTemplates.projectLiveEmail({ projectName: project.name }),
+        emailLogType: 'project_force_live',
+        excludeUserIds: [user.id!],
+      });
 
-      if (members?.[0]) {
-        const u = (members[0] as any).users;
-        if (u?.id && u?.email) {
-          const payload = notificationBuilders.systemAnnouncement({
-            title: `Project status updated: ${status.replace(/_/g, ' ')}`,
-            body: `Your project "${project.name}" has been moved to ${status} by an admin. Note: ${note}`,
-          });
-          const emailT = emailTemplates.projectStatusEmail({
-            projectName: project.name,
-            newStatus: status,
-            note,
-            recipientName: u.full_name ?? 'there',
-          });
-          await notifyUser({
-            userId: u.id,
-            payload,
-            channel: 'both',
-            emailTo: u.email,
-            emailTemplate: emailT,
-            emailLogType: 'project_status',
-            emailEntityId: id,
-          });
-        }
-      }
-
-      return Response.json({ data: { id, status } });
+      return Response.json({ data: { id, is_visible_to_investors: true } });
     }
 
     // ── Score override ───────────────────────────────────────────────────────
@@ -136,6 +157,32 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         after: { ...sanitized, note },
         req,
       });
+
+      // Notify org admins about score override
+      const { data: scoreProject } = await admin
+        .from('projects')
+        .select('name, developer_id')
+        .eq('id', id)
+        .single();
+
+      if (scoreProject) {
+        await notifyOrgAdmins({
+          companyId: scoreProject.developer_id,
+          payload: notificationBuilders.systemAnnouncement({
+            title: 'Project scores updated by admin',
+            body: `Scores for "${scoreProject.name}" were manually adjusted by a platform admin. Reason: ${note}`,
+          }),
+          channel: 'both',
+          emailTemplate: emailTemplates.projectStatusEmail({
+            projectName: scoreProject.name,
+            newStatus: 'scores_updated',
+            note,
+            recipientName: 'there',
+          }),
+          emailLogType: 'project_score_override',
+          excludeUserIds: [user.id!],
+        });
+      }
 
       return Response.json({ data });
     }

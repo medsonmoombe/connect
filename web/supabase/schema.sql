@@ -62,7 +62,7 @@ CREATE TABLE projects (
   exit_terms                  TEXT,
   risk_disclosures            TEXT,
   project_stage               project_stage NOT NULL DEFAULT 'FEASIBILITY',
-  status                      TEXT DEFAULT 'draft' CHECK (status IN ('draft','pending_internal_review','returned','submitted','under_review','validated','rejected','archived')),
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft','scoring','pending_live','live','deactivated','archived')),
   target_financial_close_date DATE,
   target_cod                  DATE,
   has_secured_land            BOOLEAN DEFAULT FALSE,

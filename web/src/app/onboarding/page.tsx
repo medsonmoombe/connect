@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { onboardingApi, companiesApi } from '@/services/api';
 import { Icons } from '@/components/ui/icons';
@@ -91,6 +91,18 @@ const selectClass = "w-full h-9 px-4 pr-10 rounded-xl border border-slate-200 bg
 const labelClass = "text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1";
 const smallInputClass = "w-full h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-xs";
 
+const defaultCompany = {
+  name: '',
+  country: 'Zambia',
+  countryOther: '',
+  description: '',
+  website: '',
+  years_operating: '' as string | number,
+  team_size: '' as string | number,
+  is_new_company_with_experienced_team: false,
+  management_team_experience: { years: 0 as number, description: '' },
+};
+
 function MultiSelect({ options, selected, onChange, placeholder }: {
   options: { value: string; label: string }[];
   selected: string[];
@@ -143,8 +155,12 @@ function MultiSelect({ options, selected, onChange, placeholder }: {
 export default function OnboardingPage() {
   const { user, refreshUser } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEditParam = searchParams.get('edit') === 'true';
+  const editMode = isEditParam && !!user?.company_id;
   const [step, setStep] = useState<OnboardingStep>('profile');
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(isEditParam);
   const [error, setError] = useState<string | null>(null);
 
   // Profile
@@ -156,26 +172,62 @@ export default function OnboardingPage() {
   const [isCreatingCompany, setIsCreatingCompany] = useState(false);
 
   // New company form
-  const [companyType, setCompanyType] = useState<CompanyType>(
-    user?.role === 'ADMIN' ? 'DEVELOPER'
-      : user?.role === 'CAPITAL_PARTNER' ? 'CAPITAL'
-      : user?.role === 'TECHNICAL_PARTNER' ? 'TECHNICAL'
-      : user?.role === 'POWER_TRADER' ? 'POWER_TRADER'
-      : 'DEVELOPER'
-  );
-  const [newCompany, setNewCompany] = useState({
-    name: '',
-    country: 'Zambia',
-    countryOther: '',
-    description: '',
-    website: '',
-    years_operating: '' as string | number,
-    team_size: '' as string | number,
-    is_new_company_with_experienced_team: false,
-    management_team_experience: { years: 0 as number, description: '' },
-  });
+  const [companyType, setCompanyType] = useState<CompanyType>('DEVELOPER');
+  const [newCompany, setNewCompany] = useState(defaultCompany);
+
+  const STORAGE_KEY = 'onboarding_edit_draft';
+  const clearDraft = () => localStorage.removeItem(STORAGE_KEY);
 
   const [preferences, setPreferences] = useState<any>({});
+
+  // In edit mode: always fetch fresh from API, save to localStorage, hydrate all state
+  useEffect(() => {
+    if (!isEditParam || !user?.company_id) return;
+    const loadExistingData = async () => {
+      setLoadingData(true);
+      localStorage.removeItem(STORAGE_KEY); // always clear stale draft before fresh fetch
+      try {
+        const { data, error: fetchErr } = await onboardingApi.getEditData();
+        if (fetchErr || !data) { setError(fetchErr || 'Failed to load existing data'); return; }
+        const { company, preferences: prefs } = data;
+        const typeDraft = (company.type as CompanyType) || 'DEVELOPER';
+        const companyDraft = {
+          name: company.name || '',
+          country: company.country || 'Zambia',
+          countryOther: '',
+          description: company.description || '',
+          website: company.website || '',
+          years_operating: company.years_operating ?? '',
+          team_size: company.team_size ?? '',
+          is_new_company_with_experienced_team: company.is_new_company_with_experienced_team || false,
+          management_team_experience: company.management_team_experience || { years: 0, description: '' },
+        };
+        const prefsDraft = prefs ?? {};
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ companyType: typeDraft, newCompany: companyDraft, preferences: prefsDraft }));
+        setCompanyType(typeDraft);
+        setNewCompany(companyDraft);
+        setPreferences(prefsDraft);
+        setStep('company');
+      } catch (err) {
+        console.error('[EDIT] Failed to load existing data:', err);
+      } finally {
+        setLoadingData(false);
+      }
+    };
+    loadExistingData();
+  }, [isEditParam, user?.company_id]);
+
+  // When navigating to preferences step, restore from localStorage
+  useEffect(() => {
+    if (step !== 'preferences' || !isEditParam) return;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.companyType) setCompanyType(draft.companyType);
+      if (draft.preferences) setPreferences(draft.preferences);
+    } catch {}
+  }, [step, isEditParam]);
 
   const getCountry = () => newCompany.country === 'OTHER' ? newCompany.countryOther : newCompany.country;
 
@@ -226,7 +278,6 @@ export default function OnboardingPage() {
       setError(error);
       setLoading(false);
     } else {
-      await refreshUser();
       if (companyType === 'CAPITAL' || companyType === 'TECHNICAL' || companyType === 'POWER_TRADER') {
         setStep('preferences');
       } else {
@@ -262,31 +313,55 @@ export default function OnboardingPage() {
       delete companyData.website;
     }
 
-    const result = await onboardingApi.setupCompany(user.id, companyData as any);
-    if ('error' in result && result.error) {
-      setError(result.error);
-      setLoading(false);
-    } else {
-      await refreshUser();
-      if (companyType === 'CAPITAL' || companyType === 'TECHNICAL' || companyType === 'POWER_TRADER') {
-        setStep('preferences');
+    if (editMode) {
+      const result = await onboardingApi.updateCompany(user.id, companyData as any);
+      if ('error' in result && result.error) {
+        setError(result.error);
+        setLoading(false);
       } else {
-        setStep('complete');
+        if (companyType === 'CAPITAL' || companyType === 'TECHNICAL' || companyType === 'POWER_TRADER') {
+          setStep('preferences');
+        } else {
+          setStep('complete');
+        }
+        setLoading(false);
       }
-      setLoading(false);
+    } else {
+      const result = await onboardingApi.setupCompany(user.id, companyData as any);
+      if ('error' in result && result.error) {
+        setError(result.error);
+        setLoading(false);
+      } else {
+        if (companyType === 'CAPITAL' || companyType === 'TECHNICAL' || companyType === 'POWER_TRADER') {
+          setStep('preferences');
+        } else {
+          setStep('complete');
+        }
+        setLoading(false);
+      }
     }
   };
 
   const handlePreferenceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !user.company_id) return;
+    if (!user) return;
+
+    // Client-side validation for required MultiSelect fields
+    if (companyType === 'CAPITAL') {
+      if (!preferences.sector_focus?.length) { setError('Please select at least one sector focus'); return; }
+      if (!preferences.geographic_focus?.length) { setError('Please select at least one geographic focus'); return; }
+      if (!preferences.risk_tolerance) { setError('Please select a risk tolerance'); return; }
+      if (!preferences.governance_preference) { setError('Please select a governance preference'); return; }
+      if ((preferences.min_ticket_size || 0) > (preferences.max_ticket_size || 0)) { setError('Min ticket size must be less than or equal to max ticket size'); return; }
+    }
+
     setLoading(true);
     setError(null);
     const role = companyType === 'CAPITAL' ? 'CAPITAL_PARTNER'
       : companyType === 'TECHNICAL' ? 'TECHNICAL_PARTNER'
       : companyType === 'POWER_TRADER' ? 'POWER_TRADER'
       : 'DEVELOPER';
-    const { error } = await onboardingApi.saveRolePreferences(role, user.company_id, preferences);
+    const { error } = await onboardingApi.saveRolePreferences(role, preferences);
     setLoading(false);
     if (error) setError(error);
     else setStep('complete');
@@ -294,6 +369,14 @@ export default function OnboardingPage() {
 
   const finishOnboarding = async () => {
     setLoading(true);
+    clearDraft();
+    if (editMode) {
+      await onboardingApi.resubmitCompany();
+      await refreshUser();
+      setLoading(false);
+      router.push('/dashboard');
+      return;
+    }
     await onboardingApi.completeOnboarding();
     await refreshUser();
     setLoading(false);
@@ -347,13 +430,12 @@ export default function OnboardingPage() {
                   className={inputClass}
                 />
               </div>
-              <div className="p-4 rounded-xl bg-green-50 border border-green-100 flex items-center gap-3 text-green-700 text-sm font-medium">
+              {/* <div className="p-4 rounded-xl bg-green-50 border border-green-100 flex items-center gap-3 text-green-700 text-sm font-medium">
                 <Icons.shieldCheck className="size-5 shrink-0" />
                 <div>
-                  <p className="font-semibold text-green-800">Assigned Role: {user?.role?.replace(/_/g, ' ')}</p>
-                  <p className="text-green-600 font-normal">Your account was provisioned with this role by an administrator.</p>
+                  <p className="font-semibold text-green-800">Your Role: {user?.role?.replace(/_/g, ' ')}</p>
                 </div>
-              </div>
+              </div> */}
             </div>
 
             <Button type="submit" disabled={loading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg shadow-green-900/20 flex gap-2 text-sm font-bold">
@@ -365,11 +447,11 @@ export default function OnboardingPage() {
         {step === 'company' && (
           <div className="space-y-6">
             <div className="mb-10 text-center">
-              <h1 className="text-3xl font-bold text-slate-900 mb-3">Company Information</h1>
-              <p className="text-slate-500 font-medium">Link your account to an existing organization or create a new one.</p>
+              <h1 className="text-3xl font-bold text-slate-900 mb-3">{editMode ? 'Edit Company Information' : 'Company Information'}</h1>
+              <p className="text-slate-500 font-medium">{editMode ? 'Update your organization details below.' : 'Link your account to an existing organization or create a new one.'}</p>
             </div>
 
-            {!isCreatingCompany ? (
+            {!isCreatingCompany && !editMode ? (
               <div className="space-y-6">
                 <div className="space-y-2">
                   <label className={labelClass}>Search for your company</label>
@@ -422,17 +504,20 @@ export default function OnboardingPage() {
                 {/* Company Type Selector */}
                 <div className="space-y-3">
                   <label className={labelClass}>Company Type *</label>
+                  {editMode && <p className="text-xs text-slate-400">Company type cannot be changed after registration.</p>}
                   <div className="grid grid-cols-2 gap-3">
                     {COMPANY_TYPES.map((ct) => (
                       <button
                         key={ct.value}
                         type="button"
+                        disabled={editMode}
                         onClick={() => setCompanyType(ct.value)}
                         className={clsx(
                           "p-4 rounded-2xl border-2 text-left transition-all",
                           companyType === ct.value
                             ? "border-green-800 bg-green-50"
-                            : "border-slate-200 hover:border-slate-300"
+                            : "border-slate-200 hover:border-slate-300",
+                          editMode && "opacity-60 cursor-not-allowed"
                         )}
                       >
                         <p className={clsx("text-sm font-bold", companyType === ct.value ? "text-green-800" : "text-slate-900")}>
@@ -570,11 +655,11 @@ export default function OnboardingPage() {
                 )}
 
                 <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setIsCreatingCompany(false)} className="h-9 px-4 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 font-bold transition-colors text-sm">
-                    Back to Search
+                  <button type="button" onClick={() => editMode ? router.push('/dashboard') : setIsCreatingCompany(false)} className="h-9 px-4 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 font-bold transition-colors text-sm">
+                    {editMode ? 'Cancel' : 'Back to Search'}
                   </button>
                   <Button type="submit" disabled={loading} className="flex-1 h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg shadow-green-900/20 flex gap-2 text-sm font-bold">
-                    {loading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : <>Register Company <Icons.arrowRight className="w-4 h-4" /></>}
+                    {loading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : <>{editMode ? 'Save Changes' : 'Register Company'} <Icons.arrowRight className="w-4 h-4" /></>}
                   </Button>
                 </div>
               </form>
@@ -586,6 +671,7 @@ export default function OnboardingPage() {
           <form onSubmit={handlePreferenceSubmit} className="space-y-6">
             <div className="mb-10 text-center">
               <h1 className="text-3xl font-bold text-slate-900 mb-3">
+                {editMode ? 'Update ' : ''}
                 {companyType === 'CAPITAL' ? 'Investment Preferences'
                   : companyType === 'TECHNICAL' ? 'Service Profile'
                   : 'Trading Preferences'}
@@ -598,11 +684,11 @@ export default function OnboardingPage() {
                   <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className={labelClass}>Min Ticket Size (ZMW) *</label>
-                    <input type="number" min={0} required onChange={(e) => setPreferences({...preferences, min_ticket_size: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} required value={preferences.min_ticket_size ?? ''} onChange={(e) => setPreferences({...preferences, min_ticket_size: Number(e.target.value)})} className={inputClass} />
                   </div>
                   <div className="space-y-2">
                     <label className={labelClass}>Max Ticket Size (ZMW) *</label>
-                    <input type="number" min={0} required onChange={(e) => setPreferences({...preferences, max_ticket_size: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} required value={preferences.max_ticket_size ?? ''} onChange={(e) => setPreferences({...preferences, max_ticket_size: Number(e.target.value)})} className={inputClass} />
                   </div>
                 </div>
 
@@ -629,7 +715,7 @@ export default function OnboardingPage() {
                 <div className="space-y-2">
                   <label className={labelClass}>Risk Tolerance *</label>
                   <div className="relative">
-                    <select required className={selectClass} onChange={(e) => setPreferences({...preferences, risk_tolerance: e.target.value})}>
+                    <select required className={selectClass} value={preferences.risk_tolerance ?? ''} onChange={(e) => setPreferences({...preferences, risk_tolerance: e.target.value})}>
                       <option value="">Select risk level...</option>
                       {RISK_LEVELS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                     </select>
@@ -640,7 +726,7 @@ export default function OnboardingPage() {
                 <div className="space-y-2">
                   <label className={labelClass}>Governance Preference *</label>
                   <div className="relative">
-                    <select required className={selectClass} onChange={(e) => setPreferences({...preferences, governance_preference: e.target.value})}>
+                    <select required className={selectClass} value={preferences.governance_preference ?? ''} onChange={(e) => setPreferences({...preferences, governance_preference: e.target.value})}>
                       <option value="">Select preference...</option>
                       {GOVERNANCE_PREFERENCES.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
                     </select>
@@ -686,21 +772,21 @@ export default function OnboardingPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className={labelClass}>Years of Experience *</label>
-                    <input type="number" min={0} required onChange={(e) => setPreferences({...preferences, years_of_experience: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} required value={preferences.years_of_experience ?? ''} onChange={(e) => setPreferences({...preferences, years_of_experience: Number(e.target.value)})} className={inputClass} />
                   </div>
                   <div className="space-y-2">
                     <label className={labelClass}>Min Project Size (ZMW)</label>
-                    <input type="number" min={0} onChange={(e) => setPreferences({...preferences, min_ticket_size_zmw: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} value={preferences.min_ticket_size_zmw ?? ''} onChange={(e) => setPreferences({...preferences, min_ticket_size_zmw: Number(e.target.value)})} className={inputClass} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className={labelClass}>Max Project Size (ZMW)</label>
-                    <input type="number" min={0} onChange={(e) => setPreferences({...preferences, max_ticket_size_zmw: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} value={preferences.max_ticket_size_zmw ?? ''} onChange={(e) => setPreferences({...preferences, max_ticket_size_zmw: Number(e.target.value)})} className={inputClass} />
                   </div>
                   <div className="space-y-2">
                     <label className={labelClass}>Max MW Capacity</label>
-                    <input type="number" min={0} onChange={(e) => setPreferences({...preferences, max_mw_capacity: Number(e.target.value)})} className={inputClass} />
+                    <input type="number" min={0} value={preferences.max_mw_capacity ?? ''} onChange={(e) => setPreferences({...preferences, max_mw_capacity: Number(e.target.value)})} className={inputClass} />
                   </div>
                 </div>
 
@@ -762,7 +848,7 @@ export default function OnboardingPage() {
                 <div className="space-y-2">
                   <label className={labelClass}>License Type *</label>
                   <div className="relative">
-                    <select required className={selectClass} onChange={(e) => setPreferences({...preferences, license_type: e.target.value})}>
+                    <select required className={selectClass} value={preferences.license_type ?? ''} onChange={(e) => setPreferences({...preferences, license_type: e.target.value})}>
                       <option value="">Select license type...</option>
                       <option value="GENERATION">Generation License</option>
                       <option value="TRADING">Trading License</option>
@@ -776,7 +862,7 @@ export default function OnboardingPage() {
 
                 <div className="space-y-2">
                   <label className={labelClass}>Max Offtake Capacity (MW) *</label>
-                  <input type="number" min={0} required onChange={(e) => setPreferences({...preferences, max_offtake_capacity_mw: Number(e.target.value)})} className={inputClass} />
+                  <input type="number" min={0} required value={preferences.max_offtake_capacity_mw ?? ''} onChange={(e) => setPreferences({...preferences, max_offtake_capacity_mw: Number(e.target.value)})} className={inputClass} />
                 </div>
 
                 <div className="space-y-2">
@@ -801,13 +887,13 @@ export default function OnboardingPage() {
 
                 <div className="space-y-2">
                   <label className={labelClass}>Min PPA Duration (Years) *</label>
-                  <input type="number" min={1} required onChange={(e) => setPreferences({...preferences, min_ppa_duration_years: Number(e.target.value)})} className={inputClass} />
+                  <input type="number" min={1} required value={preferences.min_ppa_duration_years ?? ''} onChange={(e) => setPreferences({...preferences, min_ppa_duration_years: Number(e.target.value)})} className={inputClass} />
                 </div>
               </div>
             )}
 
             <Button type="submit" disabled={loading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg shadow-green-900/20 flex gap-2 text-sm font-bold">
-              {loading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : <>Save & Finalize <Icons.arrowRight className="w-4 h-4" /></>}
+              {loading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : <>{editMode ? 'Update & Finalize' : 'Save & Finalize'} <Icons.arrowRight className="w-4 h-4" /></>}
             </Button>
           </form>
         )}
@@ -818,18 +904,22 @@ export default function OnboardingPage() {
               <Icons.check className="w-10 h-10 text-green-800" />
             </div>
             <div className="space-y-3">
-              <h1 className="text-3xl font-bold text-slate-900">Setup Complete</h1>
-              <p className="text-slate-500 font-medium max-w-md mx-auto">Your organization is now registered and under review. Our team will verify your profile shortly. You&apos;ll receive an email once approved.</p>
+              <h1 className="text-3xl font-bold text-slate-900">{editMode ? 'Changes Saved' : 'Setup Complete'}</h1>
+              <p className="text-slate-500 font-medium max-w-md mx-auto">
+                {editMode
+                  ? 'Your updated organization profile has been resubmitted for review. Our team will verify your changes shortly.'
+                  : 'Your organization is now registered and under review. Our team will verify your profile shortly. You\'ll receive an email once approved.'}
+              </p>
             </div>
             <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 flex items-center gap-3 text-amber-700 text-sm font-medium max-w-md mx-auto">
               <Icons.info className="w-5 h-5 shrink-0" />
               <div>
                 <p className="font-semibold">What happens next?</p>
-                <p className="font-normal mt-0.5">An administrator will review your organization. You&apos;ll have limited access until verification is complete.</p>
+                <p className="font-normal mt-0.5">{editMode ? 'An administrator will review your updated profile. You\'ll receive an email once the review is complete.' : 'An administrator will review your organization. You\'ll have limited access until verification is complete.'}</p>
               </div>
             </div>
-            <Button onClick={finishOnboarding} disabled={loading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg shadow-green-900/20 flex gap-2 text-sm font-bold mt-8">
-              {loading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : <>Go to Dashboard <Icons.arrowRight className="w-4 h-4" /></>}
+            <Button onClick={finishOnboarding} loading={loading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg shadow-green-900/20 flex gap-2 text-sm font-bold mt-8">
+              Go to Dashboard <Icons.arrowRight className="w-4 h-4" />
             </Button>
           </div>
         )}
@@ -839,6 +929,12 @@ export default function OnboardingPage() {
         <div className="p-4 rounded-xl bg-red-50 border border-red-100 flex items-center gap-3 text-red-600 text-sm font-medium animate-in fade-in zoom-in-95">
           <Icons.alertTriangle className="w-5 h-5 shrink-0" />
           <p>{error}</p>
+        </div>
+      )}
+      {loadingData && (
+        <div className="p-4 rounded-xl bg-blue-50 border border-blue-100 flex items-center gap-3 text-blue-600 text-sm font-medium">
+          <Icons.spinner className="w-5 h-5 animate-spin shrink-0" />
+          <p>Loading your existing data...</p>
         </div>
       )}
     </div>

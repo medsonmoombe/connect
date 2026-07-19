@@ -13,6 +13,8 @@ export const ENGAGEMENT_STATES: EngagementStatus[] = [
   'NDA_SIGNED',
   'DUE_DILIGENCE',
   'TERM_SHEET',
+  'CONTRACT_SIGNED',
+  'CAPITAL_COMMITTED',
   'CLOSED',
   'DROPPED',
 ];
@@ -33,13 +35,49 @@ export const STATE_TRANSITIONS: Record<EngagementStatus, EngagementStatus[]> = {
   INTRO_ACCEPTED: ['NDA_SIGNED', 'DROPPED'],
   NDA_SIGNED: ['DUE_DILIGENCE', 'DROPPED'],
   DUE_DILIGENCE: ['TERM_SHEET', 'DROPPED'],
-  TERM_SHEET: ['CLOSED', 'DROPPED'],
-  CLOSED: [], // Terminal state
-  DROPPED: [], // Terminal state
-  // Compatibility for old states if they exist in DB
+  TERM_SHEET: ['CONTRACT_SIGNED', 'DROPPED'],
   CONTRACT_SIGNED: ['CAPITAL_COMMITTED', 'DROPPED'],
   CAPITAL_COMMITTED: ['CLOSED', 'DROPPED'],
+  CLOSED: [],
+  DROPPED: [],
 };
+
+// ── Role-based transitions ───────────────────────────────────────────────────
+// Each non-DROPPED transition is owned by one party. DROPPED is always 'either'.
+
+export type TransitionRole = 'developer' | 'counterparty' | 'either';
+
+const TRANSITION_ROLES: Record<string, TransitionRole> = {
+  'INTRO_SENT→INTRO_ACCEPTED': 'developer',
+  'INTRO_ACCEPTED→NDA_SIGNED': 'counterparty',
+  'NDA_SIGNED→DUE_DILIGENCE': 'developer',
+  'DUE_DILIGENCE→TERM_SHEET': 'counterparty',
+  'TERM_SHEET→CONTRACT_SIGNED': 'developer',
+  'CONTRACT_SIGNED→CAPITAL_COMMITTED': 'counterparty',
+  'CAPITAL_COMMITTED→CLOSED': 'developer',
+};
+
+/** Returns which role is allowed to perform a given transition. */
+export function getTransitionRole(
+  currentState: EngagementStatus,
+  nextState: EngagementStatus
+): TransitionRole {
+  if (nextState === 'DROPPED') return 'either';
+  return TRANSITION_ROLES[`${currentState}→${nextState}`] ?? 'either';
+}
+
+/** Returns the next states the given role is allowed to trigger. */
+export function getTransitionsForRole(
+  currentState: EngagementStatus,
+  userRole: TransitionRole | null
+): EngagementStatus[] {
+  if (!userRole) return [];
+  const all = STATE_TRANSITIONS[currentState] ?? [];
+  return all.filter(ns => {
+    const required = getTransitionRole(currentState, ns);
+    return required === 'either' || required === userRole;
+  });
+}
 
 // Check if a state transition is valid
 export function isValidTransition(
@@ -68,10 +106,10 @@ export function getStateLabel(state: EngagementStatus): string {
     NDA_SIGNED: 'NDA Signed',
     DUE_DILIGENCE: 'Due Diligence',
     TERM_SHEET: 'Term Sheet',
-    CLOSED: 'Closed',
-    DROPPED: 'Dropped',
     CONTRACT_SIGNED: 'Contract Signed',
     CAPITAL_COMMITTED: 'Capital Committed',
+    CLOSED: 'Closed',
+    DROPPED: 'Dropped',
   };
   return labels[state] ?? state;
 }
@@ -79,15 +117,15 @@ export function getStateLabel(state: EngagementStatus): string {
 // Get the progress percentage for a state
 export function getStateProgress(state: EngagementStatus): number {
   const progress: Record<string, number> = {
-    INTRO_SENT: 16,
-    INTRO_ACCEPTED: 33,
-    NDA_SIGNED: 50,
-    DUE_DILIGENCE: 66,
-    TERM_SHEET: 83,
+    INTRO_SENT: 12,
+    INTRO_ACCEPTED: 25,
+    NDA_SIGNED: 37,
+    DUE_DILIGENCE: 50,
+    TERM_SHEET: 62,
+    CONTRACT_SIGNED: 75,
+    CAPITAL_COMMITTED: 88,
     CLOSED: 100,
     DROPPED: 0,
-    CONTRACT_SIGNED: 75,
-    CAPITAL_COMMITTED: 90,
   };
   return progress[state] ?? 0;
 }
@@ -114,7 +152,9 @@ export class EngagementService {
    * Fetch all engagements for a company (either as developer or counterparty)
    */
   static async getCompanyEngagements(companyId: string) {
-    const { data } = await apiClient.get<{ data: any[] }>(`/engagements?counterparty_id=${companyId}`);
+    // No filter needed — the API GET handler resolves both developer projects
+    // and partner counterparty records server-side based on the authenticated user
+    const { data } = await apiClient.get<{ data: any[] }>('/engagements?include_messages=true');
     return data || [];
   }
 
@@ -170,8 +210,6 @@ export class EngagementService {
       'DUE_DILIGENCE',
       'TERM_SHEET',
       'CLOSED',
-      'CONTRACT_SIGNED',
-      'CAPITAL_COMMITTED'
     ];
     return allowedStates.includes(status);
   }

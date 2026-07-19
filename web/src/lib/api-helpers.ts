@@ -1,5 +1,113 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServer, getSupabaseAdmin, fetchProfileWithMemberships } from './supabase-server';
+
+// ── PRD §13 standard response envelope ────────────────────────────────────────
+// Success: { success: true, data, meta }
+// Failure: { success: false, error: { code, message, trace_id } }
+
+/** Generate a per-request trace id (used in the envelope + audit). */
+export function makeTraceId(): string {
+  return 'req-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
+/** Standard success envelope (PRD §13). */
+export function apiSuccess<T>(data: T, init?: ResponseInit, meta?: Record<string, unknown>): NextResponse {
+  return NextResponse.json(
+    { success: true, data, meta: meta ?? {} },
+    init
+  );
+}
+
+/** Standard failure envelope (PRD §13). */
+export function apiError(
+  code: string,
+  message: string,
+  status: number,
+  traceId?: string,
+  init?: ResponseInit
+): NextResponse {
+  return NextResponse.json(
+    { success: false, error: { code, message, trace_id: traceId ?? null } },
+    { status, ...(init ?? {}) }
+  );
+}
+
+// Error code constants used across routes.
+export const ERR = {
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  ACCOUNT_SUSPENDED: 'ACCOUNT_SUSPENDED',
+  ORG_DEACTIVATED: 'ORG_DEACTIVATED',
+  MFA_REQUIRED: 'MFA_REQUIRED',
+  NOT_FOUND: 'NOT_FOUND',
+  VALIDATION: 'VALIDATION',
+  CONFLICT: 'CONFLICT',
+  RATE_LIMITED: 'RATE_LIMITED',
+  PRECONDITION_FAILED: 'PRECONDITION_FAILED',
+  INTERNAL: 'INTERNAL',
+} as const;
+
+/**
+ * Idempotency helper (PRD §14). Looks up a cached response by
+ * `(userId, route, Idempotency-Key)`; if found AND not older than TTL, returns
+ * the cached envelope. Otherwise returns null — the caller performs the work,
+ * then calls `saveIdempotencyResponse(...)` to cache it.
+ *
+ *Returns the cached NextResponse on a replay, or null on a miss.
+ */
+export async function getIdempotencyResponse(
+  req: NextRequest,
+  userId: string,
+  route: string
+): Promise<NextResponse | null> {
+  const key = req.headers.get('idempotency-key') || req.headers.get('Idempotency-Key');
+  if (!key) return null;
+  if (key.length > 256) return null; // guard against absurd keys
+
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from('idempotency_keys')
+    .select('response_body, status_code, created_at')
+    .eq('user_id', userId)
+    .eq('route', route)
+    .eq('key', key)
+    .maybeSingle();
+
+  if (!data) return null;
+  // TTL guard (24h). On expiry, treat as a miss.
+  const ageH = (Date.now() - new Date(data.created_at).getTime()) / 3600_000;
+  if (ageH > 24) return null;
+
+  return NextResponse.json(data.response_body, { status: data.status_code });
+}
+
+/** Cache a response for idempotent replay. No-op if there's no Idempotency-Key. */
+export async function saveIdempotencyResponse(
+  req: NextRequest,
+  userId: string,
+  route: string,
+  responseBody: unknown,
+  statusCode: number
+): Promise<void> {
+  const key = req.headers.get('idempotency-key') || req.headers.get('Idempotency-Key');
+  if (!key) return;
+  try {
+    const admin = getSupabaseAdmin();
+    await admin.from('idempotency_keys').upsert(
+      {
+        user_id: userId,
+        route,
+        key,
+        response_body: responseBody,
+        status_code: statusCode,
+      },
+      { onConflict: 'user_id,route,key' }
+    );
+  } catch (err) {
+    // Idempotency caching is best-effort — never fail the request over it.
+    console.error('[Idempotency] save error:', (err as any)?.message);
+  }
+}
 
 export async function getAuthenticatedUser(req: NextRequest) {
   const supabase = await getSupabaseServer();
@@ -153,6 +261,23 @@ export async function verifyProjectOwnership(
   return data?.developer_id === companyId;
 }
 
+/** Only the user who created the project or a platform admin can proceed. */
+export async function verifyProjectCreator(
+  projectId: string,
+  userId: string | undefined,
+  isAdmin: boolean
+): Promise<boolean> {
+  if (isAdmin) return true;
+  if (!userId) return false;
+  const admin = getSupabaseAdmin();
+  const { data } = await admin
+    .from('projects')
+    .select('created_by')
+    .eq('id', projectId)
+    .single();
+  return data?.created_by === userId;
+}
+
 /**
  * Verify the requesting user is a party to the engagement (or is platform admin).
  */
@@ -164,13 +289,34 @@ export async function verifyEngagementAccess(
   if (isAdmin) return true;
   if (!companyId) return false;
   const admin = getSupabaseAdmin();
-  const { data } = await admin
+
+  // Get the engagement and the project's developer_id in one query
+  const { data: engagement } = await admin
     .from('engagements')
-    .select('developer_org_id, partner_org_id')
+    .select('counterparty_id, project:projects(developer_id)')
     .eq('id', engagementId)
     .single();
-  if (!data) return false;
-  return data.developer_org_id === companyId || data.partner_org_id === companyId;
+  if (!engagement) return false;
+
+  // Check if user belongs to the developer org
+  if ((engagement.project as any)?.developer_id === companyId) return true;
+
+  // Check if user belongs to the counterparty org via capital_partners or technical_partners
+  const { data: cpPartner } = await admin
+    .from('capital_partners')
+    .select('company_id')
+    .eq('id', engagement.counterparty_id)
+    .maybeSingle();
+  if (cpPartner?.company_id === companyId) return true;
+
+  const { data: tpPartner } = await admin
+    .from('technical_partners')
+    .select('company_id')
+    .eq('id', engagement.counterparty_id)
+    .maybeSingle();
+  if (tpPartner?.company_id === companyId) return true;
+
+  return false;
 }
 
 /**
@@ -199,9 +345,9 @@ export const ALLOWED_MIME_TYPES = new Set([
 ]);
 
 /**
- * Max file upload size: 20MB.
+ * Max file upload size: 50MB (PRD §E).
  */
-export const MAX_FILE_SIZE = 20 * 1024 * 1024;
+export const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
 /**
  * Verify the requesting user has completed MFA for this session.

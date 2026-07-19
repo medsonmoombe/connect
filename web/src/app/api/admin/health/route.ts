@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null),
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', thirtyDaysAgo.toISOString()),
       supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', sixtyDaysAgo.toISOString()).lt('created_at', thirtyDaysAgo.toISOString()),
-      supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).in('status', ['submitted', 'under_review']),
+      supabase.from('projects').select('id', { count: 'exact', head: true }).is('deleted_at', null).in('status', ['scoring', 'pending_live']),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', thirtyDaysAgo.toISOString()),
       supabase.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null).gte('created_at', sixtyDaysAgo.toISOString()).lt('created_at', thirtyDaysAgo.toISOString()),

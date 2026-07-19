@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, badRequest, serverError, handleRouteError, writeAuditLog } from '@/lib/api-helpers';
+import { getAuthenticatedUser, unauthorized, badRequest, serverError, handleRouteError, writeAuditLog, forbidden } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 type Params = { params: Promise<{ id: string }> };
@@ -19,6 +19,18 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (compatibility_score < 0 || compatibility_score > 100) {
       return badRequest('compatibility_score must be between 0 and 100');
+    }
+
+    const { data: project, error: projectError } = await admin
+      .from('projects')
+      .select('developer_id')
+      .eq('id', projectId)
+      .single();
+
+    if (projectError || !project) return badRequest('Project not found');
+
+    if (!user.is_platform_admin && project.developer_id !== user.company_id) {
+      return forbidden();
     }
 
     const { data, error } = await admin

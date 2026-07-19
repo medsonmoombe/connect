@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, forbidden, badRequest, serverError, handleRouteError, writeAuditLog } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { isValidTransition } from '@/lib/engagement';
 
 export async function GET(
   req: NextRequest,
@@ -176,7 +177,7 @@ export async function GET(
           .from('projects')
           .select('id, name, developer_id, technology_type, location_country, location_region, project_size_mw, project_stage, status, created_at')
           .is('deleted_at', null)
-          .eq('status', 'submitted');
+          .eq('status', 'live');
 
         const devIds = [...new Set((projects ?? []).map((p: any) => p.developer_id).filter(Boolean))];
         const { data: devs } = devIds.length > 0
@@ -242,8 +243,6 @@ export async function POST(
         counterparty_id: partner.id,
         counterparty_type,
         status: 'INTRO_SENT',
-        developer_org_id: project.developer_id,
-        partner_org_id: id,
       };
 
       const { data: engagement, error: engErr } = await admin
@@ -274,16 +273,6 @@ export async function POST(
         return badRequest('engagement_id and new_status are required');
       }
 
-      const VALID_TRANSITIONS: Record<string, string[]> = {
-        'INTRO_SENT': ['INTRO_ACCEPTED', 'DROPPED'],
-        'INTRO_ACCEPTED': ['NDA_SIGNED', 'DROPPED'],
-        'NDA_SIGNED': ['DUE_DILIGENCE', 'DROPPED'],
-        'DUE_DILIGENCE': ['TERM_SHEET', 'DROPPED'],
-        'TERM_SHEET': ['CONTRACT_SIGNED', 'CLOSED', 'DROPPED'],
-        'CONTRACT_SIGNED': ['CAPITAL_COMMITTED', 'CLOSED'],
-        'CAPITAL_COMMITTED': ['CLOSED'],
-      };
-
       const { data: engagement, error: fetchErr } = await admin
         .from('engagements')
         .select('id, status')
@@ -292,8 +281,7 @@ export async function POST(
 
       if (fetchErr || !engagement) return badRequest('Engagement not found');
 
-      const allowed = VALID_TRANSITIONS[engagement.status] ?? [];
-      if (!allowed.includes(new_status)) {
+      if (!isValidTransition(engagement.status, new_status)) {
         return badRequest(`Cannot advance from ${engagement.status} to ${new_status}`);
       }
 

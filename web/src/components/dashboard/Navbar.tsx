@@ -8,6 +8,7 @@ import { Drawer } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 
 interface DashboardNavbarProps {
   title: string;
@@ -61,6 +62,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
   const router = useRouter();
   const breadcrumbs = useBreadcrumbs();
   const { notifications, unreadCount, markAllRead, markRead } = useNotifications();
+  const { totalUnread: unreadMessages } = useUnreadMessages();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -179,6 +181,20 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           <Icons.zap className="size-[18px]" />
           {unreadCount > 0 && (
             <span className="absolute top-1 right-1 size-2 rounded-full navbar-notif-badge" />
+          )}
+        </button>
+
+        {/* Messages inbox — distinct unread-messages counter */}
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="navbar-btn size-9 relative"
+          aria-label={`Messages${unreadMessages > 0 ? ` (${unreadMessages} unread)` : ''}`}
+        >
+          <Icons.messageSquare className="size-[18px]" />
+          {unreadMessages > 0 && (
+            <span className="absolute -top-0.5 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center border-2 border-white">
+              {unreadMessages > 99 ? '99+' : unreadMessages}
+            </span>
           )}
         </button>
 

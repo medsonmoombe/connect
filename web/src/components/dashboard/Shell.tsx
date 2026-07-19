@@ -36,8 +36,9 @@ function developerNav(pathname: string, searchParams: string, isOrgAdmin: boolea
           { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/developer' && !tab, href: '/dashboard/developer' },
           { icon: <Icons.folder className="size-[18px]" />, label: 'My Projects', active: tab === 'projects', href: '/dashboard/developer?tab=projects' },
           { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Data Room', active: tab === 'dataroom', href: '/dashboard/developer?tab=dataroom' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/developer?tab=messages', badge: 3 },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/developer?tab=messages' },
           { icon: <Icons.pieChart className="size-[18px]" />, label: 'Analytics', active: tab === 'analytics', href: '/dashboard/developer?tab=analytics' },
+          { icon: <Icons.users className="size-[18px]" />, label: 'Inbound Interest', active: tab === 'inbound', href: '/dashboard/developer?tab=inbound' },
         ] as SidebarNavItem[],
       },
       {
@@ -80,9 +81,11 @@ function investorNav(pathname: string, searchParams: string): NavConfig {
         label: 'Main',
         items: [
           { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/investor' && !tab, href: '/dashboard/investor' },
+          { icon: <Icons.target className="size-[18px]" />, label: 'My Matches', active: tab === 'matches', href: '/dashboard/investor?tab=matches' },
           { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/investor?tab=marketplace' },
           { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/investor?tab=portfolio' },
           { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/investor?tab=messages' },
+          { icon: <Icons.bookmark className="size-[18px]" />, label: 'Saved Projects', active: tab === 'bookmarks', href: '/dashboard/investor?tab=bookmarks' },
         ] as SidebarNavItem[],
       },
       {
@@ -127,7 +130,7 @@ function technicalNav(pathname: string, searchParams: string): NavConfig {
           { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/technical' && !tab, href: '/dashboard/technical' },
           { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/technical?tab=marketplace' },
           { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/technical?tab=portfolio' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/technical?tab=messages', badge: 2 },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/technical?tab=messages' },
         ] as SidebarNavItem[],
       },
       {

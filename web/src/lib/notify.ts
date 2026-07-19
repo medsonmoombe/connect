@@ -12,11 +12,12 @@ export const DEFAULT_NOTIFICATION_PREFS: Record<string, boolean> = {
   match_found: true,
   engagement_updates: true,
   project_status: true,
+  project_live: true,
   project_rejected: true,
   project_internal_rejected: true,
   project_pending_internal_review: true,
   project_approved_internal: true,
-  new_messages: false,
+  new_messages: true,
 };
 
 // ── Fetch a user's notification preferences ───────────────────────────────────
@@ -27,7 +28,7 @@ export async function getUserPreferences(userId: string): Promise<Record<string,
     const { data, error } = await admin
       .from('user_profiles')
       .select('notification_preferences')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single();
 
     if (error || !data) return { ...DEFAULT_NOTIFICATION_PREFS };
@@ -280,17 +281,17 @@ export async function notifyUsers(params: {
   let inAppCount = 0;
   let emailCount = 0;
 
-  // Batch-fetch all preferences in one query
+  // Batch-fetch all preferences in one query from user_profiles
   const admin = getSupabaseAdmin();
   const { data: profiles } = await admin
     .from('user_profiles')
-    .select('user_id, notification_preferences')
-    .in('user_id', params.userIds);
+    .select('id, notification_preferences')
+    .in('id', params.userIds);
 
   const prefMap = new Map<string, Record<string, boolean>>();
   for (const p of profiles ?? []) {
     const stored = (p.notification_preferences as Record<string, boolean> | null) ?? {};
-    prefMap.set(p.user_id, { ...DEFAULT_NOTIFICATION_PREFS, ...stored });
+    prefMap.set(p.id, { ...DEFAULT_NOTIFICATION_PREFS, ...stored });
   }
 
   // Filter to users who have this type enabled
@@ -368,6 +369,17 @@ export const notificationBuilders = {
     action_url: '/dashboard/admin/verification',
   }),
 
+  orgResubmitted: (params: {
+    orgName: string;
+    requesterName: string;
+  }): NotificationPayload => ({
+    type: 'org_status_change',
+    title: 'Organization resubmitted for review',
+    body: `${params.requesterName} updated and resubmitted "${params.orgName}" for verification.`,
+    entity_type: 'organizations',
+    action_url: '/dashboard/admin/verification',
+  }),
+
   matchFound: (params: {
     projectName: string;
     partnerName: string;
@@ -378,6 +390,19 @@ export const notificationBuilders = {
     body: `${params.partnerName} matches "${params.projectName}" with ${params.score}% compatibility.`,
     entity_type: 'projects',
     action_url: '/dashboard',
+  }),
+
+  expressInterest: (params: {
+    projectName: string;
+    partnerName: string;
+    engagementId: string;
+  }): NotificationPayload => ({
+    type: 'engagement_updates',
+    title: `New interest in "${params.projectName}"`,
+    body: `${params.partnerName} has expressed interest in your project. Review and accept to proceed.`,
+    entity_type: 'engagements',
+    entity_id: params.engagementId,
+    action_url: `/dashboard/engagements/${params.engagementId}`,
   }),
 
   engagementUpdate: (params: {
@@ -393,13 +418,14 @@ export const notificationBuilders = {
 
   messageReceived: (params: {
     senderName: string;
-    preview: string;
+    engagementId: string;
   }): NotificationPayload => ({
     type: 'new_messages',
     title: `New message from ${params.senderName}`,
-    body: params.preview.length > 100 ? params.preview.slice(0, 100) + '...' : params.preview,
+    body: `${params.senderName} sent you a message. Open to view.`,
     entity_type: 'messages',
-    action_url: '/dashboard',
+    entity_id: params.engagementId,
+    action_url: `/dashboard/engagements/${params.engagementId}`,
   }),
 
   systemAnnouncement: (params: {
@@ -491,6 +517,16 @@ export const notificationBuilders = {
     body: `Your project has been reviewed and approved by the platform. It is now visible to partners.`,
     entity_type: 'projects',
     action_url: params.actionUrl ?? '/projects/' + params.projectName,
+  }),
+
+  projectLive: (params: {
+    projectName: string;
+  }): NotificationPayload => ({
+    type: 'project_live',
+    title: `"${params.projectName}" is now live`,
+    body: `Your project is now visible to investors and technical partners. Matched partners will appear shortly.`,
+    entity_type: 'projects',
+    action_url: '/dashboard/developer',
   }),
 
   projectStatusChanged: (params: {

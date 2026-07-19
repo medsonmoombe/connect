@@ -34,6 +34,8 @@ export async function sendEmail(params: {
 
     if (result.error) {
       console.error(`[Email] Resend error for "${params.subject}" to ${recipients.join(',')}:`, JSON.stringify(result.error));
+      console.log(`[Email] ⚠️ Email content (for testing — Resend blocked delivery):`);
+      console.log(params.html);
       await logEmail({ type: params.logType ?? 'unknown', to: recipients, subject: params.subject, success: false, error: JSON.stringify(result.error), entity_id: params.logEntityId });
       return { success: false, error: JSON.stringify(result.error) };
     }
@@ -118,6 +120,16 @@ export async function sendAdminNewOrgNotification(params: {
   return sendEmail({ to: params.adminEmails, subject: t.subject, html: t.html, logType: 'admin_new_org', logEntityId: params.orgName });
 }
 
+export async function sendAdminOrgResubmittedNotification(params: {
+  adminEmails: string[];
+  orgName: string;
+  orgType: string;
+  requesterName: string;
+}) {
+  const t = templates.adminOrgResubmittedEmail({ orgName: params.orgName, orgType: params.orgType, requesterName: params.requesterName });
+  return sendEmail({ to: params.adminEmails, subject: t.subject, html: t.html, logType: 'admin_org_resubmitted', logEntityId: params.orgName });
+}
+
 export async function sendAdminUserProvisionedEmail(params: { to: string; email: string; generatedPassword?: string }) {
   const t = templates.adminUserProvisionedEmail({ email: params.email, generatedPassword: params.generatedPassword });
   return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'admin_user_provisioned' });
@@ -148,8 +160,8 @@ export async function sendProjectStatusEmail(params: { to: string; projectName: 
   return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'project_status' });
 }
 
-export async function sendMessageReceivedEmail(params: { to: string; senderName: string; recipientName: string; preview: string; projectName: string }) {
-  const t = templates.messageReceivedEmail({ senderName: params.senderName, recipientName: params.recipientName, preview: params.preview, projectName: params.projectName });
+export async function sendMessageReceivedEmail(params: { to: string; senderName: string; recipientName: string; projectName: string; engagementId: string }) {
+  const t = templates.messageReceivedEmail({ senderName: params.senderName, recipientName: params.recipientName, projectName: params.projectName, engagementId: params.engagementId });
   return sendEmail({ to: params.to, subject: t.subject, html: t.html, logType: 'message_received' });
 }
 

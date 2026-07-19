@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, forbidden, badRequest, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { createNotification, notificationBuilders } from '@/lib/notify';
+import { createNotification, notificationBuilders, notifyUsers } from '@/lib/notify';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const { data: engagement, error: fetchErr } = await admin
       .from('engagements')
-      .select('id, status, project_id, developer_org_id, partner_org_id')
+      .select('id, status, project_id, counterparty_id, project:projects(developer_id)')
       .eq('id', id)
       .single();
 
@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     const { error } = await admin
       .from('engagements')
-      .update({ status, admin_override_reason: reason, admin_override_by: user.id, updated_at: new Date().toISOString() })
+      .update({ status, updated_at: new Date().toISOString() })
       .eq('id', id);
 
     if (error) {
@@ -59,8 +59,28 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       req,
     });
 
-    // Notify both org owners
-    const orgIds = [engagement.developer_org_id, engagement.partner_org_id].filter(Boolean);
+    // Resolve counterparty company_id from the partner record
+    let counterpartyCompanyId: string | null = null;
+    const counterpartyId = engagement.counterparty_id as string;
+    const { data: cpPartner } = await admin
+      .from('capital_partners')
+      .select('company_id')
+      .eq('id', counterpartyId)
+      .maybeSingle();
+    if (cpPartner) {
+      counterpartyCompanyId = cpPartner.company_id;
+    } else {
+      const { data: tpPartner } = await admin
+        .from('technical_partners')
+        .select('company_id')
+        .eq('id', counterpartyId)
+        .maybeSingle();
+      counterpartyCompanyId = tpPartner?.company_id ?? null;
+    }
+
+    // Notify both org owners (in-app + email)
+    const developerId = (engagement.project as any)?.developer_id;
+    const orgIds = [developerId, counterpartyCompanyId].filter(Boolean) as string[];
     if (orgIds.length > 0) {
       const { data: members } = await admin
         .from('company_members')
@@ -69,13 +89,34 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         .in('company_id', orgIds)
         .eq('role', 'OWNER');
 
-      for (const m of members ?? []) {
-        await createNotification({
-          userId: m.user_id,
-          payload: notificationBuilders.systemAnnouncement({
-            title: `Engagement ${status.toLowerCase()} by admin`,
-            body: `An engagement has been ${status.toLowerCase()} by a platform administrator. Reason: ${reason}`,
-          }),
+      const userIds = (members ?? []).map(m => m.user_id);
+      if (userIds.length > 0) {
+        const { data: profiles } = await admin
+          .from('user_profiles')
+          .select('id, email')
+          .in('id', userIds);
+
+        const emailMap: Record<string, string> = {};
+        for (const p of profiles ?? []) {
+          if (p.email) emailMap[p.id] = p.email;
+        }
+
+        const payload = notificationBuilders.systemAnnouncement({
+          title: `Engagement ${status.toLowerCase()} by admin`,
+          body: `An engagement has been ${status.toLowerCase()} by a platform administrator. Reason: ${reason}`,
+        });
+
+        await notifyUsers({
+          userIds,
+          payload,
+          channel: 'both',
+          emailMap,
+          emailTemplate: {
+            subject: `Engagement ${status.toLowerCase()}: platform admin action`,
+            html: `<p>An engagement has been <strong>${status.toLowerCase()}</strong> by a platform administrator.</p><p>Reason: ${reason}</p>`,
+          },
+          emailLogType: 'engagement_admin_override',
+          emailEntityId: id,
         });
       }
     }

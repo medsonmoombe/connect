@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { projectService } from '@/services/projects';
 import { Project, CapitalMatchResult, TechnicalMatchResult, ProjectStage } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,12 @@ import { MatchingSection } from '@/components/MatchingSection';
 import { storageService } from '@/lib/storage';
 import { useAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
-import { engagementService } from '@/lib/engagement';
+import { engagementService, getStateLabel } from '@/lib/engagement';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getReviewRecommendation } from '@/lib/review-intelligence';
-import { ReviewRecommendationCard } from '@/components/ReviewRecommendationCard';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Engagement } from '@/types';
+
 
 const STAGES: { key: ProjectStage; label: string }[] = [
   { key: 'CONCEPT', label: 'Concept' },
@@ -28,14 +29,12 @@ const STAGES: { key: ProjectStage; label: string }[] = [
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  draft:                   { label: 'Draft',                  color: 'text-slate-500',   bg: 'bg-slate-50',    border: 'border-slate-100' },
-  pending_internal_review: { label: 'Pending Internal Review', color: 'text-purple-600',  bg: 'bg-purple-50',   border: 'border-purple-100' },
-  returned:                { label: 'Returned for Rework',    color: 'text-orange-600',  bg: 'bg-orange-50',   border: 'border-orange-100' },
-  submitted:               { label: 'Submitted',              color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-100' },
-  under_review:            { label: 'Under Review',           color: 'text-blue-600',    bg: 'bg-blue-50',     border: 'border-blue-100' },
-  validated:               { label: 'Validated',              color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-100' },
-  rejected:                { label: 'Rejected',               color: 'text-red-600',     bg: 'bg-red-50',      border: 'border-red-100' },
-  archived:                { label: 'Archived',               color: 'text-slate-400',   bg: 'bg-slate-50',    border: 'border-slate-100' },
+  draft:        { label: 'Draft',        color: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-100' },
+  scoring:      { label: 'Scoring',      color: 'text-blue-600',    bg: 'bg-blue-50',    border: 'border-blue-100' },
+  pending_live: { label: 'Pending Live', color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100' },
+  live:         { label: 'Live',         color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+  deactivated:  { label: 'Deactivated',  color: 'text-orange-600',  bg: 'bg-orange-50',  border: 'border-orange-100' },
+  archived:     { label: 'Archived',     color: 'text-slate-400',   bg: 'bg-slate-50',   border: 'border-slate-100' },
 };
 
 function PageSkeleton() {
@@ -59,6 +58,8 @@ function PageSkeleton() {
 export default function ProjectDetailsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const incomingEngagementId = searchParams.get('engagement_id');
   const { user } = useAuth();
 
   const [project, setProject] = useState<Project | null>(null);
@@ -66,59 +67,127 @@ export default function ProjectDetailsPage() {
   const [activeStage, setActiveStage] = useState(0);
   const [capitalMatches, setCapitalMatches] = useState<CapitalMatchResult[]>([]);
   const [technicalMatches, setTechnicalMatches] = useState<TechnicalMatchResult[]>([]);
+  const [projectEngagements, setProjectEngagements] = useState<Engagement[]>([]);
 
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [showOverride, setShowOverride] = useState(false);
   const [showAllFlags, setShowAllFlags] = useState(false);
   const [showAllRecs, setShowAllRecs] = useState(false);
+  const [showDeactivateDialog, setShowDeactivateDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [expressingInterest, setExpressingInterest] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const PREVIEW_COUNT = 3;
 
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-refetch when countdown reaches 0
+  const wasPendingRef = useRef(false);
+  useEffect(() => {
+    if (!project || project.status !== 'pending_live' || !project.scores_visible_at) {
+      wasPendingRef.current = false;
+      return;
+    }
+    const visibleAt = new Date(project.scores_visible_at).getTime();
+    const remaining = visibleAt - Date.now();
+
+    if (remaining <= 0 && !wasPendingRef.current) {
+      wasPendingRef.current = true;
+      const timer = setTimeout(async () => {
+        try {
+          const data = await projectService.getProjectDetails(params.id as string);
+          setProject(data);
+          if (data.status === 'live') {
+            toast.success('Your project is now live!');
+            const matches = await projectService.getProjectMatches(params.id as string);
+            setCapitalMatches(matches.capital);
+            setTechnicalMatches(matches.technical);
+          }
+        } catch {}
+      }, 60_000);
+      return () => clearTimeout(timer);
+    }
+    if (remaining > 0) {
+      wasPendingRef.current = false;
+    }
+  }, [project?.status, project?.scores_visible_at, now]);
+
   // ── Permissions ────────────────────────────────────────────
-  const isCreator = !!project && !!user && project.created_by === user.id;
   const isOwner = !!project && !!user && (
     project.developer_id === user.company_id || user.is_platform_admin
+  );
+  const isCreator = !!project && !!user && (
+    project.created_by === user.id || user.is_platform_admin
   );
   const isPlatformAdmin = !!user?.is_platform_admin;
   const isPartner = !isOwner && !!user?.company_id;
   const [hasNda, setHasNda] = useState(false);
-  const [isInternalReviewer, setIsInternalReviewer] = useState(false);
-  const [orgMode, setOrgMode] = useState<'direct' | 'internal_review'>('direct');
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
-  const [processingReview, setProcessingReview] = useState(false);
+  const [partnerEngagement, setPartnerEngagement] = useState<Engagement | null>(null);
 
   useEffect(() => {
     async function checkPartner() {
-      if (isPartner && user?.company_id && project) {
-        try {
-          const engagements = await engagementService.getCompanyEngagements(user.company_id);
-          const eng = engagements.find(e => e.project_id === project.id);
-          if (eng) setHasNda(eng.status !== 'INTRO_SENT' && eng.status !== 'INTRO_ACCEPTED');
-        } catch {}
-      }
-    }
-    checkPartner();
-  }, [isPartner, user, project]);
-
-  // Check if current user is the designated internal reviewer
-  useEffect(() => {
-    async function checkInternalReviewer() {
       if (!user?.company_id || !project) return;
+      if (project.developer_id === user.company_id) return;
+      const NDA_STATUSES = ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET', 'CONTRACT_SIGNED', 'CAPITAL_COMMITTED', 'CLOSED'];
       try {
-        const { settings } = await apiClient.get<{ settings: { project_submission_mode?: string; internal_reviewer_id?: string } }>('/org/settings');
-        const mode = settings.project_submission_mode === 'internal_review' ? 'internal_review' : 'direct';
-        setOrgMode(mode);
-        if (mode === 'internal_review' && settings.internal_reviewer_id) {
-          setIsInternalReviewer(settings.internal_reviewer_id === user.id);
+        // If we arrived from an engagement page, fetch that engagement directly
+        if (incomingEngagementId) {
+          const res = await fetch(`/api/engagements/${incomingEngagementId}`);
+          const json = await res.json();
+          const eng: Engagement | null = json.data ?? null;
+          setPartnerEngagement(eng);
+          setHasNda(eng ? NDA_STATUSES.includes(eng.status) : false);
+          return;
         }
+        // Otherwise query by project
+        const res = await fetch(`/api/engagements?project_id=${project.id}`);
+        const json = await res.json();
+        const eng: Engagement | null = (json.data as Engagement[])?.[0] ?? null;
+        setPartnerEngagement(eng);
+        setHasNda(eng ? NDA_STATUSES.includes(eng.status) : false);
       } catch {}
     }
-    checkInternalReviewer();
-  }, [user, project]);
+    checkPartner();
+  }, [user, project, incomingEngagementId]);
+
+  // ── Bookmark state ─────────────────────────────────────────
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarking, setBookmarking] = useState(false);
+
+  useEffect(() => {
+    async function checkBookmark() {
+      if (!user || !params.id) return;
+      try {
+        const res = await fetch(`/api/projects/${params.id}/bookmark`);
+        const json = await res.json();
+        setIsBookmarked(!!json.bookmarked);
+      } catch {}
+    }
+    checkBookmark();
+  }, [user, params.id]);
+
+  const handleToggleBookmark = async () => {
+    if (!params.id || bookmarking) return;
+    setBookmarking(true);
+    try {
+      const res = await fetch(`/api/projects/${params.id}/bookmark`, { method: 'POST' });
+      const json = await res.json();
+      setIsBookmarked(json.bookmarked);
+      toast.success(json.bookmarked ? 'Project saved' : 'Project removed from saved');
+    } catch {
+      toast.error('Failed to update bookmark');
+    } finally {
+      setBookmarking(false);
+    }
+  };
 
   // ── Fetch project ──────────────────────────────────────────
   useEffect(() => {
@@ -133,6 +202,11 @@ export default function ProjectDetailsPage() {
         const matches = await projectService.getProjectMatches(params.id as string);
         setCapitalMatches(matches.capital);
         setTechnicalMatches(matches.technical);
+
+        try {
+          const engagements = await engagementService.getProjectEngagements(params.id as string);
+          setProjectEngagements(engagements || []);
+        } catch {}
       } catch (error) {
         console.error('Error fetching project:', error);
       } finally {
@@ -155,12 +229,16 @@ export default function ProjectDetailsPage() {
     if (!file || !project) return;
     setUploading(true);
     try {
-      const { file_url, storage_path } = await storageService.uploadProjectDocument(project.id, file, file.name);
-      const newDoc = await projectService.addProjectDocument({ project_id: project.id, document_type: file.name, file_url, storage_path });
+      const { file_url, storage_path, file_hash } = await storageService.uploadProjectDocument(project.id, file, file.name);
+      const newDoc = await projectService.addProjectDocument({ project_id: project.id, document_type: file.name, file_url, storage_path, file_hash });
       setProject({ ...project, documents: [...(project.documents || []), newDoc] });
       toast.success('Document uploaded');
-    } catch {
-      toast.error('Failed to upload document');
+    } catch (err: any) {
+      if (err?.status === 409) {
+        toast.error('Duplicate file — an identical document already exists in this project.');
+      } else {
+        toast.error('Failed to upload document');
+      }
     } finally {
       setUploading(false);
     }
@@ -168,9 +246,14 @@ export default function ProjectDetailsPage() {
 
   const handleDeleteDocument = async (docId: string, storagePath: string) => {
     try {
-      await projectService.deleteProjectDocument(docId, storagePath, project!.id);
+      const result = await projectService.deleteProjectDocument(docId, storagePath, project!.id);
       setProject({ ...project!, documents: project!.documents?.filter(d => d.id !== docId) });
-      toast.success('Document removed');
+      if (result?.scores_invalidated) {
+        setProject(prev => prev ? { ...prev, scores: undefined, status: 'draft' as const } : prev);
+        toast.warning('Document removed. AI scores were cleared — re-analyze before going live.');
+      } else {
+        toast.success('Document removed');
+      }
     } catch {
       toast.error('Failed to delete document');
     }
@@ -180,29 +263,11 @@ export default function ProjectDetailsPage() {
     if (!project?.documents?.length) { toast.error('Upload documents first'); return; }
     setAnalyzing(true);
     try {
-      const responseData = await apiClient.post<{ success: boolean; data: any }>(`/projects/${project.id}/analyze`, {});
+      const responseData = await apiClient.post<{ success: boolean; data: any; cached?: boolean; message?: string }>(`/projects/${project.id}/analyze`, {});
       if (!responseData.success || !responseData.data) throw new Error('AI scoring failed');
 
-      const s = responseData.data;
-      const regulatory = Math.round(s.breakdown?.regulatory?.score ?? 0);
-      const financial = Math.round(s.breakdown?.financial?.score ?? 0);
-      const developer = Math.round(s.breakdown?.developer?.score ?? 0);
-      const totalScore = Math.round(s.total_score ?? (regulatory + financial + developer));
-
-      const updatedScores = await projectService.saveProjectScores({
-        project_id: project.id,
-        capital_readiness_score: totalScore,
-        regulatory_score: regulatory,
-        financial_score: financial,
-        developer_score: developer,
-        breakdown: s.breakdown,
-        risk_flags: (s.risk_signals || []).map((r: any) => `${r.level}: ${r.text}`),
-        recommendations: s.recommendations || [],
-        summary: s.summary || 'Analysis complete.'
-      });
-
-      setProject({ ...project, scores: updatedScores });
-      toast.success('AI analysis complete');
+      setProject({ ...project, scores: responseData.data, status: 'pending_live' as const });
+      toast.success(responseData.cached ? responseData.message || 'Showing cached scores — documents unchanged.' : 'AI analysis complete');
     } catch (err: any) {
       toast.error(`AI analysis failed: ${err.message || 'Unknown error'}`);
     } finally {
@@ -212,63 +277,18 @@ export default function ProjectDetailsPage() {
 
   const handleDeleteProject = async () => {
     if (!project) return;
-    if (!confirm(`Delete "${project.name}"? This cannot be undone.`)) return;
-    setLoading(true);
+    setDeleting(true);
     try {
       await projectService.deleteProject(project.id);
       toast.success('Project deleted');
+      setShowDeleteDialog(false);
       router.push('/dashboard/developer');
     } catch (err: any) {
       toast.error(`Failed to delete: ${err.message}`);
-      setLoading(false);
+      setDeleting(false);
     }
   };
 
-  const handleSubmitReview = async () => {
-    if (!project) return;
-    setSubmitting(true);
-    try {
-      const result = await projectService.submitProject(project.id);
-      // Refetch full project to get accurate status
-      const updated = await projectService.getProjectDetails(project.id);
-      setProject(updated);
-      if (result.status === 'pending_internal_review') {
-        toast.success('Project sent to your internal reviewer for approval.');
-      } else {
-        toast.success('Project submitted to the platform for review.');
-      }
-    } catch (err: any) {
-      toast.error(`Failed to submit: ${err.message}`);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleInternalReview = async (action: 'approve' | 'reject') => {
-    if (!project) return;
-    if (action === 'reject' && !reviewComment.trim()) {
-      toast.error('Please provide a reason for returning this project');
-      return;
-    }
-    setProcessingReview(true);
-    try {
-      await projectService.internalReviewProject(project.id, action, reviewComment.trim() || undefined);
-      // Refetch full project to get accurate status
-      const updated = await projectService.getProjectDetails(project.id);
-      setProject(updated);
-      setReviewAction(null);
-      setReviewComment('');
-      if (action === 'approve') {
-        toast.success('Project approved and submitted to the platform for final review.');
-      } else {
-        toast.success('Project returned to the developer with your feedback.');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Review action failed');
-    } finally {
-      setProcessingReview(false);
-    }
-  };
 
   const handleManualOverride = async (category: string, score: number) => {
     if (!project?.scores) return;
@@ -283,32 +303,47 @@ export default function ProjectDetailsPage() {
     } catch { toast.error('Override failed'); }
   };
 
-  const handleReviewAction = async (action: 'under_review' | 'validated' | 'rejected' | 'archived') => {
+  const handleDeactivate = async () => {
     if (!project) return;
-    const recommendation = getReviewRecommendation(project.scores);
-    if ((action === 'validated' || action === 'rejected') && !project.scores) {
-      toast.error('Run AI analysis before completing project review.');
-      return;
-    }
-    if (action === 'validated' && !recommendation.canValidate) {
-      toast.error(recommendation.message);
-      return;
-    }
-    const endpoint = action === 'archived' ? 'archive' : action === 'under_review' ? 'review' : action === 'validated' ? 'validate' : 'reject';
+    setDeactivating(true);
     try {
-      await apiClient.post(`/projects/${project.id}/${endpoint}`, {});
-      // Refetch full project to get accurate status
+      await apiClient.post(`/projects/${project.id}/deactivate`, {});
       const updated = await projectService.getProjectDetails(project.id);
       setProject(updated);
-      const messages: Record<string, string> = {
-        validated: 'Project validated — developer has been notified.',
-        rejected: 'Project rejected — developer has been notified.',
-        archived: 'Project archived.',
-        under_review: 'Review started.',
-      };
-      toast.success(messages[action]);
+      setShowDeactivateDialog(false);
+      toast.success('Project deactivated.');
     } catch (err: any) {
-      toast.error(err.message || 'Action failed');
+      toast.error(err.message || 'Failed to deactivate');
+      setDeactivating(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    if (!project) return;
+    try {
+      await apiClient.patch(`/projects/${project.id}`, { status: 'live' });
+      const updated = await projectService.getProjectDetails(project.id);
+      setProject(updated);
+      toast.success('Project reactivated.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reactivate');
+    }
+  };
+
+  const handleExpressInterest = async () => {
+    if (!project || !user?.company_id) return;
+    setExpressingInterest(true);
+    try {
+      const eng = await engagementService.requestIntroduction(project.id, user.company_id, 'CAPITAL');
+      if (eng) {
+        setPartnerEngagement(eng);
+        toast.success('Interest expressed! The developer has been notified.');
+        router.push(`/dashboard/engagements/${eng.id}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to express interest');
+    } finally {
+      setExpressingInterest(false);
     }
   };
 
@@ -338,20 +373,40 @@ export default function ProjectDetailsPage() {
 
   const stageIndex = activeStage;
   const progressPct = (stageIndex / (STAGES.length - 1)) * 100;
-  const st = STATUS_CONFIG[project.status || 'draft'] || STATUS_CONFIG.draft;
   const readinessScore = project.scores?.capital_readiness_score || 0;
-  const canEdit = isCreator && (project.status === 'draft' || project.status === 'rejected' || project.status === 'returned');
-  // Direct mode: show submit only when draft
-  const showSubmitBtn = isCreator && !isInternalReviewer && project.status === 'draft' && orgMode === 'direct';
-  // Internal review mode: show submit when draft (new) or returned (after rework)
-  const showSendToReviewerBtn = isCreator && !isInternalReviewer && (project.status === 'draft' || project.status === 'returned') && orgMode === 'internal_review';
-  // Internal reviewer sees action buttons only when project is pending their review
-  const showInternalReviewBtns = isInternalReviewer && project.status === 'pending_internal_review' && orgMode === 'internal_review';
-  const showStartReview = isPlatformAdmin && project.status === 'submitted';
-  const showValidateReject = isPlatformAdmin && project.status === 'under_review';
-  const showArchive = isPlatformAdmin && project.status === 'validated';
-  const canSeeMatching = project.status === 'validated' && (user?.is_org_admin || user?.is_platform_admin);
-  const reviewRecommendation = getReviewRecommendation(project.scores);
+
+  // Engagement lock
+  const hasActiveEngagement = capitalMatches.some((m: any) =>
+    ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET'].includes(m.status)
+  ) || technicalMatches.some((m: any) =>
+    ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET'].includes(m.status)
+  );
+
+  const editableStatuses = ['draft', 'scoring', 'pending_live', 'deactivated'];
+  const canEdit = (isCreator || isPlatformAdmin) && editableStatuses.includes(project.status || '') && !hasActiveEngagement;
+  const canDelete = (isCreator || isPlatformAdmin) && !hasActiveEngagement;
+  const canDeactivate = (isCreator || isPlatformAdmin) && (project.status === 'live' || project.status === 'pending_live');
+  const canReactivate = (isCreator || isPlatformAdmin) && project.status === 'deactivated' || (isPlatformAdmin && project.status === 'archived');
+  const isEffectivelyLive = project.status === 'live' && !!(project as any).is_visible_to_investors;
+  const canSeeMatching = isEffectivelyLive && (user?.is_org_admin || user?.is_platform_admin);
+
+  // Countdown for pending_live
+  const scoresVisibleAt = (project as any).scores_visible_at ? new Date((project as any).scores_visible_at) : null;
+  const scoresStillPending = project.status === 'pending_live' && !!scoresVisibleAt && scoresVisibleAt.getTime() > now;
+  const msRemaining = scoresVisibleAt ? Math.max(0, scoresVisibleAt.getTime() - now) : 0;
+  const hoursUntilLive = Math.floor(msRemaining / 3_600_000);
+  const minsUntilLive  = Math.floor((msRemaining % 3_600_000) / 60_000);
+  const secsUntilLive  = Math.floor((msRemaining % 60_000) / 1_000);
+  const countdownLabel = scoresStillPending
+    ? `${String(hoursUntilLive).padStart(2, '0')}:${String(minsUntilLive).padStart(2, '0')}:${String(secsUntilLive).padStart(2, '0')}`
+    : null;
+
+  // Status badge — use real status from DB
+  const st = STATUS_CONFIG[project.status || 'draft'] || STATUS_CONFIG.draft;
+
+  // Support prompt
+  const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'support@placeholder.com';
+  const showSupportPrompt = isOwner && !!project.scores && readinessScore < 40;
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-4 space-y-6">
@@ -373,20 +428,7 @@ export default function ProjectDetailsPage() {
               {st.label}
             </span>
 
-            {/* Return / Rejection Reason — only show when actually returned or rejected, not after resubmit */}
-            {project.rejection_reason && (project.status === 'rejected' || project.status === 'returned') && (
-              <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-100">
-                <div className="flex items-start gap-2.5">
-                  <Icons.close className="size-4 text-red-500 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-1">
-                      {project.status === 'rejected' ? 'Rejection Reason' : 'Returned for Rework'}
-                    </p>
-                    <p className="text-sm text-red-700 font-medium leading-relaxed">{project.rejection_reason}</p>
-                  </div>
-                </div>
-              </div>
-            )}
+
 
             {/* Project Name */}
             <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight mb-4">
@@ -421,8 +463,8 @@ export default function ProjectDetailsPage() {
                 <div className={cn("h-full rounded-full transition-all duration-700", readinessScore >= 60 ? 'bg-emerald-500' : readinessScore >= 40 ? 'bg-amber-500' : 'bg-red-400')} style={{ width: `${readinessScore}%` }} />
               </div>
             </div>
-            {/* Submit checklist — owner + draft/returned only */}
-            {isOwner && (project.status === 'draft' || project.status === 'returned') && (
+            {/* Submit checklist — owner + draft/scoring only */}
+            {isOwner && (project.status === 'draft' || project.status === 'scoring') && (
               <div className="mt-3 space-y-1">
                 {[
                   { label: 'Documents uploaded', met: (project.documents?.length ?? 0) > 0 },
@@ -463,125 +505,90 @@ export default function ProjectDetailsPage() {
           </div>
         </div>
 
-        {/* Action Bar */}
-        {(showSubmitBtn || showSendToReviewerBtn || showInternalReviewBtns || showStartReview || showValidateReject || showArchive || canEdit) && (
-          <div className="flex flex-wrap items-center gap-2 mt-6 pt-6 border-t border-slate-100">
+        {/* Countdown banner — owner only, while scores are pending */}
+        {isOwner && scoresStillPending && countdownLabel && (
+          <div className="relative overflow-hidden bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-transparent px-5 py-4 rounded-2xl mt-6">
+            {/* Subtle animated shimmer */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-100/30 to-transparent animate-pulse pointer-events-none" />
 
-            {/* Pending internal review info banner (developer view) */}
-            {isCreator && project.status === 'pending_internal_review' && (
-              <div className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl bg-purple-50 border border-purple-100">
-                <Icons.eye className="size-4 text-purple-500 shrink-0" />
-                <p className="text-xs font-semibold text-purple-700">Your project is awaiting review by your designated internal reviewer. You'll be notified once it's been reviewed.</p>
-              </div>
-            )}
-
-            {/* Creator: Submit (direct mode) */}
-            {showSubmitBtn && (
-              <Button
-                onClick={handleSubmitReview}
-                disabled={submitting || (project.documents?.length ?? 0) === 0}
-                className="h-9 px-5 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-lg shadow-slate-900/10 hover:bg-slate-800"
-              >
-                {submitting ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
-                Submit for Review
-              </Button>
-            )}
-
-            {/* Creator: Send to internal reviewer (internal_review mode — draft or returned) */}
-            {showSendToReviewerBtn && (
-              <Button
-                onClick={handleSubmitReview}
-                disabled={submitting || (project.documents?.length ?? 0) === 0}
-                className="h-9 px-5 rounded-xl bg-slate-900 text-white font-bold text-xs shadow-lg shadow-slate-900/10 hover:bg-slate-800"
-              >
-                {submitting ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
-                {project.status === 'returned' ? 'Resubmit for Review' : 'Send to Internal Reviewer'}
-              </Button>
-            )}
-
-            {/* Internal Reviewer: Approve / Return */}
-            {showInternalReviewBtns && !reviewAction && (
-              <>
-                <Button onClick={() => setReviewAction('approve')} className="h-9 px-5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
-                  <Icons.check className="size-3.5 mr-1.5" /> Approve & Submit
-                </Button>
-                <Button onClick={() => setReviewAction('reject')} variant="outline" className="h-9 px-5 rounded-xl border-red-200 text-red-600 font-bold text-xs hover:bg-red-50">
-                  <Icons.close className="size-3.5 mr-1.5" /> Return with Comments
-                </Button>
-              </>
-            )}
-
-            {/* Internal Reviewer: Comment box */}
-            {showInternalReviewBtns && reviewAction && (
-              <div className="w-full p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                  {reviewAction === 'approve' ? 'Approve & Submit to Platform' : 'Return with Comments'}
-                </p>
-                {reviewAction === 'reject' && (
-                  <textarea
-                    value={reviewComment}
-                    onChange={(e) => setReviewComment(e.target.value)}
-                    placeholder="Explain what needs to be changed..."
-                    className="w-full h-24 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none"
-                  />
-                )}
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => handleInternalReview(reviewAction)}
-                    disabled={processingReview || (reviewAction === 'reject' && !reviewComment.trim())}
-                    className={cn(
-                      "h-8 px-4 rounded-lg font-bold text-xs",
-                      reviewAction === 'approve' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
-                    )}
-                  >
-                    {processingReview ? <Icons.spinner className="size-3 animate-spin mr-1.5" /> : null}
-                    {reviewAction === 'approve' ? 'Confirm Approval' : 'Return Project'}
-                  </Button>
-                  <Button onClick={() => { setReviewAction(null); setReviewComment(''); }} variant="ghost" className="h-8 px-4 rounded-lg text-xs font-bold text-slate-500">
-                    Cancel
-                  </Button>
+            <div className="relative flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm shadow-amber-500/25">
+                  <Icons.clock className="size-5 text-green-500" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-0.5">Going Live In</p>
+                  <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                    Your project will become visible to investors after the reveal window.
+                  </p>
                 </div>
               </div>
-            )}
 
-            {/* Platform Admin: Start Review (submitted → under_review) */}
-            {showStartReview && (
-              <Button onClick={() => handleReviewAction('under_review')} className="h-9 px-5 rounded-xl bg-blue-600 text-white font-bold text-xs">
-                <Icons.eye className="size-3.5 mr-1.5" /> Start Review
-              </Button>
-            )}
+              {/* Countdown digits */}
+              <div className="shrink-0 flex items-center gap-1.5">
+                {countdownLabel.split(':').map((segment, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <div className="flex flex-col items-center">
+                      <span className="font-mono text-2xl font-black text-amber-700 tabular-nums leading-none bg-white/80 px-2.5 py-1.5 rounded-lg border border-amber-200/50 shadow-sm">
+                        {segment}
+                      </span>
+                      <span className="text-[8px] font-bold text-amber-500/70 uppercase tracking-wider mt-1">
+                        {i === 0 ? 'hrs' : i === 1 ? 'min' : 'sec'}
+                      </span>
+                    </div>
+                    {i < 2 && (
+                      <span className="text-lg font-bold text-amber-300 mb-3">:</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
-            {/* Platform Admin: Validate / Reject (under_review → validated or rejected) */}
-            {showValidateReject && (
-              <>
+        {/* Action Bar */}
+        {(canEdit || canDelete || canDeactivate || canReactivate || (isPlatformAdmin && project.scores) || isPartner) && (
+          <div className="flex flex-wrap items-center gap-2 mt-6 pt-6 border-t border-slate-100">
+
+            {/* Bookmark button — everyone */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 w-9 rounded-xl p-0 border-slate-200"
+              onClick={handleToggleBookmark}
+              disabled={bookmarking}
+              title={isBookmarked ? 'Remove bookmark' : 'Bookmark'}
+            >
+              {bookmarking ? (
+                <Icons.spinner className="size-3.5 animate-spin" />
+              ) : (
+                <Icons.bookmark className={cn('size-3.5', isBookmarked ? 'fill-amber-400 text-amber-400' : 'text-slate-400')} />
+              )}
+            </Button>
+
+            {/* Partner: Express Interest / Expressed badge */}
+            {isPartner && (
+              partnerEngagement ? (
+                <Link href={`/dashboard/engagements/${partnerEngagement.id}`}>
+                  <Button
+                    disabled
+                    className="h-9 px-5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 font-bold text-xs cursor-pointer hover:bg-emerald-100"
+                  >
+                    <Icons.check className="size-3.5 mr-1.5" /> Expressed
+                  </Button>
+                </Link>
+              ) : (
                 <Button
-                  onClick={() => handleReviewAction('validated')}
-                  disabled={!reviewRecommendation.canValidate}
-                  title={!reviewRecommendation.canValidate ? 'Run AI analysis first or review low AI score' : undefined}
-                  className="h-9 px-5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                  onClick={handleExpressInterest}
+                  disabled={expressingInterest}
+                  className="h-9 px-5 rounded-xl bg-slate-900 text-white font-bold text-xs"
                 >
-                  <Icons.check className="size-3.5 mr-1.5" /> {reviewRecommendation.canValidate ? 'Validate' : 'Run Analysis First'}
+                  {expressingInterest ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
+                  Express Interest
                 </Button>
-                <Button
-                  onClick={() => handleReviewAction('rejected')}
-                  disabled={!project.scores}
-                  title={!project.scores ? 'Run AI analysis first' : undefined}
-                  variant="outline"
-                  className="h-9 px-5 rounded-xl border-red-200 text-red-600 font-bold text-xs hover:bg-red-50"
-                >
-                  <Icons.close className="size-3.5 mr-1.5" /> Reject
-                </Button>
-              </>
+              )
             )}
 
-            {/* Platform Admin: Archive (validated → archived) */}
-            {showArchive && (
-              <Button onClick={() => handleReviewAction('archived')} variant="outline" className="h-9 px-5 rounded-xl border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50">
-                <Icons.folder className="size-3.5 mr-1.5" /> Archive
-              </Button>
-            )}
-
-            {/* Creator: Edit (only draft or rejected) */}
             {canEdit && (
               <Link href={`/dashboard/developer/submit?edit=${project.id}`}>
                 <Button variant="outline" className="h-9 px-5 rounded-xl border-slate-200 font-bold text-xs">
@@ -590,23 +597,75 @@ export default function ProjectDetailsPage() {
               </Link>
             )}
 
-            {(isCreator || isPlatformAdmin) && (
-              <Button onClick={handleDeleteProject} variant="ghost" className="h-9 px-4 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs ml-auto">
-                <Icons.trash className="size-3.5 mr-1.5" /> Delete
+            {(isCreator || isPlatformAdmin) && project.scores && (
+              <Button
+                variant="outline"
+                className="h-9 px-5 rounded-xl border-slate-200 font-bold text-xs"
+                onClick={runAIAnalysis}
+                disabled={analyzing}
+              >
+                {analyzing ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.zap className="size-3.5 mr-1.5" />}
+                Re-run Analysis
               </Button>
             )}
-            {isPlatformAdmin && project.status === 'validated' && (
-              <Button variant="ghost" className="h-9 px-4 rounded-xl text-slate-400 hover:bg-slate-50 font-bold text-xs ml-auto" onClick={() => handleReviewAction('archived')}>
-                Archive
+
+            {canDeactivate && (
+              <Button
+                variant="outline"
+                className="h-9 px-5 rounded-xl border-orange-200 text-orange-600 font-bold text-xs hover:bg-orange-50"
+                onClick={() => setShowDeactivateDialog(true)}
+              >
+                <Icons.eyeOff className="size-3.5 mr-1.5" /> Deactivate
+              </Button>
+            )}
+
+            {canReactivate && (
+              <Button
+                className="h-9 px-5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                onClick={handleReactivate}
+              >
+                <Icons.eye className="size-3.5 mr-1.5" /> Reactivate
+              </Button>
+            )}
+
+            {hasActiveEngagement && (isOwner || isPlatformAdmin) && (
+              <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg">
+                Edits & deletion locked — active partner discussions in progress
+              </span>
+            )}
+
+            {canDelete && (
+              <Button onClick={() => setShowDeleteDialog(true)} variant="ghost" className="h-9 px-4 rounded-xl text-red-500 hover:bg-red-50 font-bold text-xs ml-auto">
+                <Icons.trash className="size-3.5 mr-1.5" /> Delete
               </Button>
             )}
           </div>
         )}
-      </div>
 
-      {showValidateReject && (
-        <ReviewRecommendationCard recommendation={reviewRecommendation} />
-      )}
+        
+                {/* Support prompt — owner only, score < 40 */}
+                {showSupportPrompt && (
+                  <div className="mt-6 flex items-start gap-2 bg-amber-50/60 border border-amber-100 p-3 rounded-lg">
+                    <span className="size-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Score Below Threshold</p>
+                      <p className="text-[11px] font-semibold text-slate-700 leading-relaxed mb-2">
+                        Your project scored below 40. Our consultancy team can help you improve your readiness before going live.
+                      </p>
+                      <button
+                        onClick={() => {
+                          const subject = encodeURIComponent(`Project Readiness Support — ${project.name}`);
+                          const body = encodeURIComponent(`Hi,\n\nI'd like help improving my project readiness score.\n\nProject: ${project.name}\nCurrent Score: ${readinessScore}%\n\nPlease reach out at your earliest convenience.\n\nThank you.`);
+                          window.location.href = `mailto:${supportEmail}?subject=${subject}&body=${body}`;
+                        }}
+                        className="text-[10px] font-black text-amber-700  tracking-widest"
+                      >
+                        Need help bringing your project up to standard? →
+                      </button>
+                    </div>
+                  </div>
+                )}
+      </div>
 
       {/* ── Main Grid ────────────────────────────────── */}
       <div className="grid lg:grid-cols-3 gap-6">
@@ -643,7 +702,7 @@ export default function ProjectDetailsPage() {
           </div>
 
           {/* Governance / Risk / Exit — shown for owner or validated */}
-          {(isOwner || project.status === 'validated') && (project.governance_terms || project.exit_terms || project.risk_disclosures) && (
+          {(isOwner || project.status === 'live') && (project.governance_terms || project.exit_terms || project.risk_disclosures) && (
             <div className="dash-card p-6">
               <h3 className="dash-section-label mb-5 flex items-center gap-2">
                 <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.shieldCheck className="size-3 text-primary" /></div>
@@ -723,6 +782,7 @@ export default function ProjectDetailsPage() {
                   </div>
                 )}
 
+
                 {/* Risk Flags + Recommendations */}
                 <div className="grid md:grid-cols-2 gap-6">
                   <CollapsibleList
@@ -764,12 +824,9 @@ export default function ProjectDetailsPage() {
                 </div>
                 <h4 className="text-sm font-bold text-slate-900 mb-1">No Analysis Yet</h4>
                 <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto mb-2">
-                  AI readiness scoring runs automatically when the project is submitted for review.
+                  AI readiness scoring runs automatically after project creation.
                 </p>
-                {project.status === 'draft' && (
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Submit your project to trigger analysis</p>
-                )}
-                {isPlatformAdmin && project.status !== 'draft' && (
+                {(isOwner || isPlatformAdmin) && (
                   <Button onClick={runAIAnalysis} disabled={analyzing || !project.documents?.length} className="h-10 px-6 bg-primary text-white font-bold rounded-xl text-xs shadow-lg shadow-primary/10 mt-3">
                     {analyzing ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.zap className="size-3.5 mr-1.5" />}
                     Run AI Analysis
@@ -786,7 +843,7 @@ export default function ProjectDetailsPage() {
                 <div className="size-6 bg-primary/10 rounded-lg flex items-center justify-center"><Icons.fileText className="size-3 text-primary" /></div>
                 {isOwner ? 'Data Room' : isPartner && hasNda ? 'Due Diligence Room' : 'Secure Data Room'}
               </h3>
-              {isOwner && (
+              {isCreator && (
                 <>
                   <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg" />
                   <Button variant="outline" className="h-8 px-3 rounded-lg border-slate-200 text-[10px] font-bold" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
@@ -801,7 +858,7 @@ export default function ProjectDetailsPage() {
               project.documents && project.documents.length > 0 ? (
                 <div className="space-y-2">
                   {project.documents.map((doc, i) => (
-                    <DocumentRow key={i} name={doc.document_type} date={new Date(doc.uploaded_at).toLocaleDateString()} canDelete={isOwner} onDelete={() => handleDeleteDocument(doc.id, doc.storage_path || '')} fileUrl={doc.file_url} />
+                    <DocumentRow key={i} name={doc.document_type} date={new Date(doc.uploaded_at).toLocaleDateString()} canDelete={isCreator} onDelete={() => handleDeleteDocument(doc.id, doc.storage_path || '')} projectId={project.id} storagePath={doc.storage_path || ''} />
                   ))}
                 </div>
               ) : (
@@ -812,8 +869,38 @@ export default function ProjectDetailsPage() {
             ) : (
               <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100">
                 <Icons.lock className="size-6 mx-auto text-slate-300 mb-3" />
-                <h4 className="text-xs font-bold text-slate-700 mb-1">Locked</h4>
-                <p className="text-[11px] text-slate-500 font-medium max-w-xs mx-auto">Document access requires a signed NDA.</p>
+                <h4 className="text-xs font-bold text-slate-700 mb-1">Secure Data Room — Locked</h4>
+                {isPartner && partnerEngagement ? (
+                  <>
+                    <p className="text-[11px] text-slate-500 font-medium max-w-xs mx-auto mb-1">
+                      Your engagement is currently at <span className="font-bold text-slate-700">{getStateLabel(partnerEngagement.status)}</span>.
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-medium max-w-xs mx-auto mb-4">
+                      Progress to <span className="font-bold text-slate-700">NDA Signed</span> to unlock document access.
+                    </p>
+                    <Link href={`/dashboard/engagements/${partnerEngagement.id}`}>
+                      <Button className="h-9 px-5 rounded-xl bg-slate-900 text-white text-xs font-bold">
+                        Go to Engagement Room
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-slate-500 font-medium max-w-xs mx-auto mb-4">
+                      Document access requires a signed NDA. Express interest to start the engagement process.
+                    </p>
+                    {isPartner && (
+                      <Button
+                        onClick={handleExpressInterest}
+                        disabled={expressingInterest}
+                        className="h-9 px-5 rounded-xl bg-slate-900 text-white text-xs font-bold"
+                      >
+                        {expressingInterest ? <Icons.spinner className="size-3.5 animate-spin mr-1.5" /> : <Icons.send className="size-3.5 mr-1.5" />}
+                        Express Interest
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -829,7 +916,10 @@ export default function ProjectDetailsPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
-                <span className={cn("text-xs font-bold capitalize px-2 py-0.5 rounded-full", st.bg, st.color)}>{st.label}</span>
+                <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border", st.bg, st.color, st.border)}>
+                  <span className="size-1.5 rounded-full bg-current" />
+                  {st.label}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stage</span>
@@ -880,38 +970,114 @@ export default function ProjectDetailsPage() {
             </div>
             <div className="p-5">
               {(!isOwner && isPartner) ? (
-                <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="size-7 rounded-full bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-400">YOU</div>
-                  <div>
-                    <p className="text-[11px] font-bold text-slate-700">Your Engagement</p>
-                    <p className="text-[10px] text-slate-400 font-medium">Awaiting developer response</p>
+                partnerEngagement ? (
+                  <Link href={`/dashboard/engagements/${partnerEngagement.id}`} className="block">
+                    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-primary/20 hover:bg-primary/5 transition-all cursor-pointer">
+                      <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0">ENG</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-bold text-slate-700">Your Engagement</p>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 text-[9px] font-bold border border-emerald-100 mt-1">
+                          {getStateLabel(partnerEngagement.status)}
+                        </span>
+                      </div>
+                      <Icons.arrowRight className="size-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    </div>
+                  </Link>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-bold text-slate-400 text-center">No engagement yet</p>
+                    <Button
+                      onClick={handleExpressInterest}
+                      disabled={expressingInterest}
+                      className="w-full h-9 rounded-xl bg-slate-900 text-white text-xs font-bold"
+                    >
+                      {expressingInterest ? (
+                        <Icons.spinner className="size-3.5 animate-spin mr-1.5" />
+                      ) : (
+                        <Icons.send className="size-3.5 mr-1.5" />
+                      )}
+                      Express Interest
+                    </Button>
                   </div>
-                </div>
+                )
               ) : isOwner ? (
                 <p className="text-[11px] font-bold text-slate-400 text-center">{capitalMatches.length + technicalMatches.length} partner{capitalMatches.length + technicalMatches.length !== 1 ? 's' : ''} matched</p>
               ) : (
                 <p className="text-[11px] font-bold text-slate-400 text-center">No engagements</p>
               )}
             </div>
-            <Link href="/dashboard/developer?tab=engagements">
-              <div className="p-3 border-t border-slate-50 text-center">
-                <span className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Open Engagement Center</span>
-              </div>
-            </Link>
+            {(!isOwner && isPartner) ? (
+              <Link href="/dashboard?tab=portfolio">
+                <div className="p-3 border-t border-slate-50 text-center">
+                  <span className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Open Engagement Center</span>
+                </div>
+              </Link>
+            ) : isOwner ? (
+              <Link href="/dashboard/developer?tab=engagements">
+                <div className="p-3 border-t border-slate-50 text-center">
+                  <span className="text-[10px] font-bold text-primary uppercase tracking-widest hover:underline">Open Engagement Center</span>
+                </div>
+              </Link>
+            ) : null}
           </div>
         </div>
       </div>
 
-      {/* ── Matching Section (validated projects, org admins only) ───── */}
+      {/* ── Matching Section (live projects, org admins only) ───── */}
       {canSeeMatching && (
         <MatchingSection
           projectId={project.id}
           projectTechnology={project.technology_type}
           capitalMatches={capitalMatches}
           technicalMatches={technicalMatches}
+          engagements={projectEngagements}
           isOrgAdmin={!!(user?.is_org_admin || user?.is_platform_admin)}
         />
       )}
+
+      {/* ── Matched Partners notice — shown when project is not yet effectively live ── */}
+      {isOwner && !isEffectivelyLive && project.status !== 'deactivated' && project.status !== 'archived' && (
+        <div className="dash-card p-6 flex items-start gap-4">
+          <div className="size-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+            <Icons.users className="size-5 text-blue-500" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900 mb-1">Matched Partners</p>
+            <p className="text-xs text-slate-500 font-medium leading-relaxed">
+              Investor and technical partner matches will appear here once your project goes live.
+              {scoresStillPending && countdownLabel && (
+                <span className="inline-flex items-center gap-1.5 text-amber-600 font-bold">
+                  <Icons.clock className="size-3" />
+                  Goes live in {countdownLabel}
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm Dialogs ──────────────────────── */}
+      <ConfirmDialog
+        open={showDeactivateDialog}
+        onClose={() => !deactivating && setShowDeactivateDialog(false)}
+        onConfirm={handleDeactivate}
+        title={`Deactivate "${project?.name}"?`}
+        description="This project will no longer be visible to investors and technical partners. You can reactivate it later."
+        confirmLabel="Deactivate"
+        confirmVariant="danger"
+        loading={deactivating}
+      />
+
+      <ConfirmDialog
+        open={showDeleteDialog}
+        onClose={() => !deleting && setShowDeleteDialog(false)}
+        onConfirm={handleDeleteProject}
+        title={`Delete "${project?.name}"?`}
+        description="This action cannot be undone. All project data, documents, scores, and match history will be permanently removed."
+        confirmLabel="Delete Project"
+        confirmVariant="danger"
+        loading={deleting}
+      />
     </div>
   );
 }
@@ -968,9 +1134,19 @@ function OverrideSlider({ label, value, max, onChange }: { label: string; value:
   );
 }
 
-function DocumentRow({ name, date, canDelete, onDelete, fileUrl }: { name: string; date: string; canDelete?: boolean; onDelete?: () => void; fileUrl?: string }) {
+function DocumentRow({ name, date, canDelete, onDelete, projectId, storagePath }: { name: string; date: string; canDelete?: boolean; onDelete?: () => void; projectId: string; storagePath?: string }) {
+  const handleOpen = async () => {
+    if (!storagePath) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/documents/download?storage_path=${encodeURIComponent(storagePath)}`);
+      if (!res.ok) return;
+      const { signedUrl } = await res.json();
+      if (signedUrl) window.open(signedUrl, '_blank');
+    } catch {}
+  };
+
   return (
-    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-primary/20 group transition-all" onClick={() => fileUrl && window.open(fileUrl, '_blank')}>
+    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-primary/20 group transition-all" onClick={handleOpen}>
       <div className="flex items-center gap-3 cursor-pointer">
         <div className="h-9 w-9 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors">
           <Icons.fileText className="size-4" />

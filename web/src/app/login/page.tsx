@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { useAuth } from '@/hooks/useAuth';
-import { MfaVerification } from '@/components/auth/MfaVerification';
 
 function checkMfaRequired(user: any): boolean {
   if (!user) return false;
@@ -25,8 +24,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [needsMfa, setNeedsMfa] = useState(false);
-  const { signIn, user, mfa_verified, setMfaVerified, signOut } = useAuth();
+  const { signIn } = useAuth();
   const searchParams = useSearchParams();
   const notice = searchParams.get('notice');
   const verified = searchParams.get('verified');
@@ -38,8 +36,9 @@ function LoginForm() {
     setError(null);
     try {
       const builtUser = await signIn(email, password);
-      if (checkMfaRequired(builtUser)) {
-        setNeedsMfa(true);
+      // If MFA is required, go to the dedicated OTP screen
+      if (builtUser && checkMfaRequired(builtUser)) {
+        window.location.href = '/verify-otp';
       } else {
         window.location.href = '/dashboard';
       }
@@ -62,22 +61,6 @@ function LoginForm() {
       setIsLoading(false);
     }
   };
-
-  if (needsMfa && user && checkMfaRequired(user) && !mfa_verified) {
-    return (
-      <MfaVerification
-        email={user.email}
-        onVerified={() => {
-          setMfaVerified(true);
-          window.location.href = '/dashboard';
-        }}
-        onSignOut={() => {
-          setNeedsMfa(false);
-          signOut();
-        }}
-      />
-    );
-  }
 
   const banner = error
     ? { icon: 'alertTriangle' as const, color: 'red' as const, text: error, animate: true }

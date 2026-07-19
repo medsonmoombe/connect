@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { checkRateLimit, RATE_LIMIT_API, RATE_LIMIT_AUTH } from '@/lib/rate-limit';
 
-const PROTECTED_ROUTES = ['/dashboard', '/onboarding'];
+const PROTECTED_ROUTES = ['/dashboard', '/onboarding', '/verify-otp'];
 const AUTH_ROUTES = ['/login', '/signup', '/forgot-password', '/reset-password'];
 
 // Platform Admin-only routes (internal staff only)
@@ -44,6 +44,15 @@ export async function middleware(req: NextRequest) {
 
   if (isAuthRoute && user) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
+  }
+
+  // ── verify-otp: redirect away if already authenticated without MFA requirement ─
+  // The MFA cookie being set means they already completed verification this session
+  if (pathname.startsWith('/verify-otp') && user) {
+    const mfaVerified = req.cookies.get('mfa_verified')?.value === '1';
+    if (mfaVerified) {
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    }
   }
 
   // ── Platform Admin route enforcement ────────────────────────

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const STATUS_CONFIG = {
   pending_verification: {
@@ -42,6 +43,7 @@ const STATUS_CONFIG = {
 export function OrgReviewGate({ children }: { children: React.ReactNode }) {
   const { user, signOut, refreshUser } = useAuth();
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   // Admins bypass the review gate
   if (user?.role === 'ADMIN') {
@@ -65,10 +67,10 @@ export function OrgReviewGate({ children }: { children: React.ReactNode }) {
   const handleResubmit = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/organizations/${user?.company_id}`, {
-        method: 'PATCH',
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update_status', status: 'pending_verification', note: 'Resubmitted by organization' }),
+        body: JSON.stringify({ action: 'resubmit_company' }),
       });
 
       if (res.ok) {
@@ -87,30 +89,8 @@ export function OrgReviewGate({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleEditAndResubmit = async () => {
-    setLoading(true);
-    try {
-      // Set status back to pending_verification so user can edit and resubmit
-      const res = await fetch(`/api/admin/organizations/${user?.company_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update_status', status: 'pending_verification', note: 'Organization requested to edit and resubmit' }),
-      });
-
-      if (res.ok) {
-        toast.success('Organization status updated', {
-          description: 'You can now edit your organization details and resubmit for review.',
-        });
-        await refreshUser();
-      } else {
-        const err = await res.json();
-        toast.error(err.error || 'Failed to update status');
-      }
-    } catch {
-      toast.error('An error occurred while updating status');
-    } finally {
-      setLoading(false);
-    }
+  const handleEditAndResubmit = () => {
+    router.push('/onboarding?edit=true');
   };
 
   return (

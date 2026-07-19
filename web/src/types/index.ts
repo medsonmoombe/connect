@@ -90,7 +90,9 @@ export interface Project {
   exit_terms?: string;
   risk_disclosures?: string;
   project_stage: ProjectStage;
-  status?: 'draft' | 'pending_internal_review' | 'returned' | 'submitted' | 'under_review' | 'validated' | 'rejected' | 'archived';
+  status?: 'draft' | 'scoring' | 'pending_live' | 'live' | 'deactivated' | 'archived';
+  is_visible_to_investors?: boolean;
+  scores_visible_at?: string | null;
   rejection_reason?: string | null;
   target_financial_close_date?: string;
   target_cod?: string;
@@ -115,6 +117,8 @@ export interface ProjectDocument {
   document_type: string;
   file_url: string;
   storage_path?: string;
+  file_hash?: string;
+  classification?: 'PUBLIC' | 'RESTRICTED' | 'CONFIDENTIAL';
   uploaded_at: string;
 }
 
@@ -150,7 +154,6 @@ export interface ProjectScore {
 export interface CapitalPartner {
   id: string;
   company_id: string;
-  preferred_structures: CapitalStructureType[];
   min_ticket_size: number;
   max_ticket_size: number;
   risk_tolerance: RiskTolerance;
@@ -248,8 +251,36 @@ export interface Message {
   sender_id: string;
   message_body: string;
   created_at: string;
+  // Soft-delete tombstone (PRD §11.1 — own messages within 5 min)
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   // Related data
   sender?: User;
+}
+
+// Engagement (data-room) document — PRD §E
+export interface EngagementDocument {
+  id: string;
+  engagement_id: string;
+  project_document_id?: string | null;
+  document_type: 'NDA' | 'TERM_SHEET' | 'CONTRACT' | 'SUPPORTING';
+  file_name: string;
+  storage_path: string;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  uploaded_by?: string | null;
+  classification: 'PUBLIC' | 'RESTRICTED' | 'CONFIDENTIAL';
+  created_at: string;
+  deleted_at?: string | null;
+}
+
+// Project Bookmark
+export interface ProjectBookmark {
+  id: string;
+  user_id: string;
+  project_id: string;
+  created_at: string;
+  project?: Project;
 }
 
 // Audit Log

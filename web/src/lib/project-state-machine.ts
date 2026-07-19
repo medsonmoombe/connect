@@ -1,38 +1,27 @@
 import { getSupabaseAdmin } from './supabase-server';
 import { writeAuditLog } from './api-helpers';
 
-// ─── Valid state transitions ────────────────────────────────────────────────
-// PRD Section 4.C: Project Lifecycle State Machine
-
 export type ProjectStatus =
   | 'draft'
-  | 'pending_internal_review'
-  | 'returned'
-  | 'submitted'
-  | 'under_review'
-  | 'validated'
-  | 'rejected'
+  | 'scoring'
+  | 'pending_live'
+  | 'live'
+  | 'deactivated'
   | 'archived';
 
 const VALID_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
-  draft:                    ['submitted', 'pending_internal_review'],
-  pending_internal_review:  ['submitted', 'returned'],
-  returned:                 ['pending_internal_review', 'submitted'],
-  submitted:                ['under_review'],
-  under_review:             ['validated', 'rejected'],
-  validated:                ['archived'],
-  rejected:                 ['draft'],
-  archived:                 [],
+  draft:       ['scoring'],
+  scoring:     ['pending_live', 'draft'],
+  pending_live: ['live', 'deactivated', 'archived'],
+  live:        ['scoring', 'deactivated', 'archived'],
+  deactivated: ['live', 'archived'],
+  archived:    ['live', 'deactivated'],
 };
 
 export function canTransition(from: ProjectStatus, to: ProjectStatus): boolean {
   return VALID_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
-/**
- * Transition a project to a new status within a DB transaction.
- * Writes to project_status_history and audit_logs.
- */
 export async function transitionProject({
   projectId,
   toStatus,
@@ -48,35 +37,35 @@ export async function transitionProject({
 }): Promise<{ success: boolean; error?: string }> {
   const supabase = getSupabaseAdmin();
 
-  // 1. Fetch current status
   const { data: project, error: fetchError } = await supabase
     .from('projects')
-    .select('status, developer_id')
+    .select('status, developer_id, scores_visible_at')
     .eq('id', projectId)
     .single();
 
-  if (fetchError || !project) {
-    return { success: false, error: 'Project not found' };
-  }
+  if (fetchError || !project) return { success: false, error: 'Project not found' };
 
   const fromStatus = project.status as ProjectStatus;
 
-  // 2. Validate transition
   if (!canTransition(fromStatus, toStatus)) {
     return { success: false, error: `Invalid transition: ${fromStatus} → ${toStatus}` };
   }
 
-  // 3. Update project status
-  const { error: updateError } = await supabase
-    .from('projects')
-    .update({ status: toStatus })
-    .eq('id', projectId);
+  const updates: Record<string, any> = { status: toStatus };
 
-  if (updateError) {
-    return { success: false, error: 'Failed to update project status' };
+  // When going to pending_live: set scores_visible_at only on the first time
+  if (toStatus === 'pending_live' && !project.scores_visible_at) {
+    const delayMinutes = parseInt(process.env.PROJECT_ACTIVATION_DELAY_MINUTES || '1440', 10);
+    updates.scores_visible_at = new Date(Date.now() + delayMinutes * 60_000).toISOString();
   }
 
-  // 4. Write to status history
+  const { error: updateError } = await supabase
+    .from('projects')
+    .update(updates)
+    .eq('id', projectId);
+
+  if (updateError) return { success: false, error: 'Failed to update project status' };
+
   await supabase.from('project_status_history').insert({
     project_id: projectId,
     from_status: fromStatus,
@@ -85,7 +74,6 @@ export async function transitionProject({
     reason: reason || null,
   });
 
-  // 5. Write audit log
   await writeAuditLog({
     userId: actorId,
     action: `PROJECT_${toStatus.toUpperCase()}`,
@@ -99,9 +87,6 @@ export async function transitionProject({
   return { success: true };
 }
 
-/**
- * Get the full status history for a project.
- */
 export async function getStatusHistory(projectId: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -109,7 +94,6 @@ export async function getStatusHistory(projectId: string) {
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
-
   if (error) return [];
   return data;
 }

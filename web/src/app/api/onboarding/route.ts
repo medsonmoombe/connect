@@ -1,8 +1,25 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { sendAdminNewOrgNotification } from '@/lib/email';
+import { sendAdminNewOrgNotification, sendAdminOrgResubmittedNotification } from '@/lib/email';
 import { createNotifications, notificationBuilders } from '@/lib/notify';
+import { z } from 'zod';
+
+const capitalPreferencesSchema = z.object({
+  min_ticket_size: z.number().min(0, 'Min ticket size must be positive'),
+  max_ticket_size: z.number().min(0, 'Max ticket size must be positive'),
+  risk_tolerance: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+  governance_preference: z.enum(['PASSIVE', 'BOARD_SEAT', 'ACTIVE_ROLE']),
+  sector_focus: z.array(z.string()).min(1, 'Select at least one sector'),
+  geographic_focus: z.array(z.string()).min(1, 'Select at least one region'),
+  preferred_project_stage: z.array(z.string()).nullish().transform(v => v ?? []),
+  preferred_capital_structure: z.array(z.string()).nullish().transform(v => v ?? []),
+  preferred_structures: z.array(z.string()).nullish().transform(v => v ?? []),
+  expected_return_profile: z.string().nullish().transform(v => v ?? ''),
+}).refine((data) => data.min_ticket_size <= data.max_ticket_size, {
+  message: 'Min ticket size must be less than or equal to max ticket size',
+  path: ['max_ticket_size'],
+});
 
 export async function POST(req: NextRequest) {
   try {
@@ -179,14 +196,27 @@ export async function POST(req: NextRequest) {
         return Response.json({ data: { message: 'No preferences needed' } });
       }
 
-      const { data, error } = await supabase
-        .from(table).upsert({ company_id: company.id, ...preferences }).select().single();
-      if (error) {
-        console.error('[Onboarding] Preferences error:', error.message);
+      // Server-side validation for capital partner preferences
+      let dataToSave = preferences;
+      if (role === 'CAPITAL_PARTNER') {
+        const parsed = capitalPreferencesSchema.safeParse(preferences);
+        if (!parsed.success) {
+          const message = parsed.error.errors.map(e => e.message).join('; ');
+          return Response.json({ error: message }, { status: 400 });
+        }
+        dataToSave = parsed.data; // use validated+defaulted data
+      }
+
+      // Delete existing rows then insert fresh (handles missing unique constraint)
+      await supabase.from(table).delete().eq('company_id', company.id);
+      const { data: inserted, error: insertErr } = await supabase
+        .from(table).insert({ company_id: company.id, ...dataToSave }).select().single();
+      if (insertErr) {
+        console.error('[Onboarding] Preferences insert error:', insertErr.message);
         return serverError();
       }
-      await writeAuditLog({ userId: user.id, action: 'ONBOARDING_SAVE_PREFERENCES', entityType: table, entityId: company.id, after: preferences, req });
-      return Response.json({ data });
+      await writeAuditLog({ userId: user.id, action: 'ONBOARDING_SAVE_PREFERENCES', entityType: table, entityId: company.id, after: dataToSave, req });
+      return Response.json({ data: inserted });
     }
 
     if (action === 'update_profile') {
@@ -198,6 +228,118 @@ export async function POST(req: NextRequest) {
         return serverError();
       }
       await writeAuditLog({ userId: user.id, action: 'ONBOARDING_UPDATE_PROFILE', entityType: 'user_profiles', entityId: user.id, after: { full_name }, req });
+      return Response.json({ data: { success: true } });
+    }
+
+    if (action === 'get_edit_data') {
+      if (!user.company_id) {
+        return Response.json({ error: 'No company' }, { status: 400 });
+      }
+      const { data: company } = await supabase
+        .from('companies').select('*').eq('id', user.company_id).is('deleted_at', null).single();
+      if (!company) {
+        return Response.json({ error: 'Company not found' }, { status: 404 });
+      }
+      let preferences: Record<string, any> = {};
+      const tableMap: Record<string, string> = {
+        CAPITAL: 'capital_partners',
+        TECHNICAL: 'technical_partners',
+        POWER_TRADER: 'power_traders',
+      };
+      const table = tableMap[company.type];
+      if (table) {
+        const { data: prefsRows } = await supabase
+          .from(table).select('*').eq('company_id', user.company_id);
+        const prefs = prefsRows?.[0] ?? null;
+        if (prefs) {
+          const { id, company_id, created_at, updated_at, ...rest } = prefs as any;
+          preferences = rest;
+        }
+      }
+      return Response.json({ data: { company, preferences } });
+    }
+
+    if (action === 'update_company') {
+      const { company } = body;
+      if (!user.company_id) {
+        return Response.json({ error: 'No company to update' }, { status: 400 });
+      }
+
+      const updatePayload: Record<string, any> = {
+        name: company.name,
+        country: company.country,
+        description: company.description || '',
+        website: company.website || null,
+        years_operating: company.years_operating || 0,
+        team_size: company.team_size || 0,
+        is_new_company_with_experienced_team: company.is_new_company_with_experienced_team || false,
+        management_team_experience: company.management_team_experience || {},
+      };
+
+      const { data: updatedCompany, error: updateErr } = await supabase
+        .from('companies').update(updatePayload).eq('id', user.company_id).select().single();
+      if (updateErr) {
+        console.error('[Onboarding] Company update error:', updateErr.message);
+        return serverError();
+      }
+      await writeAuditLog({ userId: user.id, action: 'ONBOARDING_UPDATE_COMPANY', entityType: 'companies', entityId: user.company_id, after: updatePayload, req });
+      return Response.json({ data: { company: updatedCompany } });
+    }
+
+    if (action === 'resubmit_company') {
+      if (!user.company_id) {
+        return Response.json({ error: 'No company to resubmit' }, { status: 400 });
+      }
+
+      const { data: company } = await supabase
+        .from('companies').select('name, type').eq('id', user.company_id).single();
+
+      const { error: resubmitErr } = await supabase
+        .from('companies').update({ status: 'pending_verification', admin_note: null }).eq('id', user.company_id);
+      if (resubmitErr) {
+        console.error('[Onboarding] Resubmit error:', resubmitErr.message);
+        return serverError();
+      }
+      await writeAuditLog({ userId: user.id, action: 'ONBOARDING_RESUBMIT_COMPANY', entityType: 'companies', entityId: user.company_id, after: { status: 'pending_verification' }, req });
+
+      // Notify Platform Admins
+      try {
+        const { data: adminMemberships } = await supabase
+          .from('company_members')
+          .select('user_id, companies!inner(is_platform_org)')
+          .is('deleted_at', null)
+          .eq('role', 'ADMIN')
+          .eq('companies.is_platform_org', true);
+
+        if (adminMemberships && adminMemberships.length > 0) {
+          const adminIds = adminMemberships.map(a => a.user_id);
+          const { data: adminProfiles } = await supabase
+            .from('user_profiles')
+            .select('email')
+            .in('id', adminIds);
+
+          if (adminProfiles && adminProfiles.length > 0) {
+            const adminEmails = adminProfiles.map(p => p.email).filter(Boolean);
+            await sendAdminOrgResubmittedNotification({
+              adminEmails,
+              orgName: company?.name || '',
+              orgType: company?.type || '',
+              requesterName: user.full_name || user.email || '',
+            });
+
+            await createNotifications({
+              userIds: adminIds,
+              payload: notificationBuilders.orgResubmitted({
+                orgName: company?.name || '',
+                requesterName: user.full_name || user.email || '',
+              }),
+            });
+          }
+        }
+      } catch (emailErr) {
+        console.error('[Onboarding] Admin resubmit notification error:', emailErr);
+      }
+
       return Response.json({ data: { success: true } });
     }
 

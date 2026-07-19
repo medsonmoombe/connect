@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
+import { getAuthenticatedUser, forbidden, writeAuditLog, handleRouteError, pickFields } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { sendAdminUserProvisionedEmail } from '@/lib/email';
 import { createNotification, notificationBuilders } from '@/lib/notify';
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 
     if (profilesErr) {
       console.error('[Admin/Users] Query error:', profilesErr.message);
-      return serverError();
+      return Response.json({ error: `Failed to fetch users: ${profilesErr.message}` }, { status: 500 });
     }
 
     const total = count ?? 0;
@@ -136,6 +136,9 @@ export async function POST(req: NextRequest) {
     const { email, role, password, fullName, orgName, companyId: provCompanyId } = await req.json();
     const actualPassword = password || (Math.random().toString(36).slice(-12) + 'A1!');
 
+    if (!email?.trim()) return Response.json({ error: 'Email is required' }, { status: 400 });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: 'Invalid email format' }, { status: 400 });
+
     const supabase = getSupabaseAdmin();
 
     // 1. Create Supabase Auth user
@@ -147,7 +150,7 @@ export async function POST(req: NextRequest) {
 
     if (authErr || !authData.user) {
       console.error('[Admin/Users] Auth create error:', authErr?.message);
-      return serverError();
+      return Response.json({ error: `Failed to create auth user: ${authErr?.message || 'Unknown error'}` }, { status: 500 });
     }
 
     const userId = authData.user.id;
@@ -162,7 +165,7 @@ export async function POST(req: NextRequest) {
 
     if (profileErr) {
       console.error('[Admin/Users] Profile insert error:', profileErr.message);
-      return serverError();
+      return Response.json({ error: `Failed to create user profile: ${profileErr.message}` }, { status: 500 });
     }
 
     // 3. Link to existing company or create one
@@ -177,13 +180,18 @@ export async function POST(req: NextRequest) {
         POWER_TRADER: 'POWER_TRADER',
         GRANT_PROVIDER: 'GRANT_PROVIDER',
       };
-      const primaryRole = typeToRole['DEVELOPER'] || 'DEVELOPER';
+      const orgType = role === 'CAPITAL_PARTNER' ? 'CAPITAL'
+        : role === 'TECHNICAL_PARTNER' ? 'TECHNICAL'
+        : role === 'POWER_TRADER' ? 'POWER_TRADER'
+        : role === 'GRANT_PROVIDER' ? 'GRANT_PROVIDER'
+        : 'DEVELOPER';
+      const primaryRole = typeToRole[orgType] || 'DEVELOPER';
 
       const { data: company, error: companyErr } = await supabase
         .from('companies')
         .insert({
           name: orgName,
-          type: 'DEVELOPER',
+          type: orgType,
           primary_role: primaryRole,
           status: 'verified',
           country: 'Not specified',
@@ -193,7 +201,7 @@ export async function POST(req: NextRequest) {
 
       if (companyErr) {
         console.error('[Admin/Users] Company insert error:', companyErr.message);
-        return serverError();
+        return Response.json({ error: `Failed to create organisation: ${companyErr.message}` }, { status: 500 });
       }
       companyId = company.id;
     }
@@ -207,7 +215,7 @@ export async function POST(req: NextRequest) {
 
       if (memberErr) {
         console.error('[Admin/Users] Membership insert error:', memberErr.message);
-        return serverError();
+        return Response.json({ error: `Failed to create membership: ${memberErr.message}` }, { status: 500 });
       }
     }
 
@@ -257,7 +265,7 @@ export async function PATCH(req: NextRequest) {
 
     if (error) {
       console.error('[Admin/Users] Update error:', error.message);
-      return serverError();
+      return Response.json({ error: `Failed to update user: ${error.message}` }, { status: 500 });
     }
     await writeAuditLog({ userId: user.id, action: 'USER_UPDATED', entityType: 'user_profiles', entityId: userId, after: safeFields, req });
     return Response.json({ data });

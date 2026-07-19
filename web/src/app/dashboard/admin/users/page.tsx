@@ -473,6 +473,7 @@ export default function AdminUsersPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+        console.log("Provision error:", data);
         toast.error(data.error?.message || data.error || 'Failed to provision user.');
       } else {
         toast.success(`User provisioned${data.data.generated_password ? `. Password: ${data.data.generated_password}` : ''}`);

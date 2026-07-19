@@ -29,12 +29,7 @@ export const projectService = {
   },
 
   async getDeveloperProjects(developerId: string): Promise<Project[]> {
-    const { data } = await apiClient.get<{ data: Project[] }>('/projects');
-    return data;
-  },
-
-  async getPendingInternalReview(): Promise<Project[]> {
-    const { data } = await apiClient.get<{ data: Project[] }>('/projects?pending_internal_review=true');
+    const { data } = await apiClient.get<{ data: Project[] }>('/projects?view=dashboard');
     return data;
   },
 
@@ -69,14 +64,15 @@ export const projectService = {
     return data;
   },
 
-  async deleteProjectDocument(documentId: string, storagePath?: string, projectIdOverride?: string): Promise<void> {
+  async deleteProjectDocument(documentId: string, storagePath?: string, projectIdOverride?: string): Promise<{ scores_invalidated?: boolean }> {
     const projectId = storagePath?.split('/')[0] || projectIdOverride;
     if (!projectId) throw new Error('Project id required to delete document');
 
     if (storagePath) {
       await apiClient.delete(`/projects/${projectId}/documents/upload?storage_path=${encodeURIComponent(storagePath)}`).catch(() => {});
     }
-    await apiClient.delete(`/projects/${projectId}/documents?document_id=${documentId}`);
+    const result = await apiClient.delete<{ scores_invalidated?: boolean }>(`/projects/${projectId}/documents?document_id=${documentId}`);
+    return result || {};
   },
 
   async deleteProject(projectId: string): Promise<boolean> {
@@ -95,36 +91,13 @@ export const projectService = {
     return data;
   },
 
-  async submitProject(projectId: string) {
-    const { data } = await apiClient.post<{ data: { status: string } }>(`/projects/${projectId}/submit`, {});
-    return data;
-  },
-
-  async reviewProject(projectId: string) {
-    const { data } = await apiClient.post<{ data: { status: string } }>(`/projects/${projectId}/review`, {});
-    return data;
-  },
-
-  async validateProject(projectId: string) {
-    const { data } = await apiClient.post<{ data: { status: string } }>(`/projects/${projectId}/validate`, {});
-    return data;
-  },
-
-  async rejectProject(projectId: string, reason: string) {
-    const { data } = await apiClient.post<{ data: { status: string } }>(`/projects/${projectId}/reject`, { reason });
-    return data;
-  },
-
   async archiveProject(projectId: string) {
     const { data } = await apiClient.post<{ data: { status: string } }>(`/projects/${projectId}/archive`, {});
     return data;
   },
 
-  async internalReviewProject(projectId: string, action: 'approve' | 'reject', reason?: string) {
-    const { data } = await apiClient.post<{ data: { status: string; feedback?: string } }>(
-      `/projects/${projectId}/internal-review`,
-      { action, reason }
-    );
-    return data;
+  async getPendingInternalReview(): Promise<Project[]> {
+    const { data } = await apiClient.get<{ data: Project[] }>('/projects?pending_internal_review=true');
+    return data ?? [];
   },
 };

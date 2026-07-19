@@ -1,8 +1,21 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, pickFields, verifyEngagementAccess } from '@/lib/api-helpers';
+import { getAuthenticatedUser, serverError, forbidden, writeAuditLog, handleRouteError, verifyEngagementAccess } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { notifyUsers, notificationBuilders } from '@/lib/notify';
 import * as emailTemplates from '@/lib/email-templates';
+
+const MAX_MESSAGE_LENGTH = 4000;
+/** A user may send at most this many messages per minute per engagement. */
+const MESSAGE_RATE_LIMIT = { prefix: 'msg-send', limit: 30, windowMs: 60_000 };
+const ACTIVE_MESSAGE_STATUSES = [
+  'INTRO_ACCEPTED',
+  'NDA_SIGNED',
+  'DUE_DILIGENCE',
+  'TERM_SHEET',
+  'CONTRACT_SIGNED',
+  'CAPITAL_COMMITTED',
+];
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,15 +23,21 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseAdmin();
     const { searchParams } = new URL(req.url);
     const engagementId = searchParams.get('engagement_id');
+    const messageId = searchParams.get('id');
     if (!engagementId) return Response.json({ error: 'engagement_id required' }, { status: 400 });
 
     if (!await verifyEngagementAccess(engagementId, user.company_id, user.is_platform_admin)) return forbidden();
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('messages')
-      .select('*, sender:users(*)')
+      .select('*, sender:user_profiles(id, full_name, email, avatar_url)')
       .eq('engagement_id', engagementId)
+      .is('deleted_at', null)
       .order('created_at', { ascending: true });
+
+    if (messageId) query = query.eq('id', messageId);
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[Messages] Query error:', error.message);
@@ -41,70 +60,122 @@ export async function POST(req: NextRequest) {
 
     if (!await verifyEngagementAccess(engagementId, user.company_id, user.is_platform_admin)) return forbidden();
 
-    const safeFields = pickFields(body, ['engagement_id', 'content']);
+    // ── Rate limit: cap messages per user per minute (PRD §12.3) ──────────────
+    const rl = checkRateLimit(user.id ?? engagementId, MESSAGE_RATE_LIMIT);
+    if (!rl.allowed) {
+      return Response.json(
+        { error: 'You are sending messages too quickly. Please slow down and try again shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
+      );
+    }
+
+    const content = typeof body.content === 'string' ? body.content.trim() : '';
+    if (!content) return Response.json({ error: 'content is required' }, { status: 400 });
+    if (content.length > MAX_MESSAGE_LENGTH) {
+      return Response.json({ error: `Message must be ${MAX_MESSAGE_LENGTH} characters or fewer` }, { status: 400 });
+    }
+
+    const { data: engagementState, error: engagementStateError } = await supabase
+      .from('engagements')
+      .select('status')
+      .eq('id', engagementId)
+      .single();
+
+    if (engagementStateError || !engagementState) return serverError();
+    if (!user.is_platform_admin && !ACTIVE_MESSAGE_STATUSES.includes(engagementState.status)) {
+      return Response.json(
+        { error: 'Messaging is available after the introduction is accepted and before the engagement is closed.' },
+        { status: 403 }
+      );
+    }
 
     const { data, error } = await supabase
       .from('messages')
-      .insert({ ...safeFields, sender_id: user.id })
-      .select('*, engagement:engagements(id, counterparty_id, project:projects(id, name, developer_id))')
+      .insert({ engagement_id: engagementId, message_body: content, sender_id: user.id })
+      .select('*, sender:user_profiles(id, full_name, email, avatar_url), engagement:engagements(id, counterparty_id, counterparty_type, project:projects(id, name, developer_id))')
       .single();
 
     if (error) {
       console.error('[Messages] Insert error:', error.message);
       return serverError();
     }
+
     await writeAuditLog({ userId: user.id, action: 'MESSAGE_SENT', entityType: 'messages', entityId: data.id, after: { engagement_id: engagementId }, req });
 
-    // Notify recipients in the OTHER org about the new message
+    supabase
+      .from('engagements')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', engagementId)
+      .then(({ error }) => {
+        if (error) console.error('[Messages] Engagement touch error:', error.message);
+      });
+
+    // Notify recipients in the OTHER org
     if (data?.engagement) {
-      const eng = data.engagement as any;
-      const proj = eng.project as any;
-      const actingOrgId = user.company_id;
-      const counterpartyId = eng.counterparty_id;
-      const otherOrgId = actingOrgId === proj.developer_id ? counterpartyId : proj.developer_id;
+      try {
+        const eng = data.engagement as any;
+        const proj = eng.project as any;
+        const actingOrgId = user.company_id;
 
-      if (otherOrgId) {
-        // Find all users in the other org who are members
-        const { data: memberRows } = await supabase
-          .from('company_members')
-          .select('user_id, users!inner(id, email, full_name)')
-          .eq('company_id', otherOrgId)
-          .is('deleted_at', null);
+        // Resolve counterparty company_id
+        const partnerTable = eng.counterparty_type === 'CAPITAL' ? 'capital_partners' : 'technical_partners';
+        const { data: partnerRecord } = await supabase
+          .from(partnerTable)
+          .select('company_id')
+          .eq('id', eng.counterparty_id)
+          .maybeSingle();
 
-        const emailMap: Record<string, string> = {};
-        const userIds: string[] = [];
-        for (const m of memberRows ?? []) {
-          const u = m.users as any;
-          if (u?.id && u?.email) {
-            userIds.push(u.id);
-            emailMap[u.id] = u.email;
+        const counterpartyCompanyId = partnerRecord?.company_id ?? null;
+        const otherOrgId = actingOrgId === proj.developer_id ? counterpartyCompanyId : proj.developer_id;
+
+        if (otherOrgId) {
+          // Two-step: get member user_ids, then get profiles
+          const { data: memberRows } = await supabase
+            .from('company_members')
+            .select('user_id')
+            .eq('company_id', otherOrgId)
+            .is('deleted_at', null);
+
+          const memberIds = (memberRows ?? []).map((m: any) => m.user_id).filter(Boolean);
+
+          if (memberIds.length > 0) {
+            const { data: profiles } = await supabase
+              .from('user_profiles')
+              .select('id, full_name, email')
+              .in('id', memberIds);
+
+            const emailMap: Record<string, string> = {};
+            const userIds: string[] = [];
+            for (const p of profiles ?? []) {
+              if (p?.id && p?.email) {
+                userIds.push(p.id);
+                emailMap[p.id] = p.email;
+              }
+            }
+
+            if (userIds.length > 0) {
+              const senderName = user.full_name ?? 'A user';
+              const firstName = (profiles?.[0] as any)?.full_name ?? 'there';
+
+              await notifyUsers({
+                userIds,
+                payload: notificationBuilders.messageReceived({ senderName, engagementId }),
+                channel: 'both',
+                emailMap,
+                emailTemplate: emailTemplates.messageReceivedEmail({
+                  senderName,
+                  recipientName: firstName,
+                  projectName: proj.name ?? 'your project',
+                  engagementId,
+                }),
+                emailLogType: 'message_received',
+                emailEntityId: data.id,
+              });
+            }
           }
         }
-
-        if (userIds.length > 0) {
-          const preview = typeof safeFields.content === 'string' ? safeFields.content : '';
-          const payload = notificationBuilders.messageReceived({
-            senderName: user.full_name ?? 'A user',
-            preview,
-          });
-          // Use first member's name for the email template (all get same email content)
-          const firstName = ((memberRows?.[0] as any)?.users as any)?.full_name ?? 'there';
-          const emailT = emailTemplates.messageReceivedEmail({
-            senderName: user.full_name ?? 'A user',
-            recipientName: firstName,
-            preview,
-            projectName: proj.name ?? 'your project',
-          });
-          await notifyUsers({
-            userIds,
-            payload,
-            channel: 'both',
-            emailMap,
-            emailTemplate: emailT,
-            emailLogType: 'message_received',
-            emailEntityId: data.id,
-          });
-        }
+      } catch (notifyErr: any) {
+        console.error('[Messages] Notify error:', notifyErr.message);
       }
     }
 

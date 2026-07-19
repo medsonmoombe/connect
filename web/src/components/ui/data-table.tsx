@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Icons } from './icons';
 import { Button } from './button';
+import { cn } from '@/lib/utils';
 
 export interface Column<T> {
   key: string;
@@ -17,6 +18,12 @@ interface DataTableProps<T> {
   emptyDescription?: string;
   rowKey: (row: T) => string;
   pageSize?: number;
+  actions?: (row: T) => React.ReactNode;
+  skeletonRows?: number;
+}
+
+function SkeletonCell({ className }: { className?: string }) {
+  return <div className={cn('h-4 rounded-md bg-slate-200 animate-pulse', className)} />;
 }
 
 export function DataTable<T>({
@@ -27,6 +34,8 @@ export function DataTable<T>({
   emptyDescription,
   rowKey,
   pageSize = 5,
+  actions,
+  skeletonRows = 6,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(0);
   const totalPages = Math.ceil(data.length / pageSize);
@@ -40,9 +49,33 @@ export function DataTable<T>({
 
   if (loading) {
     return (
-      <div className="p-12 flex items-center justify-center gap-3 text-slate-400">
-        <Icons.spinner className="size-5 animate-spin" />
-        <span className="text-sm">Loading...</span>
+      <div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-b border-slate-100">
+                {columns.map(col => (
+                  <th key={col.key} className={cn('px-4 py-3', col.className)}>
+                    {col.header}
+                  </th>
+                ))}
+                {actions && <th className="px-4 py-3 w-10" />}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {Array.from({ length: skeletonRows }).map((_, i) => (
+                <tr key={i} className="animate-pulse">
+                  {columns.map(col => (
+                    <td key={col.key} className={cn('px-4 py-3', col.className)}>
+                      <SkeletonCell className={col.key === 'status' || col.key === 'stage' ? 'w-24' : col.key === 'capital' ? 'w-20 ml-auto' : 'w-40'} />
+                    </td>
+                  ))}
+                  {actions && <td className="px-4 py-3"><SkeletonCell className="w-6 ml-auto" /></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }
@@ -68,6 +101,7 @@ export function DataTable<T>({
                   {col.header}
                 </th>
               ))}
+              {actions && <th className="px-4 py-3 w-10" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -78,6 +112,7 @@ export function DataTable<T>({
                     {col.render(row)}
                   </td>
                 ))}
+                {actions && <td className="px-4 py-3 text-right">{actions(row)}</td>}
               </tr>
             ))}
           </tbody>

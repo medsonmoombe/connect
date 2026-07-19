@@ -91,31 +91,8 @@ export default function VerificationStatusPage() {
     }
   };
 
-  const handleEditAndResubmit = async () => {
-    setLoading(true);
-    try {
-      // Set status back to pending_verification so user can edit and resubmit
-      const res = await fetch(`/api/admin/organizations/${user?.company_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update_status', status: 'pending_verification', note: 'Organization requested to edit and resubmit' }),
-      });
-
-      if (res.ok) {
-        toast.success('Organization status updated', {
-          description: 'You can now edit your organization details and resubmit for review.',
-        });
-        await refreshUser();
-        router.push('/onboarding');
-      } else {
-        const err = await res.json();
-        toast.error(err.error || 'Failed to update status');
-      }
-    } catch {
-      toast.error('An error occurred while updating status');
-    } finally {
-      setLoading(false);
-    }
+  const handleEditAndResubmit = () => {
+    router.push('/onboarding?edit=true');
   };
 
   // If user is verified, don't show this page

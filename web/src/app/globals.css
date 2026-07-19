@@ -376,6 +376,12 @@
   }
 }
 
+/* AI Scoring progress bar animation */
+@keyframes progress {
+  from { width: 0%; }
+  to { width: 92%; }
+}
+
 /* Custom Progress Ring for Scoring */
 .progress-ring__circle {
   transition: stroke-dashoffset 0.35s;

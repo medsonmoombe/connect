@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, unauthorized, serverError, forbidden, writeAuditLog, handleRouteError, pickFields, verifyProjectOwnership } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { activateAndNotify } from '@/lib/activation-notify';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,7 +15,7 @@ const PROJECT_UPDATE_FIELDS = [
   'rejection_reason',
 ];
 
-const EDITABLE_STATUSES = ['draft', 'rejected', 'returned'];
+const EDITABLE_STATUSES = ['draft', 'scoring', 'pending_live', 'deactivated'];
 
 // GET /api/projects/[id]
 export async function GET(req: NextRequest, { params }: Params) {
@@ -28,15 +29,44 @@ export async function GET(req: NextRequest, { params }: Params) {
     const resource = searchParams.get('resource');
 
     if (resource === 'matches') {
+      const { data: projectAccess, error: projectAccessError } = await supabase
+        .from('projects')
+        .select('developer_id')
+        .eq('id', id)
+        .is('deleted_at', null)
+        .single();
+
+      if (projectAccessError || !projectAccess) {
+        console.error('[Projects] Match access query error:', projectAccessError?.message);
+        return serverError();
+      }
+
+      const canViewProjectMatches = user.is_platform_admin || projectAccess.developer_id === user.company_id;
+      if (!canViewProjectMatches) return forbidden();
+
+      // PRD §4.A/H: each party sees their ranked TOP-5 matches. We cap by default
+      // but allow an explicit limit for the admin's full view. Only `active`
+      // matches are returned (PRD §5.2 — stale matches are marked inactive, not
+      // deleted).
+      const TOP_N = 5;
+      const requestedLimit = Number(searchParams.get('limit')) || TOP_N;
+      const matchLimit = user.is_platform_admin
+        ? Math.min(Math.max(requestedLimit, 1), 100)
+        : Math.min(Math.max(requestedLimit, 1), TOP_N);
+
       const [capital, technical] = await Promise.all([
         supabase.from('capital_match_results')
           .select('*, capital_partner:capital_partners(*, company:companies(*))')
           .eq('project_id', id)
-          .order('compatibility_score', { ascending: false }),
+          .eq('status', 'active')
+          .order('compatibility_score', { ascending: false })
+          .limit(matchLimit),
         supabase.from('technical_match_results')
           .select('*, technical_partner:technical_partners(*, company:companies(*))')
           .eq('project_id', id)
-          .order('compatibility_score', { ascending: false }),
+          .eq('status', 'active')
+          .order('compatibility_score', { ascending: false })
+          .limit(matchLimit),
       ]);
       return Response.json({ capital: capital.data, technical: technical.data });
     }
@@ -84,6 +114,33 @@ export async function GET(req: NextRequest, { params }: Params) {
       console.error('[Projects] Query error:', error.message);
       return serverError();
     }
+
+    // Lazy activation: if project is pending_live and timer elapsed, activate now
+    if (data?.status === 'pending_live' && data?.scores_visible_at) {
+      const visibleAt = new Date(data.scores_visible_at);
+      if (visibleAt <= new Date()) {
+        const { activated } = await activateAndNotify(id);
+        if (activated) {
+          data.status = 'live';
+          data.is_visible_to_investors = true;
+        }
+      }
+    }
+
+    // Non-owners can only see live visible projects
+    const isOwner = user.is_platform_admin || data?.developer_id === user.company_id;
+    if (!isOwner) {
+      if (data?.status !== 'live' || !data?.is_visible_to_investors) {
+        return forbidden();
+      }
+    }
+    if (!isOwner && data?.scores_visible_at) {
+      const visibleAt = new Date(data.scores_visible_at);
+      if (visibleAt > new Date()) {
+        data.scores = null;
+      }
+    }
+
     return Response.json({ data });
   } catch (e: any) {
     return handleRouteError(e);
@@ -129,6 +186,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         governance_score: Math.round(rest.governance_score || 0),
         financial_transparency_score: Math.round(rest.financial_transparency_score || 0),
       };
+      // Preserve documents_hash if not explicitly provided (e.g. manual overrides)
+      if (!sanitized.documents_hash) delete sanitized.documents_hash;
       const { data, error } = await supabase
         .from('project_scores')
         .upsert(sanitized, { onConflict: 'project_id' })
@@ -144,18 +203,34 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     // Ownership check for direct project updates
     if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
 
-    // Status-gated edits: only draft and rejected projects can be edited
+    // Status-gated edits: only draft/scoring/live/deactivated can be edited
     const { data: projStatus } = await supabase
       .from('projects')
-      .select('status')
+      .select('status, developer_id')
       .eq('id', id)
       .single();
 
     if (projStatus && !EDITABLE_STATUSES.includes(projStatus.status) && !user.is_platform_admin) {
       return Response.json(
-        { error: `Cannot edit project in '${projStatus.status}' status. Only draft/rejected projects can be edited.` },
+        { error: `Cannot edit project in '${projStatus.status}' status.` },
         { status: 403 }
       );
+    }
+
+    // Engagement lock: block edits if active investor discussions are ongoing
+    if (!user.is_platform_admin) {
+      const { count: activeEngagements } = await supabase
+        .from('engagements')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', id)
+        .in('status', ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET']);
+
+      if (activeEngagements && activeEngagements > 0) {
+        return Response.json(
+          { error: 'This project has active investor discussions. Edits are locked until discussions conclude.' },
+          { status: 403 }
+        );
+      }
     }
 
     const allowedFields = user.is_platform_admin
@@ -184,6 +259,22 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const supabase = getSupabaseAdmin();
 
     if (!await verifyProjectOwnership(id, user.company_id, user.is_platform_admin)) return forbidden();
+
+    // Engagement lock: block deletion if active investor discussions are ongoing
+    if (!user.is_platform_admin) {
+      const { count: activeEngagements } = await supabase
+        .from('engagements')
+        .select('*', { count: 'exact', head: true })
+        .eq('project_id', id)
+        .in('status', ['NDA_SIGNED', 'DUE_DILIGENCE', 'TERM_SHEET']);
+
+      if (activeEngagements && activeEngagements > 0) {
+        return Response.json(
+          { error: 'This project has active investor discussions and cannot be deleted.' },
+          { status: 403 }
+        );
+      }
+    }
 
     const { error } = await supabase.from('projects').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) {

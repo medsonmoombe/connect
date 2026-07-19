@@ -29,8 +29,7 @@ interface GrantProfile {
 
 export default function GrantProviderDashboard() {
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'dashboard';
-  const [activeTab, setActiveTabState] = useState(initialTab);
+  const activeTab = searchParams.get('tab') || 'dashboard';
   const [engagements, setEngagements] = useState<Engagement[]>([]);
   const [marketplaceProjects, setMarketplaceProjects] = useState<Project[]>([]);
   const [grantProfile, setGrantProfile] = useState<GrantProfile | null>(null);
@@ -48,7 +47,6 @@ export default function GrantProviderDashboard() {
   const { user, loading } = useAuth();
 
   const setActiveTab = useCallback((tab: string) => {
-    setActiveTabState(tab);
     const params = new URLSearchParams(window.location.search);
     if (tab === 'dashboard') {
       params.delete('tab');
@@ -56,8 +54,8 @@ export default function GrantProviderDashboard() {
       params.set('tab', tab);
     }
     const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname;
-    window.history.replaceState(null, '', newUrl);
-  }, []);
+    router.push(newUrl);
+  }, [router]);
 
   useEffect(() => {
     if (!loading) {

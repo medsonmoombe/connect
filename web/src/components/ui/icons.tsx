@@ -57,6 +57,8 @@ import {
   RefreshCw,
   Pencil,
   Camera,
+  Clock,
+  Target,
 } from "lucide-react";
 
 export const Icons = {
@@ -130,10 +132,12 @@ export const Icons = {
   copy: Copy,
   eye: Eye,
   pencil: Pencil,
+  clock: Clock,
   eyeOff: EyeOff,
   users: Users,
   refreshCw: RefreshCw,
   x: X,
+  target: Target,
   logo: (props: any) => (
     <Leaf
       {...props}

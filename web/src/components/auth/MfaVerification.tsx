@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import LeafLoader from '@/components/ui/electric-loader';
 
 interface MfaVerificationProps {
   email: string;
@@ -14,10 +15,11 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [sending, setSending] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const hasSentRef = useRef(false);
 
   const sendCode = useCallback(async () => {
     setSending(true);
@@ -30,10 +32,18 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
       setCountdown(60);
     } catch (err: any) {
       setError(err.message);
+      setCodeSent(true); // still show the form so user sees the error
     } finally {
       setSending(false);
     }
   }, []);
+
+  // Auto-send code on mount (once)
+  useEffect(() => {
+    if (hasSentRef.current) return;
+    hasSentRef.current = true;
+    sendCode();
+  }, [sendCode]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -41,9 +51,10 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
     return () => clearTimeout(timer);
   }, [countdown]);
 
+  // Focus first input once the form is revealed
   useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
+    if (codeSent) inputRefs.current[0]?.focus();
+  }, [codeSent]);
 
   const handleChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
@@ -101,6 +112,14 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
     }
   };
 
+  if (!codeSent) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
+        <LeafLoader size={80} />
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col items-center justify-center bg-slate-50">
       <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-green-800 via-green-500 to-green-800" />
@@ -119,7 +138,7 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
         <div className="bg-white rounded-2xl border border-slate-200 shadow-lg shadow-slate-100 p-7">
           <h1 className="text-lg font-bold text-slate-900 mb-1">Two-factor verification</h1>
           <p className="text-sm text-slate-500 mb-5">
-            Enter the 6-digit code sent to <span className="font-medium text-slate-700">{email}</span>
+            A verification code was sent to <span className="font-medium text-slate-700">{email}</span>
           </p>
 
           {error && (
@@ -156,19 +175,10 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
           </form>
 
           <div className="mt-4 text-center">
-            {!codeSent ? (
-              <button type="button" onClick={sendCode} disabled={sending}
-                className="text-[11px] font-semibold text-green-700 hover:text-green-600 transition-colors disabled:opacity-50">
-                {sending ? 'Sending...' : 'Send verification code'}
-              </button>
-            ) : (
-              <button type="button" onClick={sendCode} disabled={countdown > 0}
-                className="text-[11px] font-semibold text-green-700 hover:text-green-600 transition-colors disabled:opacity-50">
-                {countdown > 0
-                  ? `Resend code in ${countdown}s`
-                  : 'Resend code'}
-              </button>
-            )}
+            <button type="button" onClick={sendCode} disabled={sending || countdown > 0}
+              className="text-[11px] font-semibold text-green-700 hover:text-green-600 transition-colors disabled:opacity-50">
+              {sending ? 'Sending…' : countdown > 0 ? `Resend code in ${countdown}s` : 'Resend code'}
+            </button>
           </div>
 
           <div className="mt-5 pt-4 border-t border-slate-100 text-center">

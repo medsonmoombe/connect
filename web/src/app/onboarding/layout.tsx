@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Icons } from '@/components/ui/icons';
 import LeafLoader from '@/components/ui/electric-loader';
@@ -9,19 +9,21 @@ import LeafLoader from '@/components/ui/electric-loader';
 export default function OnboardingLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEditMode = searchParams.get('edit') === 'true';
 
   useEffect(() => {
     if (!loading && user) {
-      // User already has an org — they belong on the dashboard (OrgReviewGate shows pending review)
-      if (user.company_id) {
+      // Allow users with an org to access onboarding in edit mode
+      if (user.company_id && !isEditMode) {
         router.replace('/dashboard');
       }
       // Admins don't need onboarding
-      else if (user.role === 'ADMIN') {
+      else if (user.role === 'ADMIN' && !isEditMode) {
         router.replace('/dashboard');
       }
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, isEditMode]);
 
   if (loading || !user) {
     return (
@@ -31,8 +33,8 @@ export default function OnboardingLayout({ children }: { children: ReactNode }) 
     );
   }
 
-  // Redirecting
-  if (user.company_id || user.role === 'ADMIN') return null;
+  // Redirecting (but not in edit mode)
+  if ((user.company_id || user.role === 'ADMIN') && !isEditMode) return null;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col">

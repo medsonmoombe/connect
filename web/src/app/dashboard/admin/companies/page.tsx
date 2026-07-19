@@ -893,6 +893,31 @@ export default function AdminCompaniesPage() {
         </span>
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) => (
+        row.role !== 'OWNER' ? (
+          <button
+            onClick={async () => {
+              if (!confirm(`Remove ${row.user_profiles?.full_name || 'this member'} from the organisation?`)) return;
+              try {
+                const res = await fetch(`/api/admin/organizations/${(selected as any).id}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'remove_member', userId: row.user_id }),
+                });
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+                toast.success('Member removed');
+                refetchOrg((selected as any).id);
+              } catch (e: any) { toast.error(e.message || 'Failed to remove member'); }
+            }}
+            className="text-xs font-bold text-red-500 hover:text-red-700 uppercase tracking-widest"
+          >Remove</button>
+        ) : null
+      ),
+    },
   ];
 
   const projectColumns: Column<OrgProject>[] = [

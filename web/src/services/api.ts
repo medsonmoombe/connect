@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api-client';
 import {
   Project, Company, CapitalPartner, TechnicalPartner,
-  Engagement, Message, User, ApiResponse, AuditLog, PaginatedResponse
+  Engagement, Message, EngagementDocument, User, ApiResponse, AuditLog, PaginatedResponse
 } from '@/types';
 
 function wrap<T>(promise: Promise<{ data: T }>): Promise<ApiResponse<T>> {
@@ -58,12 +58,15 @@ export const projectsApi = {
     if (filters?.search) params.set('search', filters.search);
     return wrap<Project[]>(apiClient.get(`/projects?${params}`));
   },
+  getMarketplace: () =>
+    wrap<Project[]>(apiClient.get('/projects?view=marketplace&include=epc')),
   getById: (id: string) => wrap<Project>(apiClient.get(`/projects/${id}`)),
   getAnalytics: (projectId: string) => wrap<any>(apiClient.get(`/projects/${projectId}/analytics`)),
-  review: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/review`, {})),
-  validate: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/validate`, {})),
-  reject: (id: string, reason: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/reject`, { reason })),
   archive: (id: string) => wrap<{ status: string }>(apiClient.post(`/projects/${id}/archive`, {})),
+  adminForceState: (id: string, status: string, note: string) =>
+    wrap<{ id: string; status: string }>(apiClient.patch(`/admin/projects/${id}`, { action: 'force_state', status, note })),
+  adminForceLive: (id: string, note: string) =>
+    wrap<{ id: string; is_visible_to_investors: boolean }>(apiClient.patch(`/admin/projects/${id}`, { action: 'force_live', note })),
 };
 
 export const capitalPartnersApi = {
@@ -81,6 +84,11 @@ export const technicalPartnersApi = {
 };
 
 export const matchingApi = {
+  getProjectMatches: async (projectId: string): Promise<ApiResponse<{ capital: any[]; technical: any[] }>> => {
+    return apiClient.get<{ capital: any[]; technical: any[] }>(`/projects/${projectId}?resource=matches`)
+      .then(r => ({ data: { capital: r.capital ?? [], technical: r.technical ?? [] } }))
+      .catch(e => ({ error: e.message }));
+  },
   getCapitalMatches: async (projectId: string): Promise<ApiResponse<any[]>> => {
     return apiClient.get<{ capital: any[] }>(`/projects/${projectId}?resource=matches`)
       .then(r => ({ data: r.capital })).catch(e => ({ error: e.message }));
@@ -88,6 +96,14 @@ export const matchingApi = {
   getTechnicalMatches: async (projectId: string): Promise<ApiResponse<any[]>> => {
     return apiClient.get<{ technical: any[] }>(`/projects/${projectId}?resource=matches`)
       .then(r => ({ data: r.technical })).catch(e => ({ error: e.message }));
+  },
+  getMatchesForPartner: async (): Promise<ApiResponse<any[]>> => {
+    return apiClient.get<{ data: any[] }>('/matches/capital')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
+  },
+  getPartnerMatchStats: async (): Promise<ApiResponse<{ total: number; avgScore: number; highPotential: number }>> => {
+    return apiClient.get<{ data: { total: number; avgScore: number; highPotential: number } }>('/matches/capital?stats=true')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
   },
 };
 
@@ -101,12 +117,66 @@ export const engagementsApi = {
   getById: (id: string) => wrap<Engagement>(apiClient.get(`/engagements/${id}`)),
   create: (engagement: Partial<Engagement>) => wrap<Engagement>(apiClient.post('/engagements', engagement)),
   updateStatus: (id: string, status: string) => wrap<Engagement>(apiClient.patch(`/engagements/${id}`, { status })),
+  // Engagement data room (documents)
+  getDocuments: (engagementId: string) =>
+    apiClient.get<{ data: EngagementDocument[] }>(`/engagements/${engagementId}/documents`)
+      .then((r) => ({ data: r.data, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
+  uploadDocument: (engagementId: string, file: File, documentType: string, classification = 'CONFIDENTIAL') => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('document_type', documentType);
+    fd.append('classification', classification);
+    return fetch(`/api/engagements/${engagementId}/documents`, {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    })
+      .then(async (r) => {
+        const json = await r.json();
+        if (!r.ok) throw new Error(json?.error || 'Upload failed');
+        return { data: json.data as EngagementDocument, error: undefined as string | undefined };
+      })
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) }));
+  },
+  downloadDocument: (engagementId: string, docId: string) =>
+    apiClient.get<{ signedUrl: string; file_name: string; mime_type: string }>(
+      `/engagements/${engagementId}/documents/${docId}`
+    )
+      .then((r) => ({ data: r as any, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
+  deleteDocument: (engagementId: string, docId: string) =>
+    apiClient.delete<{ data: { id: string; deleted: boolean } }>(
+      `/engagements/${engagementId}/documents/${docId}`
+    )
+      .then((r) => ({ data: r.data, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
 };
 
 export const messagesApi = {
   getByEngagement: (engagementId: string) =>
     wrap<Message[]>(apiClient.get(`/messages?engagement_id=${engagementId}`)),
   create: (message: Partial<Message>) => wrap<Message>(apiClient.post('/messages', message)),
+  /** Soft-delete own message within 5 min (PRD §11.1). Returns { id, deleted }. */
+  remove: (messageId: string) =>
+    apiClient.delete<{ data: { id: string; deleted: boolean } }>(`/messages/${messageId}`)
+      .then((r) => ({ data: r.data, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
+  /** Mark an engagement as read (clears unread). */
+  markRead: (engagementId: string) =>
+    apiClient.post<{ data: { engagement_id: string; last_read_at: string } }>(
+      `/messages/${engagementId}/read`,
+      {}
+    )
+      .then((r) => ({ data: r.data, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
+  /** Unread message counts across the user's engagements. */
+  getUnread: () =>
+    apiClient.get<{ data: { total: number; by_engagement: Record<string, number> } }>(
+      '/messages/unread'
+    )
+      .then((r) => ({ data: r.data, error: undefined as string | undefined }))
+      .catch((e) => ({ data: undefined as any, error: String(e?.message || e) })),
 };
 
 export const onboardingApi = {
@@ -116,8 +186,14 @@ export const onboardingApi = {
     wrap<any>(apiClient.post('/onboarding', { action: 'setup_company', company: companyData })),
   joinCompany: (_userId: string, companyId: string) =>
     wrap<any>(apiClient.post('/onboarding', { action: 'join_company', companyId })),
-  saveRolePreferences: (role: string, companyId: string, data: any) =>
+  saveRolePreferences: (role: string, data: any) =>
     wrap<any>(apiClient.post('/onboarding', { action: 'save_preferences', role, preferences: data })),
+  updateCompany: (_userId: string, companyData: Partial<Company>) =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'update_company', company: companyData })),
+  resubmitCompany: () =>
+    wrap<any>(apiClient.post('/onboarding', { action: 'resubmit_company' })),
+  getEditData: () =>
+    wrap<{ company: Company; preferences: Record<string, any> }>(apiClient.post('/onboarding', { action: 'get_edit_data' })),
   completeOnboarding: () =>
     wrap<any>(apiClient.post('/onboarding', { action: 'complete_onboarding' })),
 };

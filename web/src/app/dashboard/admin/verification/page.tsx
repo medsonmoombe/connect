@@ -640,49 +640,33 @@ export default function VerificationQueuePage() {
         loading={loadingApprove}
       />
 
-      {/* ── Confirm: Reject ─────────────────────────────────────── */}
-      <ConfirmDialog
-        open={confirmReject}
-        onClose={() => setConfirmReject(false)}
-        onConfirm={() => handleAction('rejected')}
-        title="Reject Organisation"
-        description={`Are you sure you want to reject "${selected?.name}"? The owner will be notified by email.${note ? ' Your note will be included.' : ''}`}
-        confirmLabel="Reject"
-        confirmVariant="danger"
-        loading={loadingReject}
-      />
-
-      {/* ── Confirm: Request Info ────────────────────────────────── */}
-      <ConfirmDialog
-        open={confirmRequestInfo}
-        onClose={() => setConfirmRequestInfo(false)}
-        onConfirm={() => handleAction('needs_update')}
-        title="Request Additional Information"
-        description={`Send a request to "${selected?.name}" for more information? The owner will be notified by email.${note ? ' Your note will be included.' : ''}`}
-        confirmLabel="Send Request"
-        confirmVariant="default"
-        loading={loadingRequestInfo}
-      />
-
-      {/* ── Confirm: Request Info — note input ───────────────────── */}
+      {/* ── Note Drawer: Reject / Request Info ───────────────────── */}
       <Drawer
         open={confirmRequestInfo || confirmReject}
         onClose={() => { setConfirmRequestInfo(false); setConfirmReject(false); setNote(''); }}
         title={confirmReject ? 'Reject Organisation' : 'Request Information'}
         description={
           confirmReject
-            ? `Provide a reason for rejecting "${selected?.name}" (optional, sent via email).`
-            : `What information do you need from "${selected?.name}"? (optional, sent via email).`
+            ? `Provide a reason for rejecting "${selected?.name}" (will be shown to the organisation).`
+            : `What information do you need from "${selected?.name}"? (will be shown to the organisation).`
         }
         size="sm"
       >
         <div className="space-y-5">
-          <textarea
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            placeholder={confirmReject ? 'Reason for rejection...' : 'What additional information is needed...'}
-            className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-green-800/20 transition-shadow"
-          />
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">
+              {confirmReject ? 'Rejection Reason' : 'Additional Information Needed'} *
+            </label>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder={confirmReject ? 'Explain why this organisation is being rejected...' : 'Describe what information is needed...'}
+              className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-green-800/20 transition-shadow"
+            />
+            {!note.trim() && (
+              <p className="text-xs text-amber-600">A comment is required so the organisation understands what to do next.</p>
+            )}
+          </div>
           <div className="flex gap-3">
             <Button
               variant="outline"
@@ -694,11 +678,12 @@ export default function VerificationQueuePage() {
             <Button
               variant={confirmReject ? 'danger' : 'default'}
               className="flex-1 h-11 rounded-xl font-bold"
+              disabled={!note.trim()}
               onClick={() => {
-                setConfirmRequestInfo(false);
-                setConfirmReject(false);
                 if (confirmReject) handleAction('rejected');
                 else handleAction('needs_update');
+                setConfirmRequestInfo(false);
+                setConfirmReject(false);
               }}
               loading={confirmReject ? loadingReject : loadingRequestInfo}
             >

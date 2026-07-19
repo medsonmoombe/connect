@@ -1,29 +1,47 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { CapitalMatchResult, TechnicalMatchResult } from '@/types';
+import { CapitalMatchResult, TechnicalMatchResult, Engagement } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Icons, ShieldCheck, Zap, MapPin, DollarSign, Check, Send } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
-import { engagementService } from '@/lib/engagement';
+import { engagementService, getStateLabel } from '@/lib/engagement';
 
 interface MatchingSectionProps {
   projectId: string;
   projectTechnology?: string;
   capitalMatches: CapitalMatchResult[];
   technicalMatches: TechnicalMatchResult[];
+  engagements?: Engagement[];
   isOrgAdmin?: boolean;
 }
 
-export function MatchingSection({ projectId, projectTechnology, capitalMatches, technicalMatches, isOrgAdmin }: MatchingSectionProps) {
+export function MatchingSection({ projectId, projectTechnology, capitalMatches, technicalMatches, engagements = [], isOrgAdmin }: MatchingSectionProps) {
   const [activeTab, setActiveTab] = useState<'CAPITAL' | 'TECHNICAL'>('CAPITAL');
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<string[]>([]);
 
+  const engagedPartnerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of engagements) {
+      ids.add(e.counterparty_id);
+    }
+    return ids;
+  }, [engagements]);
+
+  const engagedMap = useMemo(() => {
+    const map: Record<string, Engagement> = {};
+    for (const e of engagements) {
+      if (!map[e.counterparty_id]) map[e.counterparty_id] = e;
+    }
+    return map;
+  }, [engagements]);
+
   const matches = activeTab === 'CAPITAL' ? capitalMatches : technicalMatches;
 
   const handleExpressInterest = async (partnerId: string, type: 'CAPITAL' | 'TECHNICAL') => {
+    if (engagedPartnerIds.has(partnerId)) return;
     setSendingId(partnerId);
     try {
       await engagementService.requestIntroduction(projectId, partnerId, type);
@@ -76,10 +94,12 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
 
             const isSent = sentIds.includes(partner.id);
             const isSending = sendingId === partner.id;
+            const isAlreadyEngaged = engagedPartnerIds.has(partner.id);
+            const existingEngagement = engagedMap[partner.id];
             const isAnonymized = activeTab === 'CAPITAL';
 
             const displayName = isAnonymized
-              ? `${(partner as any).preferred_structures?.[0] || 'Institutional'} Partner`
+              ? `${(partner as any).preferred_capital_structure?.[0] || 'Institutional'} Partner`
               : partner.company?.name;
 
             const displayDescription = isAnonymized
@@ -135,17 +155,22 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
                 {/* Action */}
                 {isOrgAdmin && (
                   <Button
-                    onClick={() => handleExpressInterest(partner.id, activeTab)}
-                    disabled={isSent || isSending}
+                    onClick={() => !isAlreadyEngaged && handleExpressInterest(partner.id, activeTab)}
+                    disabled={isAlreadyEngaged || isSent || isSending}
                     className={cn(
                       "w-full h-10 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
-                      isSent
+                      isAlreadyEngaged
+                        ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
+                        : isSent
                         ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
                         : "bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10"
                     )}
+                    title={isAlreadyEngaged ? `Engagement exists (${existingEngagement?.status})` : undefined}
                   >
                     {isSending ? (
                       <Icons.spinner className="size-3.5 animate-spin" />
+                    ) : isAlreadyEngaged ? (
+                      <><Check className="size-3.5 mr-1.5" /> Expressed</>
                     ) : isSent ? (
                       <><Check className="size-3.5 mr-1.5" /> Sent</>
                     ) : (
@@ -153,9 +178,9 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
                     )}
                   </Button>
                 )}
-                {!isOrgAdmin && isSent && (
+                {!isOrgAdmin && (isAlreadyEngaged || isSent) && (
                   <div className="w-full h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center text-xs font-bold uppercase tracking-widest">
-                    <Check className="size-3.5 mr-1.5" /> Interest Sent
+                    <Check className="size-3.5 mr-1.5" /> {isAlreadyEngaged ? 'Expressed' : 'Interest Sent'}
                   </div>
                 )}
               </div>

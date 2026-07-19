@@ -32,8 +32,7 @@ export function EmptyState({ icon, title, description, actionLabel, actionHref, 
                       </Button>
           </Link>
         ) : (
-
-                    <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />}>
+                    <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />} onClick={onAction}>
                       {actionLabel}
                       </Button>
         )

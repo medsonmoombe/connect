@@ -3,43 +3,36 @@
 import { useState, useEffect, useRef } from 'react';
 import * as ReactDOM from 'react-dom';
 import { Button } from '@/components/ui/button';
+import { DataTable, Column } from '@/components/ui/data-table';
 import { Icons } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { StatCard } from '@/components/ui/stat-card';
 import { Drawer } from '@/components/ui/drawer';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { projectsApi } from '@/services/api';
-import { Project, ProjectStage } from '@/types';
+import { Project } from '@/types';
 import Link from 'next/link';
 import { useAdminOverrideScore } from '@/hooks/queries';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { getReviewRecommendation } from '@/lib/review-intelligence';
-import { ReviewRecommendationCard } from '@/components/ReviewRecommendationCard';
 
-type StatusFilter = 'REVIEW_QUEUE' | 'ALL' | 'submitted' | 'under_review' | 'validated' | 'rejected' | 'draft' | 'archived';
+type StatusFilter = 'ALL' | 'draft' | 'pending_live' | 'live' | 'deactivated' | 'archived';
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'ALL', label: 'All Projects' },
-  { value: 'REVIEW_QUEUE', label: 'Review Queue' },
-  { value: 'submitted', label: 'Submitted' },
-  { value: 'under_review', label: 'Under Review' },
-  { value: 'validated', label: 'Validated' },
-  { value: 'rejected', label: 'Rejected' },
   { value: 'draft', label: 'Draft' },
+  { value: 'pending_live', label: 'Pending Live' },
+  { value: 'live', label: 'Live' },
+  { value: 'deactivated', label: 'Deactivated' },
   { value: 'archived', label: 'Archived' },
 ];
 
 const STATUS_BADGES: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  draft:                   { label: 'Draft',                  color: 'text-slate-500',   bg: 'bg-slate-50',    border: 'border-slate-100' },
-  pending_internal_review: { label: 'Pending Internal Review', color: 'text-purple-600',  bg: 'bg-purple-50',   border: 'border-purple-100' },
-  returned:                { label: 'Returned for Rework',    color: 'text-orange-600',  bg: 'bg-orange-50',   border: 'border-orange-100' },
-  submitted:               { label: 'Submitted',              color: 'text-blue-600',    bg: 'bg-blue-50',     border: 'border-blue-100' },
-  under_review:            { label: 'Under Review',           color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-100' },
-  validated:               { label: 'Validated',              color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-100' },
-  rejected:                { label: 'Rejected',               color: 'text-red-600',     bg: 'bg-red-50',      border: 'border-red-100' },
-  archived:                { label: 'Archived',               color: 'text-slate-400',   bg: 'bg-slate-50',    border: 'border-slate-100' },
+  draft:       { label: 'Draft',        color: 'text-slate-500',   bg: 'bg-slate-50',   border: 'border-slate-100' },
+  pending_live:{ label: 'Pending Live', color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-100' },
+  live:        { label: 'Live',         color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  deactivated: { label: 'Deactivated',  color: 'text-red-500',     bg: 'bg-red-50',     border: 'border-red-100' },
+  archived:    { label: 'Archived',     color: 'text-slate-400',   bg: 'bg-slate-50',   border: 'border-slate-100' },
 };
 
 const STAGE_BADGES: Record<string, string> = {
@@ -51,9 +44,73 @@ const STAGE_BADGES: Record<string, string> = {
   OPERATIONS:      'bg-green-50 text-green-700 border-green-100',
 };
 
+function getStatusBadge(project: Project): { label: string; color: string; bg: string; border: string } {
+  const status = (project as any).status as string;
+  return STATUS_BADGES[status] || STATUS_BADGES.draft;
+}
+
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
+
+const columns: Column<Project>[] = [
+  {
+    key: 'project',
+    header: 'Project',
+    className: 'px-6',
+    render: (row) => (
+      <div className="flex flex-col min-w-0">
+        <span className="text-sm font-bold text-slate-900 truncate">{row.name}</span>
+        <span className="text-xs text-slate-500">{row.technology_type}</span>
+      </div>
+    ),
+  },
+  {
+    key: 'developer',
+    header: 'Developer',
+    render: (row) => <span className="text-sm text-slate-600">{row.developer?.name || 'N/A'}</span>,
+  },
+  {
+    key: 'stage',
+    header: 'Stage',
+    render: (row) => {
+      const stageClass = STAGE_BADGES[row.project_stage] || STAGE_BADGES.CONCEPT;
+      return (
+        <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border', stageClass)}>
+          {row.project_stage?.replace(/_/g, ' ')}
+        </span>
+      );
+    },
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (row) => {
+      const st = getStatusBadge(row);
+      return (
+        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border', st.bg, st.color, st.border)}>
+          <span className="size-1.5 rounded-full bg-current" />
+          {st.label}
+        </span>
+      );
+    },
+  },
+  {
+    key: 'capital',
+    header: 'Capital',
+    className: 'text-right',
+    render: (row) => <span className="text-sm font-semibold text-slate-900">{formatCurrency(row.capital_required)}</span>,
+  },
+  {
+    key: 'created',
+    header: 'Created',
+    render: (row) => (
+      <span className="text-sm text-slate-500">
+        {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+      </span>
+    ),
+  },
+];
 
 function RowMenu({ items }: {
   items: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean }[]
@@ -157,22 +214,50 @@ export default function AdminProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('REVIEW_QUEUE');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+
+  const buildMenuItems = (row: Project) => {
+    const status = (row as any).status as string;
+    return [
+      { label: 'View details', icon: <Icons.eye className="size-3.5" />, onClick: () => openDrawer(row) },
+      ...(status === 'draft' ? [
+        { label: 'Score Override', icon: <Icons.pencil className="size-3.5" />, onClick: () => openScoreDrawer(row) },
+      ] : []),
+      ...(status === 'pending_live' ? [
+        { label: 'Force Live Now', icon: <Icons.zap className="size-3.5" />, onClick: () => { setSelected(row); setForceLiveNote(''); setConfirmForceLive(true); } },
+      ] : []),
+      ...(status === 'live' ? [
+        { label: 'Deactivate', icon: <Icons.eyeOff className="size-3.5" />, danger: true as const, onClick: () => { setSelected(row); setConfirmDeactivate(true); } },
+        { label: 'Archive', icon: <Icons.folder className="size-3.5" />, onClick: () => { setSelected(row); setConfirmArchive(true); } },
+      ] : []),
+      ...(status === 'deactivated' ? [
+        { label: 'Reactivate', icon: <Icons.eye className="size-3.5" />, onClick: () => { setSelected(row); setConfirmReactivate(true); } },
+        { label: 'Archive', icon: <Icons.folder className="size-3.5" />, onClick: () => { setSelected(row); setConfirmArchive(true); } },
+      ] : []),
+      ...(status === 'archived' ? [
+        { label: 'Reactivate', icon: <Icons.eye className="size-3.5" />, onClick: () => { setSelected(row); setConfirmReactivate(true); } },
+      ] : []),
+      { label: 'Score Override', icon: <Icons.pencil className="size-3.5" />, onClick: () => openScoreDrawer(row) },
+    ];
+  };
+
 
   // Stats
-  const [stats, setStats] = useState({ submitted: 0, under_review: 0, validated: 0, rejected: 0, draft: 0 });
+  const [stats, setStats] = useState({ draft: 0, pending_live: 0, live: 0, deactivated: 0, archived: 0 });
 
   // Drawer
   const [selected, setSelected] = useState<Project | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Confirm dialogs
-  const [confirmReview, setConfirmReview] = useState(false);
-  const [confirmValidate, setConfirmValidate] = useState(false);
-  const [confirmReject, setConfirmReject] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
+  const [confirmForceLive, setConfirmForceLive] = useState(false);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+  const [confirmReactivate, setConfirmReactivate] = useState(false);
   const [acting, setActing] = useState(false);
+
+
+  const [forceLiveNote, setForceLiveNote] = useState('');
 
   const { mutateAsync: overrideScore, isPending: overridingScore } = useAdminOverrideScore();
   const [scoreOverrides, setScoreOverrides] = useState({ capital_readiness_score: 0, technical_readiness_score: 0 });
@@ -182,18 +267,12 @@ export default function AdminProjectsPage() {
   const fetchProjects = async () => {
     setIsLoading(true);
     try {
-      const isReviewQueue = statusFilter === 'REVIEW_QUEUE';
       const response = await projectsApi.getAdminAll({
         search: search || undefined,
-        status: isReviewQueue || statusFilter === 'ALL' ? undefined : statusFilter,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
       });
-      if (response.data && isReviewQueue) {
-        response.data = (response.data as Project[]).filter(
-          (p) => (p as any).status === 'submitted' || (p as any).status === 'under_review'
-        );
-      }
       if (response.data) {
-        setProjects(response.data);
+        setProjects(response.data as Project[]);
       }
     } catch (error) {
       console.error('Failed to fetch projects:', error);
@@ -205,14 +284,14 @@ export default function AdminProjectsPage() {
   // Fetch stats for all statuses
   const fetchStats = async () => {
     try {
-      const statuses: StatusFilter[] = ['submitted', 'under_review', 'validated', 'rejected', 'draft'];
+      const statuses: StatusFilter[] = ['draft', 'pending_live', 'live', 'deactivated', 'archived'];
       const results = await Promise.all(statuses.map(s => projectsApi.getAdminAll({ status: s })));
       setStats({
-        submitted: results[0].data?.length ?? 0,
-        under_review: results[1].data?.length ?? 0,
-        validated: results[2].data?.length ?? 0,
-        rejected: results[3].data?.length ?? 0,
-        draft: results[4].data?.length ?? 0,
+        draft: results[0].data?.length ?? 0,
+        pending_live: results[1].data?.length ?? 0,
+        live: results[2].data?.length ?? 0,
+        deactivated: results[3].data?.length ?? 0,
+        archived: results[4].data?.length ?? 0,
       });
     } catch {}
   };
@@ -228,72 +307,11 @@ export default function AdminProjectsPage() {
   const closeDrawer = () => {
     setDrawerOpen(false);
     setSelected(null);
-    setRejectReason('');
-    setConfirmReview(false);
-    setConfirmValidate(false);
-    setConfirmReject(false);
     setConfirmArchive(false);
-  };
-
-  const handleReview = async () => {
-    if (!selected) return;
-    setActing(true);
-    try {
-      await projectsApi.review(selected.id);
-      toast.success('Project moved to Under Review');
-      closeDrawer();
-      fetchProjects();
-      fetchStats();
-    } catch (e: any) {
-      toast.error(e.message || 'Action failed');
-    } finally {
-      setActing(false);
-    }
-  };
-
-  const handleValidate = async () => {
-    if (!selected) return;
-    const recommendation = getReviewRecommendation(selected.scores);
-    if (!selected.scores) {
-      toast.error('Run AI analysis before validating this project.');
-      return;
-    }
-    if (!recommendation.canValidate) {
-      toast.error(recommendation.message);
-      return;
-    }
-    setActing(true);
-    try {
-      await projectsApi.validate(selected.id);
-      toast.success('Project validated — scoring triggered');
-      closeDrawer();
-      fetchProjects();
-      fetchStats();
-    } catch (e: any) {
-      toast.error(e.message || 'Action failed');
-    } finally {
-      setActing(false);
-    }
-  };
-
-  const handleReject = async () => {
-    if (!selected || !rejectReason.trim()) return;
-    if (!selected.scores) {
-      toast.error('Run AI analysis before rejecting this project.');
-      return;
-    }
-    setActing(true);
-    try {
-      await projectsApi.reject(selected.id, rejectReason);
-      toast.success('Project rejected');
-      closeDrawer();
-      fetchProjects();
-      fetchStats();
-    } catch (e: any) {
-      toast.error(e.message || 'Action failed');
-    } finally {
-      setActing(false);
-    }
+    setConfirmForceLive(false);
+    setConfirmDeactivate(false);
+    setConfirmReactivate(false);
+    setForceLiveNote('');
   };
 
   const handleArchive = async () => {
@@ -302,6 +320,57 @@ export default function AdminProjectsPage() {
     try {
       await projectsApi.archive(selected.id);
       toast.success('Project archived');
+      closeDrawer();
+      fetchProjects();
+      fetchStats();
+    } catch (e: any) {
+      toast.error(e.message || 'Action failed');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleForceLive = async () => {
+    if (!selected || !forceLiveNote.trim()) return;
+    setActing(true);
+    try {
+      const res = await projectsApi.adminForceLive(selected.id, forceLiveNote);
+      if (res.error) throw new Error(res.error);
+      toast.success('Project is now live and visible to investors');
+      closeDrawer();
+      fetchProjects();
+      fetchStats();
+    } catch (e: any) {
+      toast.error(e.message || 'Action failed');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!selected) return;
+    setActing(true);
+    try {
+      const res = await projectsApi.adminForceState(selected.id, 'deactivated', 'Deactivated by admin');
+      if (res.error) throw new Error(res.error);
+      toast.success('Project deactivated');
+      closeDrawer();
+      fetchProjects();
+      fetchStats();
+    } catch (e: any) {
+      toast.error(e.message || 'Action failed');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    if (!selected) return;
+    setActing(true);
+    try {
+      const res = await projectsApi.adminForceState(selected.id, 'live', 'Reactivated by admin');
+      if (res.error) throw new Error(res.error);
+      toast.success('Project reactivated');
       closeDrawer();
       fetchProjects();
       fetchStats();
@@ -321,8 +390,6 @@ export default function AdminProjectsPage() {
     setScoreNote('');
     setShowScoreDrawer(true);
   };
-
-  const reviewRecommendation = selected ? getReviewRecommendation(selected.scores) : null;
 
   const handleOverrideScore = async () => {
     if (!selected) return;
@@ -349,11 +416,11 @@ export default function AdminProjectsPage() {
 
       {/* ── Stats ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard label="Submitted" value={stats.submitted} icon={Icons.send} valueClassName="text-blue-600" />
-        <StatCard label="Under Review" value={stats.under_review} icon={Icons.eye} valueClassName="text-amber-600" />
-        <StatCard label="Validated" value={stats.validated} icon={Icons.checkCircle2} valueClassName="text-emerald-600" />
-        <StatCard label="Rejected" value={stats.rejected} icon={Icons.x} valueClassName="text-red-600" />
         <StatCard label="Draft" value={stats.draft} icon={Icons.fileText} valueClassName="text-slate-600" />
+        <StatCard label="Pending Live" value={stats.pending_live} icon={Icons.clock} valueClassName="text-amber-600" />
+        <StatCard label="Live" value={stats.live} icon={Icons.eye} valueClassName="text-emerald-600" />
+        <StatCard label="Deactivated" value={stats.deactivated} icon={Icons.eyeOff} valueClassName="text-red-500" />
+        <StatCard label="Archived" value={stats.archived} icon={Icons.folder} valueClassName="text-slate-400" />
       </div>
 
       {/* ── Filters ──────────────────────────────────── */}
@@ -391,95 +458,18 @@ export default function AdminProjectsPage() {
           </div>
           <span className="text-xs text-slate-400">{isLoading ? '—' : `${projects.length} total`}</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Project</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Developer</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stage</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Capital</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Created</th>
-                <th className="px-4 py-3 w-10" />
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td className="px-6 py-3.5"><Skeleton className="h-4 w-40 rounded-lg" /></td>
-                    <td className="px-4 py-3.5"><Skeleton className="h-4 w-28 rounded-lg" /></td>
-                    <td className="px-4 py-3.5"><Skeleton className="h-5 w-24 rounded-full" /></td>
-                    <td className="px-4 py-3.5"><Skeleton className="h-5 w-28 rounded-full" /></td>
-                    <td className="px-4 py-3.5 text-right"><Skeleton className="h-4 w-20 rounded-lg ml-auto" /></td>
-                    <td className="px-4 py-3.5"><Skeleton className="h-4 w-24 rounded-lg" /></td>
-                    <td className="px-4 py-3.5"><Skeleton className="size-7 rounded-lg ml-auto" /></td>
-                  </tr>
-                ))
-              ) : projects.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <Icons.folder className="size-10 text-slate-200 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-500">No projects found</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {statusFilter === 'REVIEW_QUEUE' ? 'All caught up — no projects pending review.' : 'Try a different filter or search term.'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                projects.map((row) => {
-                  const status = (row as any).status as string;
-                  const st = STATUS_BADGES[status] || STATUS_BADGES.draft;
-                  const stageClass = STAGE_BADGES[row.project_stage] || STAGE_BADGES.CONCEPT;
-                  return (
-                    <tr key={row.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-3.5">
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-sm font-bold text-slate-900 truncate">{row.name}</span>
-                          <span className="text-xs text-slate-500">{row.technology_type}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-sm text-slate-600">{row.developer?.name || 'N/A'}</td>
-                      <td className="px-4 py-3.5">
-                        <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border', stageClass)}>
-                          {row.project_stage?.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border', st.bg, st.color, st.border)}>
-                          <span className="size-1.5 rounded-full bg-current" />
-                          {st.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-sm font-semibold text-slate-900 text-right">{formatCurrency(row.capital_required)}</td>
-                      <td className="px-4 py-3.5 text-sm text-slate-500">
-                        {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <RowMenu items={[
-                          { label: 'View details', icon: <Icons.eye className="size-3.5" />, onClick: () => openDrawer(row) },
-                          ...(status === 'submitted' ? [
-                            { label: 'Start Review', icon: <Icons.eye className="size-3.5" />, onClick: () => { setSelected(row); setConfirmReview(true); } },
-                            { label: 'Reject', icon: <Icons.x className="size-3.5" />, danger: true as const, onClick: () => { setSelected(row); setRejectReason(''); setConfirmReject(true); } },
-                          ] : []),
-                          ...(status === 'under_review' ? [
-                            { label: 'Validate', icon: <Icons.checkCircle2 className="size-3.5" />, onClick: () => { setSelected(row); setConfirmValidate(true); } },
-                            { label: 'Reject', icon: <Icons.x className="size-3.5" />, danger: true as const, onClick: () => { setSelected(row); setRejectReason(''); setConfirmReject(true); } },
-                          ] : []),
-                          ...(status === 'validated' ? [
-                            { label: 'Archive', icon: <Icons.folder className="size-3.5" />, onClick: () => { setSelected(row); setConfirmArchive(true); } },
-                          ] : []),
-                          { label: 'Score Override', icon: <Icons.pencil className="size-3.5" />, onClick: () => openScoreDrawer(row) },
-                        ]} />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          data={projects}
+          loading={isLoading}
+          emptyTitle="No projects found"
+          emptyDescription="Try a different filter or search term."
+          rowKey={(p) => p.id}
+          pageSize={50}
+          actions={(row) => (
+            <RowMenu items={buildMenuItems(row)} />
+          )}
+        />
       </div>
 
       {/* ── View Drawer ──────────────────────────────── */}
@@ -594,76 +584,55 @@ export default function AdminProjectsPage() {
               </Button>
             </Link>
 
-            {reviewRecommendation && (selected as any).status === 'under_review' && (
-              <ReviewRecommendationCard recommendation={reviewRecommendation} />
-            )}
-
             {/* Quick actions */}
             <div className="border-t border-slate-100 pt-4 flex gap-2">
-              {(selected as any).status === 'submitted' && (
+              {(selected as any).status === 'pending_live' && (
+                <Button
+                  className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  onClick={() => { setForceLiveNote(''); setConfirmForceLive(true); }}
+                >
+                  <Icons.zap className="size-4 mr-2" />Force Live Now
+                </Button>
+              )}
+              {(selected as any).status === 'live' && (
                 <>
-                  <Button className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold" onClick={() => { setConfirmReview(true); }}>
-                    <Icons.eye className="size-4 mr-2" />Start Review
+                  <Button
+                    variant="outline"
+                    className="flex-1 h-11 rounded-xl border-red-200 text-red-600 font-bold hover:bg-red-50"
+                    onClick={() => { setConfirmDeactivate(true); }}
+                  >
+                    <Icons.eyeOff className="size-4 mr-2" />Deactivate
                   </Button>
-                  <Button variant="outline" className="h-11 px-4 rounded-xl border-red-200 text-red-600 font-bold hover:bg-red-50" onClick={() => { setRejectReason(''); setConfirmReject(true); }}>
-                    <Icons.x className="size-4 mr-1.5" />Reject
+                  <Button variant="outline" className="h-11 px-4 rounded-xl border-slate-200 text-slate-600 font-bold" onClick={() => { setConfirmArchive(true); }}>
+                    <Icons.folder className="size-4 mr-1.5" />Archive
                   </Button>
                 </>
               )}
-              {(selected as any).status === 'under_review' && (
+              {(selected as any).status === 'deactivated' && (
                 <>
                   <Button
                     className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-                    onClick={() => { setConfirmValidate(true); }}
-                    disabled={!reviewRecommendation?.canValidate}
-                    title={!reviewRecommendation?.canValidate ? 'Run AI analysis first or review low AI score' : undefined}
+                    onClick={() => { setConfirmReactivate(true); }}
                   >
-                    <Icons.check className="size-4 mr-2" />{reviewRecommendation?.canValidate ? 'Validate' : 'Run Analysis First'}
+                    <Icons.eye className="size-4 mr-2" />Reactivate
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="h-11 px-4 rounded-xl border-red-200 text-red-600 font-bold hover:bg-red-50"
-                    onClick={() => { setRejectReason(''); setConfirmReject(true); }}
-                    disabled={!selected.scores}
-                    title={!selected.scores ? 'Run AI analysis first' : undefined}
-                  >
-                    <Icons.x className="size-4 mr-1.5" />Reject
+                  <Button variant="outline" className="h-11 px-4 rounded-xl border-slate-200 text-slate-600 font-bold" onClick={() => { setConfirmArchive(true); }}>
+                    <Icons.folder className="size-4 mr-1.5" />Archive
                   </Button>
                 </>
               )}
-              {(selected as any).status === 'validated' && (
-                <Button variant="outline" className="flex-1 h-11 rounded-xl border-slate-200 text-slate-600 font-bold" onClick={() => { setConfirmArchive(true); }}>
-                  <Icons.folder className="size-4 mr-2" />Archive
+              {(selected as any).status === 'archived' && (
+                <Button
+                  className="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
+                  onClick={() => { setConfirmReactivate(true); }}
+                >
+                  <Icons.eye className="size-4 mr-2" />Reactivate
                 </Button>
               )}
             </div>
           </div>
         )}
       </Drawer>
-
-      {/* ── Confirm: Start Review ─────────────────────────── */}
-      <ConfirmDialog
-        open={confirmReview}
-        onClose={() => setConfirmReview(false)}
-        onConfirm={handleReview}
-        title="Start Review"
-        description={`Start reviewing "${selected?.name}"? This moves it to "Under Review" status.`}
-        confirmLabel="Start Review"
-        confirmVariant="default"
-        loading={acting}
-      />
-
-      {/* ── Confirm: Validate ─────────────────────────────── */}
-      <ConfirmDialog
-        open={confirmValidate}
-        onClose={() => setConfirmValidate(false)}
-        onConfirm={handleValidate}
-        title="Validate Project"
-        description={reviewRecommendation?.message || `Validate "${selected?.name}"? This makes it visible to partners.`}
-        confirmLabel="Validate"
-        confirmVariant="default"
-        loading={acting}
-      />
 
       {/* ── Confirm: Archive ──────────────────────────────── */}
       <ConfirmDialog
@@ -677,32 +646,65 @@ export default function AdminProjectsPage() {
         loading={acting}
       />
 
-      {/* ── Reject Drawer ─────────────────────────────────── */}
+      {/* ── Confirm: Deactivate ──────────────────────────── */}
+      <ConfirmDialog
+        open={confirmDeactivate}
+        onClose={() => setConfirmDeactivate(false)}
+        onConfirm={handleDeactivate}
+        title="Deactivate Project"
+        description={`Deactivate "${selected?.name}"? It will be hidden from investors and partners.`}
+        confirmLabel="Deactivate"
+        confirmVariant="danger"
+        loading={acting}
+      />
+
+      {/* ── Confirm: Reactivate ──────────────────────────── */}
+      <ConfirmDialog
+        open={confirmReactivate}
+        onClose={() => setConfirmReactivate(false)}
+        onConfirm={handleReactivate}
+        title="Reactivate Project"
+        description={`Reactivate "${selected?.name}"? It will become live again.`}
+        confirmLabel="Reactivate"
+        confirmVariant="default"
+        loading={acting}
+      />
+
+      {/* ── Force Live Drawer ─────────────────────────────────── */}
       <Drawer
-        open={confirmReject}
-        onClose={() => { setConfirmReject(false); setRejectReason(''); }}
-        title="Reject Project"
-        description={`Provide a reason for rejecting "${selected?.name}" (sent via email).`}
+        open={confirmForceLive}
+        onClose={() => { setConfirmForceLive(false); setForceLiveNote(''); }}
+        title="Force Project Live"
+        description={`Bypass the activation delay for "${selected?.name}". This makes it immediately visible to investors.`}
         size="sm"
       >
         <div className="space-y-5">
-          <textarea
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Explain why this project is being rejected (min 10 characters)..."
-            className="w-full h-28 px-4 py-3 rounded-xl border border-slate-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-200"
-          />
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+            <Icons.alertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800 font-medium">
+              This skips the normal 1-business-day delay. Use only when the cron failed or the developer needs urgent activation.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Reason <span className="text-red-500">*</span></label>
+            <textarea
+              value={forceLiveNote}
+              onChange={(e) => setForceLiveNote(e.target.value)}
+              placeholder="Why is this being force-activated? (e.g. cron failure, Friday submission, admin request)"
+              className="w-full h-24 px-4 py-3 rounded-xl border border-slate-200 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-200"
+            />
+          </div>
           <div className="flex gap-3">
-            <Button variant="outline" className="flex-1 h-11 rounded-xl border-slate-200 font-bold" onClick={() => { setConfirmReject(false); setRejectReason(''); }}>
+            <Button variant="outline" className="flex-1 h-11 rounded-xl border-slate-200 font-bold" onClick={() => { setConfirmForceLive(false); setForceLiveNote(''); }}>
               Cancel
             </Button>
             <Button
-              className="flex-1 h-11 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold"
-              onClick={handleReject}
-              disabled={acting || rejectReason.trim().length < 10}
+              className="flex-1 h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold"
+              onClick={handleForceLive}
+              disabled={acting || forceLiveNote.trim().length < 5}
             >
               {acting && <Icons.spinner className="size-4 animate-spin mr-1.5" />}
-              Confirm Rejection
+              Confirm Force Live
             </Button>
           </div>
         </div>

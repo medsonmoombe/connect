@@ -9,8 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 import { storageService } from '@/lib/storage';
-import { functions } from '@/lib/firebase';
-import { httpsCallable } from 'firebase/functions';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -48,7 +46,7 @@ const ALLOWED_DOC_TYPES = [
   'image/png',
   'image/jpeg',
 ];
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 const COUNTRIES = [
   'Zambia', 'Democratic Republic of Congo', 'Zimbabwe', 'Mozambique', 'Botswana',
@@ -115,23 +113,32 @@ export default function ProjectSubmissionPage() {
   const isEditing = !!editProjectId;
   const { user: realUser } = useAuth();
 
-  const [orgMode, setOrgMode] = useState<'direct' | 'internal_review'>('direct');
-  const [isInternalReviewer, setIsInternalReviewer] = useState(false);
+  // Gate: only org admins (OWNER/ADMIN) of a developer org can create projects
+  const canCreate = !!realUser && (realUser.is_platform_admin || (
+    realUser.role === 'DEVELOPER' && (realUser.org_member_role === 'OWNER' || realUser.org_member_role === 'ADMIN')
+  ));
+
+  const [analysisPhase, setAnalysisPhase] = useState<'uploading' | 'scoring' | null>(null);
+  const [scoringMsgIdx, setScoringMsgIdx] = useState(0);
+
+  const SCORING_MESSAGES = [
+    'Reading your project documents...',
+    'Evaluating capital structure...',
+    'Assessing regulatory readiness...',
+    'Analysing financial viability...',
+    'Checking developer track record...',
+    'Generating risk signals...',
+    'Finalising your score...',
+  ];
 
   useEffect(() => {
-    if (!realUser?.company_id) return;
-    import('@/lib/api-client').then(({ apiClient }) => {
-      apiClient.get<{ settings: { project_submission_mode?: string; internal_reviewer_id?: string } }>(
-        '/org/settings'
-      ).then(({ settings }) => {
-        const mode = settings.project_submission_mode === 'internal_review' ? 'internal_review' : 'direct';
-        setOrgMode(mode);
-        if (mode === 'internal_review') {
-          setIsInternalReviewer(settings.internal_reviewer_id === realUser.id);
-        }
-      }).catch(() => {}).finally(() => setPageLoading(false));
-    });
-  }, [realUser]);
+    if (analysisPhase !== 'scoring') return;
+    setScoringMsgIdx(0);
+    const interval = setInterval(() => {
+      setScoringMsgIdx(i => (i + 1) % SCORING_MESSAGES.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [analysisPhase]);
 
   // Edit mode: fetch existing project and pre-fill form
   useEffect(() => {
@@ -279,7 +286,7 @@ export default function ProjectSubmissionPage() {
 
   useEffect(() => {
     if (isEditing) return; // Don't auto-save during edit mode — user saves manually
-    if (!projectId && formData.name.length < 3) return;
+    if (!projectId && (!formData.name || formData.name.length < 3 || !formData.location_country)) return;
     const timer = setTimeout(saveDraft, 3000);
     return () => clearTimeout(timer);
   }, [formData, projectId, saveDraft, isEditing]);
@@ -289,7 +296,7 @@ export default function ProjectSubmissionPage() {
       return `"${file.name}" is not a supported file type. Allowed: PDF, DOC, DOCX, XLS, XLSX, PNG, JPG.`;
     }
     if (file.size > MAX_FILE_SIZE) {
-      return `"${file.name}" exceeds the 50MB size limit.`;
+      return `"${file.name}" exceeds the 20MB size limit.`;
     }
     return null;
   };
@@ -312,8 +319,11 @@ export default function ProjectSubmissionPage() {
 
   const handleSubmit = async () => {
     if (!validateStep(5)) return;
+    if (selectedFiles.length === 0 && !isEditing) {
+      toast.error('At least 1 document is required.');
+      return;
+    }
     setLoading(true);
-    const submitToast = toast.loading(isEditing ? 'Saving changes...' : 'Submitting project...');
 
     try {
       let currentProjectId = projectId;
@@ -334,73 +344,56 @@ export default function ProjectSubmissionPage() {
         project_id: currentProjectId,
       } as any);
 
-      const documentPaths: string[] = [];
+      if (isEditing) {
+        toast.success('Project updated successfully!');
+        router.push(`/projects/${currentProjectId}`);
+        return;
+      }
+
+      // Upload documents
+      setAnalysisPhase('uploading');
       for (const item of selectedFiles) {
         try {
-          const { file_url, storage_path } = await storageService.uploadProjectDocument(
+          const { file_url, storage_path, file_hash } = await storageService.uploadProjectDocument(
             currentProjectId!,
             item.file,
             item.type,
-            (progress) => {
-              setUploadProgress(prev => ({ ...prev, [item.file.name]: progress }));
-            }
+            (progress) => setUploadProgress(prev => ({ ...prev, [item.file.name]: progress }))
           );
-          documentPaths.push(storage_path);
           await projectService.addProjectDocument({
             project_id: currentProjectId!,
             document_type: item.type,
             file_url,
             storage_path,
+            file_hash,
           });
-        } catch (uploadError: any) {
-          console.error(`Upload failed for ${item.file.name}:`, uploadError);
-          throw uploadError;
-        }
-      }
-
-      if (isEditing) {
-        toast.success('Project updated successfully!', { id: submitToast });
-        router.push('/dashboard/developer');
-        return;
-      }
-
-      await projectService.submitProject(currentProjectId!);
-
-      if (functions && documentPaths.length > 0) {
-        try {
-          const scoreProject = httpsCallable(functions, 'scoreProject');
-          const scoringResponse: any = await scoreProject({
-            projectId: currentProjectId,
-            documentPaths,
-          });
-          if (scoringResponse.data?.success) {
-            const aiData = scoringResponse.data.data;
-            await projectService.saveProjectScores({
-              project_id: currentProjectId,
-              capital_readiness_score: Math.round(aiData.total_score || 0),
-              regulatory_score: Math.round(aiData.breakdown?.regulatory?.score || 0),
-              financial_score: Math.round(aiData.breakdown?.financial?.score || 0),
-              developer_score: Math.round(aiData.breakdown?.developer?.score || 0),
-              breakdown: aiData.breakdown,
-              risk_flags: aiData.risk_signals?.map((s: any) => `${s.level}: ${s.text}`) || [],
-              recommendations: aiData.recommendations || [],
-              summary: aiData.summary || '',
-            });
+        } catch (err: any) {
+          if (err?.status === 409) {
+            toast.warning(`Skipped duplicate: ${item.file.name}`);
+          } else {
+            throw err;
           }
-        } catch (scoringError: any) {
-          console.error('AI Scoring Error (non-blocking):', scoringError);
         }
       }
 
-      toast.success('Project submitted for review!', { id: submitToast });
-      router.push('/dashboard/developer');
+      // Run AI analysis — transitions project draft → scoring → live
+      setAnalysisPhase('scoring');
+      const { apiClient } = await import('@/lib/api-client');
+      const result = await apiClient.post<{ success: boolean; data: any }>(
+        `/projects/${currentProjectId}/analyze`, {}
+      );
+
+      if (!result.success) throw new Error('AI scoring failed');
+
+      // Scores are saved by the analyze endpoint — just navigate to the project
+      router.push(`/projects/${currentProjectId}`);
     } catch (error: any) {
-      console.error('Error submitting project:', error);
-      const errorMessage = error?.message || error?.code || 'Failed to submit project';
-      setErrors({ _submit: errorMessage });
-      toast.error(errorMessage, { id: submitToast });
+      const msg = error?.message || 'Failed to create project';
+      setErrors({ _submit: msg });
+      toast.error(msg);
     } finally {
       setLoading(false);
+      setAnalysisPhase(null);
     }
   };
 
@@ -409,6 +402,58 @@ export default function ProjectSubmissionPage() {
 
   return (
     <div className="min-h-screen bg-background font-sans">
+
+      {/* ── AI Scoring Overlay ── */}
+      {analysisPhase === 'scoring' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm">
+          <div className="relative flex flex-col items-center gap-6 px-10 py-12 rounded-3xl bg-white shadow-2xl max-w-sm w-full mx-4 text-center overflow-hidden">
+            {/* Animated background rings */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="size-64 rounded-full border border-green-100 animate-ping opacity-20" />
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="size-48 rounded-full border border-green-200 animate-ping opacity-10" style={{ animationDelay: '0.5s' }} />
+            </div>
+
+            {/* Icon */}
+            <div className="relative size-20 rounded-full bg-gradient-to-br from-green-600 to-green-800 flex items-center justify-center shadow-xl shadow-green-900/30">
+              <Icons.zap className="size-9 text-white" />
+              <span className="absolute -top-1 -right-1 size-5 rounded-full bg-amber-400 border-2 border-white flex items-center justify-center">
+                <Icons.star className="size-2.5 text-white fill-white" />
+              </span>
+            </div>
+
+            {/* Title */}
+            <div className="space-y-1">
+              <p className="text-lg font-bold text-slate-900 tracking-tight">AI is scoring your project</p>
+              <p className="text-xs text-slate-400 font-medium">This may take a minute — please don't close this tab</p>
+            </div>
+
+            {/* Cycling message */}
+            <div className="h-8 flex items-center justify-center">
+              <p key={scoringMsgIdx} className="text-sm font-semibold text-green-700 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                {SCORING_MESSAGES[scoringMsgIdx]}
+              </p>
+            </div>
+
+            {/* Animated progress bar */}
+            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-green-500 to-green-700 rounded-full animate-[progress_14s_ease-in-out_forwards]" />
+            </div>
+
+            {/* Dots */}
+            <div className="flex items-center gap-1.5">
+              {[0, 1, 2].map(i => (
+                <div
+                  key={i}
+                  className="size-1.5 rounded-full bg-green-600 animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s` }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-4xl mx-auto px-6 py-10 space-y-8 animate-in fade-in duration-500">
 
         {/* ── Back link ── */}
@@ -416,6 +461,17 @@ export default function ProjectSubmissionPage() {
           <Icons.arrowLeft className="size-3.5" />
           Back to Dashboard
         </Link>
+
+        {/* ── Access guard ── */}
+        {!canCreate && (
+          <div className="dash-card p-8 text-center">
+            <Icons.lock className="size-8 text-slate-300 mx-auto mb-3" />
+            <p className="text-sm font-bold text-slate-700 mb-1">Access Restricted</p>
+            <p className="text-xs text-slate-400">Only organisation owners and admins of a developer account can create projects.</p>
+          </div>
+        )}
+
+        {canCreate && (<>
 
         {/* ── Edit mode banner ── */}
         {isEditing && (
@@ -848,7 +904,7 @@ export default function ProjectSubmissionPage() {
                     <div className="space-y-4">
                       <div>
                         <label className={labelClass}>Project Documents</label>
-                        <p className="text-xs text-slate-400 font-medium mt-1 ml-1">At least 1 document required. PDF, DOC, DOCX, XLS, XLSX, PNG, JPG. Max 50MB each.</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1 ml-1">At least 1 document required. PDF, DOC, DOCX, XLS, XLSX, PNG, JPG. Max 20MB each.</p>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {[
@@ -983,24 +1039,31 @@ export default function ProjectSubmissionPage() {
                           )}
                         </div>
 
+                        {/* Matched Partners notice */}
+                        {!isEditing && (
+                          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-blue-50 border border-blue-100">
+                            <Icons.users className="size-4 text-blue-500 shrink-0 mt-0.5" />
+                            <p className="text-xs text-blue-700 font-medium leading-relaxed">
+                              <span className="font-bold">Matched Partners</span> will appear on your project page once it goes live. Investors are matched automatically based on your project profile.
+                            </p>
+                          </div>
+                        )}
+
                         {/* Submit CTA */}
                         <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                           <div className="text-xs text-slate-400 font-medium">
-                            <p>By submitting, your project will be sent for review.</p>
-                            {orgMode === 'internal_review' && (
-                              <p className="text-blue-600 mt-1">Your designated internal reviewer will be notified to approve before platform review.</p>
-                            )}
-                            {orgMode === 'direct' && (
-                              <p className="text-blue-600 mt-1">This will go directly to the platform team for review.</p>
+                            {analysisPhase === 'uploading' && <p className="text-primary font-bold">Uploading documents...</p>}
+                            {!analysisPhase && (
+                              <p>Your project will be scored by AI and go live to investors within 1 business day.</p>
                             )}
                           </div>
                           <Button
                             onClick={handleSubmit}
-                            disabled={loading}
+                            disabled={loading || !canCreate}
                             className="h-11 px-10 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold shadow-lg shadow-green-900/20 text-sm flex gap-2 disabled:opacity-50 shrink-0"
                           >
-                            {loading ? <Icons.spinner className="size-4 animate-spin" /> : <Icons.send className="size-4" />}
-                            {isEditing ? 'Save Changes' : 'Submit for Review'}
+                            {loading ? <Icons.spinner className="size-4 animate-spin" /> : <Icons.zap className="size-4" />}
+                            {isEditing ? 'Save Changes' : analysisPhase ? 'Processing...' : 'Create Project'}
                           </Button>
                         </div>
                       </div>
@@ -1036,6 +1099,7 @@ export default function ProjectSubmissionPage() {
             </div>
           )}
         </div>
+      </>)}
       </div>
     </div>
   );

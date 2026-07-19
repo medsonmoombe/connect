@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Company } from '@/types';
-import { Mail, Phone, Globe, MapPin, Building2 } from 'lucide-react';
+import { Mail, Phone, Globe, MapPin, Building2, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ContactCardProps {
@@ -18,70 +18,70 @@ export const ContactCard: React.FC<ContactCardProps> = ({
 }) => {
   if (!isVisible) {
     return (
-      <div className={cn("p-6 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-center", className)}>
+      <div className={cn("p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center", className)}>
         <div className="flex justify-center mb-3">
-          <div className="p-3 bg-gray-200 rounded-full text-gray-400">
-            <Building2 className="w-8 h-8" />
+          <div className="p-3 bg-slate-100 rounded-xl text-slate-400">
+            <Lock className="w-5 h-5" />
           </div>
         </div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-1">Contact Information Locked</h4>
-        <p className="text-xs text-gray-500 max-w-xs mx-auto">
-          Mutual acceptance of the introduction is required to reveal contact details and official company profile.
+        <h4 className="text-xs font-bold text-slate-700 mb-1">Contact Information Locked</h4>
+        <p className="text-[10px] text-slate-500 font-medium max-w-xs mx-auto">
+          Mutual acceptance of the introduction is required to reveal contact details.
         </p>
       </div>
     );
   }
 
   return (
-    <div className={cn("bg-white border border-blue-100 rounded-xl overflow-hidden shadow-sm transition-all hover:shadow-md", className)}>
-      <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
-        <h3 className="text-white font-bold">{company.name}</h3>
-        <span className="bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-full uppercase font-medium">Verified Partner</span>
+    <div className={cn("bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm", className)}>
+      <div className="bg-primary px-5 py-3 flex items-center justify-between">
+        <h3 className="text-white font-bold text-sm">{company.name}</h3>
+        <span className="bg-white/20 text-white text-[9px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">Verified</span>
       </div>
       
-      <div className="p-6 space-y-4">
+      <div className="p-5 space-y-3">
         {company.description && (
-          <p className="text-sm text-gray-600 line-clamp-3 mb-4 italic">
+          <p className="text-xs text-slate-500 line-clamp-2 italic leading-relaxed">
             "{company.description}"
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="flex items-center text-sm text-gray-700">
-            <Mail className="w-4 h-4 mr-3 text-blue-600" />
-            <a href={`mailto:info@${company.name.toLowerCase().replace(/\s/g, '')}.com`} className="hover:text-blue-600 hover:underline">
+        <div className="space-y-2.5">
+          <div className="flex items-center text-xs text-slate-600">
+            <Mail className="w-3.5 h-3.5 mr-2.5 text-primary" />
+            <a href={`mailto:info@${company.name.toLowerCase().replace(/\s/g, '')}.com`} className="hover:text-primary hover:underline font-medium">
               info@company.com
             </a>
           </div>
 
-          <div className="flex items-center text-sm text-gray-700">
-            <Phone className="w-4 h-4 mr-3 text-blue-600" />
-            <span>+1 (555) 000-0000</span>
+          <div className="flex items-center text-xs text-slate-600">
+            <Phone className="w-3.5 h-3.5 mr-2.5 text-primary" />
+            <span className="font-medium">+1 (555) 000-0000</span>
           </div>
 
-          <div className="flex items-center text-sm text-gray-700">
-            <MapPin className="w-4 h-4 mr-3 text-blue-600" />
-            <span>{company.country}</span>
+          <div className="flex items-center text-xs text-slate-600">
+            <MapPin className="w-3.5 h-3.5 mr-2.5 text-primary" />
+            <span className="font-medium">{company.country}</span>
           </div>
 
           {company.website && (
-            <div className="flex items-center text-sm text-gray-700">
-              <Globe className="w-4 h-4 mr-3 text-blue-600" />
-              <a href={company.website} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 hover:underline">
+            <div className="flex items-center text-xs text-slate-600">
+              <Globe className="w-3.5 h-3.5 mr-2.5 text-primary" />
+              <a href={company.website} target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline font-medium">
                 {company.website.replace(/^https?:\/\//, '')}
               </a>
             </div>
           )}
         </div>
 
-        <div className="pt-4 border-t border-gray-100 flex gap-4">
-          <div className="text-center flex-1">
-            <div className="text-xs text-gray-500 uppercase">Team Size</div>
-            <div className="text-sm font-semibold">{company.team_size}+ Experts</div>
+        <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-3">
+          <div className="text-center p-2 bg-slate-50 rounded-lg">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Team Size</p>
+            <p className="text-xs font-bold text-slate-900">{company.team_size}+</p>
           </div>
-          <div className="text-center flex-1">
-            <div className="text-xs text-gray-500 uppercase">Operating Since</div>
-            <div className="text-sm font-semibold">{new Date().getFullYear() - company.years_operating}</div>
+          <div className="text-center p-2 bg-slate-50 rounded-lg">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Since</p>
+            <p className="text-xs font-bold text-slate-900">{new Date().getFullYear() - company.years_operating}</p>
           </div>
         </div>
       </div>

@@ -3,11 +3,10 @@
 import { ReactNode, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { Icons } from '@/components/ui/icons';
 import LeafLoader from '@/components/ui/electric-loader';
 import { DashboardShell } from '@/components/dashboard/Shell';
 import { OrgReviewGate } from '@/components/dashboard/OrgReviewGate';
-import { MfaVerification } from '@/components/auth/MfaVerification';
+import { UnreadMessagesProvider } from '@/hooks/useUnreadMessages';
 
 function checkMfaRequired(user: any): boolean {
   if (!user) return false;
@@ -21,7 +20,7 @@ function checkMfaRequired(user: any): boolean {
 }
 
 export default function DashboardGlobalLayout({ children }: { children: ReactNode }) {
-  const { user, loading, refreshUser, mfa_verified, setMfaVerified, signOut } = useAuth();
+  const { user, loading, refreshUser, mfa_verified } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -32,14 +31,15 @@ export default function DashboardGlobalLayout({ children }: { children: ReactNod
       } else if (!user.company_id && !user.is_platform_admin) {
         router.replace('/onboarding');
       } else if (user.company_id && !user.onboarding_complete) {
-        fetch('/api/onboarding', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'complete_onboarding' }),
-        }).then(() => refreshUser());
+        router.replace('/onboarding');
+      } else if (checkMfaRequired(user) && !mfa_verified) {
+        // MFA required but not verified — full logout, not verify-otp
+        fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
+          window.location.href = '/login';
+        });
       }
     }
-  }, [user, loading, router, pathname]);
+  }, [user, loading, mfa_verified, router, pathname]);
 
   // Still loading session — show spinner
   if (loading) {
@@ -50,22 +50,11 @@ export default function DashboardGlobalLayout({ children }: { children: ReactNod
     );
   }
 
-  // Loading done but no user — show nothing (useEffect will redirect)
+  // Loading done but no user — show nothing (useEffect will redirect to /login)
   if (!user) return null;
 
   // Loading done and user exists but needs onboarding — show nothing (useEffect will redirect)
   if (!user.company_id && !user.is_platform_admin) return null;
-
-  // User needs MFA verification (platform admins, org admins, org-enforced, or self-enabled)
-  if (checkMfaRequired(user) && !mfa_verified && pathname !== '/dashboard/admin') {
-    return (
-      <MfaVerification
-        email={user.email}
-        onVerified={() => setMfaVerified(true)}
-        onSignOut={() => signOut()}
-      />
-    );
-  }
 
   // If user is not verified and on the verification page, show the verification page directly
   if (user.verification_status !== 'verified' && !user.is_platform_admin && (pathname === '/dashboard/verification' || pathname === '/dashboard/profile' || pathname === '/dashboard/settings')) {
@@ -74,7 +63,9 @@ export default function DashboardGlobalLayout({ children }: { children: ReactNod
 
   return (
     <OrgReviewGate>
-      <DashboardShell>{children}</DashboardShell>
+      <UnreadMessagesProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </UnreadMessagesProvider>
     </OrgReviewGate>
   );
 }

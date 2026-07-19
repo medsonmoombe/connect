@@ -27,13 +27,13 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- 4. Projects
-INSERT INTO projects (id, developer_id, name, technology_type, location_country, project_size_mw, capital_required, capital_structure_type, project_stage)
+INSERT INTO projects (id, developer_id, name, technology_type, location_country, project_size_mw, capital_required, capital_structure_type, project_stage, status)
 VALUES 
-  ('p1-solar-zambia', 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d', 'Solana West Phase II', 'Solar PV', 'Zambia', 40.00, 35000000, 'EQUITY', 'READY_TO_BUILD'),
-  ('p2-hydro-kenya', 'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e', 'Rift Valley Small Hydro', 'Small Hydro', 'Kenya', 12.50, 18000000, 'PROFIT_SHARING', 'FEASIBILITY'),
-  ('p3-wind-nigeria', 'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f', 'Lagos Coastal Wind', 'Wind', 'Nigeria', 150.00, 120000000, 'EQUITY', 'PRE_CONSTRUCTION'),
-  ('p4-bess-kenya', 'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e', 'Nairobi Industrial BESS', 'BESS', 'Kenya', 5.00, 4500000, 'LEASING', 'READY_TO_BUILD'),
-  ('p5-solar-zambia', 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d', 'Copperbelt Mining Solar', 'Solar PV', 'Zambia', 20.00, 15000000, 'EQUITY', 'OPERATIONAL')
+  ('p1-solar-zambia', 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d', 'Solana West Phase II', 'Solar PV', 'Zambia', 40.00, 35000000, 'EQUITY', 'FINANCIAL_CLOSE', 'live'),
+  ('p2-hydro-kenya', 'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e', 'Rift Valley Small Hydro', 'Small Hydro', 'Kenya', 12.50, 18000000, 'PROFIT_SHARING', 'FEASIBILITY', 'live'),
+  ('p3-wind-nigeria', 'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f', 'Lagos Coastal Wind', 'Wind', 'Nigeria', 150.00, 120000000, 'EQUITY', 'PERMITTING', 'live'),
+  ('p4-bess-kenya', 'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e', 'Nairobi Industrial BESS', 'BESS', 'Kenya', 5.00, 4500000, 'LEASING', 'FINANCIAL_CLOSE', 'live'),
+  ('p5-solar-zambia', 'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d', 'Copperbelt Mining Solar', 'Solar PV', 'Zambia', 20.00, 15000000, 'EQUITY', 'OPERATIONS', 'live')
 ON CONFLICT (id) DO NOTHING;
 
 -- 5. Project Scores

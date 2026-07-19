@@ -1,13 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { checkRateLimit, RATE_LIMIT_AI_ANALYSIS } from '@/lib/rate-limit';
+import { getAiProvider } from '@/lib/ai-provider';
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 1000;
+const TEMPERATURE = 0.1;
+
+const FALLBACK_RESULT = {
+  macroSummary: 'AI analysis failed — score defaulted to 0. Admin review required.',
+  portfolioScore: 0,
+  marketContext: {
+    regionalOutlook: 'Analysis unavailable',
+    regulatoryClimate: 'Analysis unavailable',
+    financingConditions: 'Analysis unavailable',
+  },
+  systemicRisks: [],
+  positiveHighlights: [],
+  predictions: [],
+  bottleneckAnalysis: {
+    mostCommonBottleneck: 'AI analysis failure',
+    affectedProjects: 0,
+    estimatedDelayMonths: 0,
+    industryBenchmark: 'N/A',
+    resolutionStrategy: 'Retry analysis or contact support',
+  },
+  capitalReadiness: {
+    readyForFinancing: 0,
+    needsPreparation: 0,
+    criticalGaps: ['AI analysis could not complete'],
+    recommendedFinancingStructure: 'N/A',
+  },
+  strategicRecommends: [],
+  projectSummaries: {},
+};
 
 const getGenAI = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY is not configured.');
-  return new GoogleGenerativeAI(apiKey);
+  return getAiProvider();
 };
 
 const MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
@@ -112,12 +144,11 @@ export async function POST(req: NextRequest) {
 
       const analysisId = record.id;
 
-      try {
-        // 5. Build prompt
-        const totalCost = projects.reduce((s: number, p: any) => s + (p.costUSD || 0), 0);
-        const totalMW = projects.reduce((s: number, p: any) => s + (p.capacityMW || 0), 0);
-        const highRisk = projects.filter((p: any) => p.riskScore === 'High').length;
-        const locations = [...new Set(projects.map((p: any) => p.location).filter(Boolean))].join(', ');
+      // 5. Build prompt
+      const totalCost = projects.reduce((s: number, p: any) => s + (p.costUSD || 0), 0);
+      const totalMW = projects.reduce((s: number, p: any) => s + (p.capacityMW || 0), 0);
+      const highRisk = projects.filter((p: any) => p.riskScore === 'High').length;
+      const locations = [...new Set(projects.map((p: any) => p.location).filter(Boolean))].join(', ');
 
         const prompt = `
 You are a senior infrastructure investment analyst specializing in African energy markets with access to real-time web data.
@@ -202,65 +233,70 @@ Return ONLY valid JSON matching this EXACT schema (no markdown, no extra text):
   }
 }`;
 
-        // 6. Call Gemini
-        const genAI = getGenAI();
-        const model = genAI.getGenerativeModel({
-          model: MODEL(),
-          // @ts-ignore
-          tools: [{ googleSearch: {} }],
-        });
+        // 6. Call Gemini with retry + fallback
+        const ai = getGenAI();
 
-        const result = await model.generateContent(prompt);
-        const rawText = result.response.text();
-        const cleanText = stripMarkdown(rawText);
-        const data = JSON.parse(cleanText);
-        const tokens = estimateTokens(prompt + rawText);
+        let analysisData: any;
+        let geminiFailed = false;
+        let lastError: unknown;
 
-        // 7. Update record to complete
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            const rawText = await ai.generateContent(MODEL(), prompt, {
+              temperature: TEMPERATURE,
+              tools: [{ googleSearch: {} }],
+            });
+            const cleanText = stripMarkdown(rawText);
+            analysisData = JSON.parse(cleanText);
+            geminiFailed = false;
+            break;
+          } catch (geminiError: any) {
+            geminiFailed = true;
+            lastError = geminiError;
+            if (attempt < MAX_RETRIES) {
+              const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+              await new Promise(r => setTimeout(r, delay));
+            }
+          }
+        }
+
+        if (geminiFailed || !analysisData) {
+          analysisData = FALLBACK_RESULT;
+        }
+
+        const rawTextForTokens = JSON.stringify(analysisData);
+        const tokens = estimateTokens(prompt + rawTextForTokens);
+
+        // 7. Update record to complete (or mark failed and use fallback)
         await supabase
           .from('portfolio_analyses')
           .update({
-            status: 'complete',
-            analysis_data: data,
-            portfolio_score: data.portfolioScore ?? null,
+            status: geminiFailed ? 'failed' : 'complete',
+            analysis_data: analysisData,
+            portfolio_score: analysisData.portfolioScore ?? 0,
             estimated_tokens: tokens,
             completed_at: new Date().toISOString(),
           })
           .eq('id', analysisId);
 
-        await writeAuditLog({ userId: user.id, action: 'AI_ANALYSIS_COMPLETED', entityType: 'portfolio_analyses', entityId: analysisId, after: { file_name: fileName, project_count: projects.length }, req });
+        await writeAuditLog({ userId: user.id, action: 'AI_ANALYSIS_COMPLETED', entityType: 'portfolio_analyses', entityId: analysisId, after: { file_name: fileName, project_count: projects.length, failed: geminiFailed }, req });
 
         return NextResponse.json({
           success: true,
-          data,
+          data: analysisData,
           cached: false,
           analysisId,
+          failed: geminiFailed,
         });
 
-      } catch (geminiError: any) {
-        // Mark record as failed
-        await supabase
-          .from('portfolio_analyses')
-          .update({
-            status: 'failed',
-            error_message: geminiError.message,
-          })
-          .eq('id', analysisId);
-
-        throw geminiError;
+      // ── ANALYZE end
       }
-    }
 
-    // ── CHAT ─────────────────────────────────────────────────
-    if (action === 'chat') {
-      const genAI = getGenAI();
-      const chatModel = genAI.getGenerativeModel({
-        model: MODEL(),
-        // @ts-ignore
-        tools: [{ googleSearch: {} }],
-      });
+      // ── CHAT ─────────────────────────────────────────────────
+      if (action === 'chat') {
+        const ai = getGenAI();
 
-      const prompt = `You are an expert AI Portfolio Assistant for an African energy infrastructure investment platform. You have deep knowledge of African energy markets, project finance, regulatory frameworks (ZEMA, ERB, ZESCO), and DFI financing.
+        const prompt = `You are an expert AI Portfolio Assistant for an African energy infrastructure investment platform. You have deep knowledge of African energy markets, project finance, regulatory frameworks (ZEMA, ERB, ZESCO), and DFI financing.
 
 You have access to real-time web search — use it to ground your answers with current market data when relevant.
 
@@ -271,8 +307,10 @@ Question: ${question}
 
 Provide a thorough, expert answer. Be specific, cite relevant market data or regulatory context where applicable, and give actionable insights.`;
 
-      const result = await chatModel.generateContent(prompt);
-      return NextResponse.json({ text: result.response.text() });
+      const text = await ai.generateContent(MODEL(), prompt, {
+        tools: [{ googleSearch: {} }],
+      });
+      return NextResponse.json({ text });
     }
 
     // ── GET HISTORY ──────────────────────────────────────────
@@ -280,6 +318,7 @@ Provide a thorough, expert answer. Be specific, cite relevant market data or reg
       const { data: history, error } = await supabase
         .from('portfolio_analyses')
         .select('id, file_name, project_count, portfolio_score, status, estimated_tokens, created_at, completed_at, performed_by')
+        .eq('performed_by', user.id)
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -324,6 +363,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from('portfolio_analyses')
     .select('id, file_name, project_count, portfolio_score, status, estimated_tokens, created_at, completed_at, performed_by')
+    .eq('performed_by', user.id)
     .order('created_at', { ascending: false })
     .limit(50);
 

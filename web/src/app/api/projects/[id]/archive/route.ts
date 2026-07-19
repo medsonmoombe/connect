@@ -2,11 +2,13 @@ import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, forbidden, handleRouteError, badRequest } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { transitionProject } from '@/lib/project-state-machine';
-import { createNotification, notificationBuilders } from '@/lib/notify';
+import { notifyOrgAdmins } from '@/lib/notify-helpers';
+import { notificationBuilders } from '@/lib/notify';
+import * as emailTemplates from '@/lib/email-templates';
 
 type Params = { params: Promise<{ id: string }> };
 
-// POST /api/projects/[id]/archive — validated → archived (developer or platform admin)
+// POST /api/projects/[id]/archive — live|deactivated → archived (owner or platform admin)
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
@@ -19,49 +21,25 @@ export async function POST(req: NextRequest, { params }: Params) {
       .eq('id', id)
       .single();
 
-    if (!project) {
-      return Response.json({ error: 'Project not found' }, { status: 404 });
+    if (!project) return Response.json({ error: 'Project not found' }, { status: 404 });
+
+    if (!user.is_platform_admin && project.developer_id !== user.company_id) return forbidden();
+
+    if (!['live', 'pending_live', 'deactivated'].includes(project.status)) {
+      return badRequest(`Only live, pending_live, or deactivated projects can be archived.`);
     }
 
-    if (!user.is_platform_admin && project.developer_id !== user.company_id) {
-      return forbidden();
-    }
+    const result = await transitionProject({ projectId: id, toStatus: 'archived', actorId: user.id!, req });
+    if (!result.success) return badRequest(result.error || 'Failed to archive project');
 
-    if (project.status !== 'validated') {
-      return badRequest(`Project is ${project.status}. Only validated projects can be archived.`);
-    }
-
-    const result = await transitionProject({
-      projectId: id,
-      toStatus: 'archived',
-      actorId: user.id!,
-      req,
+    await notifyOrgAdmins({
+      companyId: project.developer_id,
+      payload: notificationBuilders.projectStatusChanged({ projectName: project.name, newStatus: 'archived' }),
+      channel: 'both',
+      emailTemplate: emailTemplates.projectStatusEmail({ projectName: project.name, newStatus: 'archived', recipientName: 'there' }),
+      emailLogType: 'project_archived',
+      excludeUserIds: [user.id!],
     });
-
-    if (!result.success) {
-      return badRequest(result.error || 'Failed to archive project');
-    }
-
-    // Notify: project creator (if archiver is platform admin)
-    if (user.is_platform_admin) {
-      const { data: creator } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('company_id', project.developer_id)
-        .limit(1)
-        .single();
-
-      if (creator?.id) {
-        await createNotification({
-          userId: creator.id,
-          payload: notificationBuilders.projectStatusChanged({
-            projectName: project.name || 'Untitled Project',
-            newStatus: 'archived',
-            actionUrl: `/dashboard/developer`,
-          }),
-        });
-      }
-    }
 
     return Response.json({ data: { status: 'archived' } });
   } catch (e: any) {

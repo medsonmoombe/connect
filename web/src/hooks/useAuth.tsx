@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 
@@ -43,13 +43,9 @@ function buildUser(profile: any): AppUser {
   const membership = profile.company_members?.[0];
   const company = membership?.companies;
 
-  // Platform admin: membership.role === 'ADMIN' AND company.is_platform_org === true
   const isPlatformAdmin = membership?.role === 'ADMIN' && company?.is_platform_org === true;
-
-  // Org admin: membership.role is 'OWNER' or 'ADMIN' but NOT platform org
   const isOrgAdmin = !isPlatformAdmin && (membership?.role === 'OWNER' || membership?.role === 'ADMIN');
 
-  // Dashboard role: platform admins see 'ADMIN', org admins see company's primary_role
   const role = isPlatformAdmin
     ? 'ADMIN'
     : isOrgAdmin
@@ -81,8 +77,12 @@ function buildUser(profile: any): AppUser {
   };
 }
 
-// How often to re-validate the session (ms)
 const SESSION_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+async function forceLogout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
@@ -96,27 +96,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.status === 401) {
         setUser(null);
         setMfaVerified(false);
+        await forceLogout();
         return;
       }
       const { user: profile, suspended, org_deactivated, locked, locked_until, mfa_verified, password_expired, password_expired_days } = await res.json();
       if (suspended) {
-        await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setMfaVerified(false);
+        await fetch('/api/auth/logout', { method: 'POST' });
         window.location.href = '/login?notice=suspended';
         return;
       }
       if (org_deactivated) {
-        await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setMfaVerified(false);
+        await fetch('/api/auth/logout', { method: 'POST' });
         window.location.href = '/login?notice=org-deactivated';
         return;
       }
       if (locked) {
-        await fetch('/api/auth/logout', { method: 'POST' });
         setUser(null);
         setMfaVerified(false);
+        await fetch('/api/auth/logout', { method: 'POST' });
         window.location.href = '/login?notice=locked';
         return;
       }
@@ -140,7 +141,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // On mount: check session + set up periodic refresh
   useEffect(() => {
     refreshUser().finally(() => setLoading(false));
 
@@ -148,7 +148,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshUser();
     }, SESSION_REFRESH_INTERVAL);
 
-    // Also refresh on tab focus (handles sleeping tabs)
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         refreshUser();
@@ -171,7 +170,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     if (!res.ok) {
       const err = data.error;
-      // Pass through structured error info (lockedUntil, attemptsRemaining, code)
       if (typeof err === 'object' && err !== null) {
         const e = new Error(err.message || 'Login failed') as any;
         e.code = err.code;
@@ -223,4 +221,3 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
-

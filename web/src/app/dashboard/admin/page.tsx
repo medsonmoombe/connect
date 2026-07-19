@@ -340,7 +340,7 @@ export default function AdminDashboardPage() {
                   <Icons.eye className="size-4 text-slate-400 group-hover:text-blue-600" />
                 </span>
                 <p className="text-[12px] font-semibold text-slate-700 group-hover:text-slate-900">Review Queue</p>
-                {health?.pendingReviewCount > 0 && (
+                {health && health.pendingReviewCount > 0 && (
                   <span className="absolute top-1 right-1 size-4 rounded-full bg-blue-500 text-white text-[9px] font-black flex items-center justify-center">
                     {health.pendingReviewCount}
                   </span>

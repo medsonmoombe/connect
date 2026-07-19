@@ -33,10 +33,13 @@ export async function POST(req: NextRequest) {
     if (!profile) return unauthorized();
 
     const membership = (profile as any)?.company_members?.[0];
+    const company = membership?.companies;
     const mfaUser = {
-      is_platform_admin: membership?.role === 'ADMIN' && membership?.companies?.is_platform_org === true,
+      is_platform_admin: membership?.role === 'ADMIN' && company?.is_platform_org === true,
       org_member_role: membership?.role ?? null,
       role: membership?.role ?? null,
+      mfa_enabled: !!(profile as any).mfa_enabled,
+      org_mfa_enforced: !!company?.mfa_enforced,
     };
 
     if (!isMfaRequired(mfaUser)) return badRequest('MFA is not required for your account');
