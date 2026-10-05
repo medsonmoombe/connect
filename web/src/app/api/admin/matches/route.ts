@@ -5,7 +5,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-server';
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can view global match data. Contact your platform support team if you need access.');
 
     const admin = getSupabaseAdmin();
 

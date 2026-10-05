@@ -3,7 +3,29 @@ import { getSupabaseAdmin } from './supabase-server';
 import * as templates from './email-templates';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FROM = process.env.RESEND_FROM_EMAIL ?? 'Afri Connect <noreply@africonnect.io>';
+const FROM = process.env.RESEND_FROM_EMAIL ?? `${process.env.APP_NAME || process.env.NEXT_PUBLIC_APP_NAME || 'Afri Connect'} <noreply@africonnect.io>`;
+
+// ── Retry with exponential backoff ───────────────────────────────────────────
+
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
+
+async function retryWithBackoff<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let lastErr: Error | undefined;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      if (attempt < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        console.warn(`[Email] ${label} attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 // ── Central email sender ─────────────────────────────────────────────────────
 // All emails go through this function. It logs to the email_log table and
@@ -25,22 +47,36 @@ export async function sendEmail(params: {
   }
 
   try {
-    const result = await resend.emails.send({
-      from: FROM,
-      to: recipients,
-      subject: params.subject,
-      html: params.html,
-    });
+
+    // TODO(TEMP): log FULL email content to server logs for local testing — REMOVE before production.
+    console.log(`[Email][TEMP] ────────── FULL EMAIL ──────────`);
+    console.log(`[Email][TEMP] To: ${recipients.join(', ')}`);
+    console.log(`[Email][TEMP] Subject: ${params.subject}`);
+    console.log(`[Email][TEMP] Type: ${params.logType ?? 'unknown'}${params.logEntityId ? ` · Entity: ${params.logEntityId}` : ''}`);
+    console.log(`[Email][TEMP] Body (HTML):
+${params.html}`);
+    console.log(`[Email][TEMP] ────────────────────────────────────`);
+
+
+    const result = await retryWithBackoff(
+      () => resend.emails.send({
+        from: FROM,
+        to: recipients,
+        subject: params.subject,
+        html: params.html,
+      }),
+      `send("${params.subject}")`,
+    );
 
     if (result.error) {
-      console.error(`[Email] Resend error for "${params.subject}" to ${recipients.join(',')}:`, JSON.stringify(result.error));
-      console.log(`[Email] ⚠️ Email content (for testing — Resend blocked delivery):`);
-      console.log(params.html);
+      // console.error(`[Email] Resend error for "${params.subject}" to ${recipients.join(',')}:`, JSON.stringify(result.error));
+      // console.log(`[Email] ⚠️ Email content (for testing — Resend blocked delivery):`);
+      // console.log(params.html);
       await logEmail({ type: params.logType ?? 'unknown', to: recipients, subject: params.subject, success: false, error: JSON.stringify(result.error), entity_id: params.logEntityId });
       return { success: false, error: JSON.stringify(result.error) };
     }
 
-    console.log(`[Email] Sent "${params.subject}" to ${recipients.join(',')} — id: ${result.data?.id}`);
+    console.info(`[Email] Sent: ${params.subject} to ${recipients.length} recipient(s) — id: ${result.data?.id}`);
     await logEmail({ type: params.logType ?? 'unknown', to: recipients, subject: params.subject, success: true, email_id: result.data?.id, entity_id: params.logEntityId });
     return { success: true, id: result.data?.id };
   } catch (err: any) {

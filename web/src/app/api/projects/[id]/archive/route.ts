@@ -29,8 +29,8 @@ export async function POST(req: NextRequest, { params }: Params) {
       return badRequest(`Only live, pending_live, or deactivated projects can be archived.`);
     }
 
-    const result = await transitionProject({ projectId: id, toStatus: 'archived', actorId: user.id!, req });
-    if (!result.success) return badRequest(result.error || 'Failed to archive project');
+    const result = await transitionProject({ projectId: id, toStatus: 'archived', actorId: user.id!, actorRole: user.is_platform_admin ? 'platform_admin' : 'developer', skipRoleCheck: true, req });
+    if (!result.ok) return badRequest(result.error);
 
     await notifyOrgAdmins({
       companyId: project.developer_id,

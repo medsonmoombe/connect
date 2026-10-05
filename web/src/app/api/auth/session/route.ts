@@ -1,5 +1,6 @@
 import { getSupabaseServer, getSupabaseAdmin, fetchProfileWithMemberships } from '@/lib/supabase-server';
 import { cookies } from 'next/headers';
+import { verifyMfaCookie } from '@/lib/mfa-cookie';
 
 export async function GET() {
   try {
@@ -14,7 +15,6 @@ export async function GET() {
     const company = membership?.companies;
     const orgDeactivated = company?.status === 'deactivated';
 
-    // Check if account is locked
     let locked = false;
     let lockedUntil: string | null = null;
     if (profile?.locked_until) {
@@ -23,7 +23,6 @@ export async function GET() {
         locked = true;
         lockedUntil = profile.locked_until;
       } else {
-        // Lock expired — clear it
         await admin
           .from('user_profiles')
           .update({ locked_until: null, locked_by: null, lock_reason: null })
@@ -32,9 +31,9 @@ export async function GET() {
     }
 
     const cookieStore = await cookies();
-    const mfaVerified = cookieStore.get('mfa_verified')?.value === '1';
+    const mfaCookie = cookieStore.get('mfa_verified')?.value;
+    const mfaVerified = mfaCookie ? await verifyMfaCookie(mfaCookie, user.id) : false;
 
-    // Check password expiry
     let password_expired = false;
     let password_expired_days = 0;
     const passwordExpiryDays = company?.password_expiry_days ?? 0;

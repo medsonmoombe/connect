@@ -14,6 +14,9 @@ interface MfaVerificationProps {
 export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificationProps) {
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [error, setError] = useState<string | null>(null);
+  // Set when the code email could not be delivered (code still exists).
+  // Drives the explanatory header copy — distinct from wrong-code errors.
+  const [sendError, setSendError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [sending, setSending] = useState(false);
@@ -21,24 +24,50 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const hasSentRef = useRef(false);
 
+  const expireSession = useCallback(() => {
+    setError(null);
+    onSignOut();
+  }, [onSignOut]);
+
+  const readJson = async (res: Response) => {
+    try {
+      return await res.json();
+    } catch {
+      return {};
+    }
+  };
+
+  const isAuthExpired = (res: Response, data: any) =>
+    res.status === 401 || data?.code === 'UNAUTHORIZED' || /session|sign in|unauthorized/i.test(String(data?.error || ''));
+
   const sendCode = useCallback(async () => {
     setSending(true);
     setError(null);
+    setSendError(null);
     try {
       const res = await fetch('/api/auth/mfa/send-code', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send code');
+      const data = await readJson(res);
+      if (isAuthExpired(res, data)) {
+        expireSession();
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || data.warning || 'Failed to send code');
       setCodeSent(true);
       setCountdown(60);
-    } catch (err: any) {
-      setError(err.message);
-      setCodeSent(true); // still show the form so user sees the error
+      // Delivery problem but code exists (recoverable) — surface the warning,
+      // keep the form usable instead of pretending the flow is broken.
+      if (data.delivered === false && data.warning) {
+        setSendError(data.warning);
+        setError(data.warning);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to send code');
+      setCodeSent(true);
     } finally {
       setSending(false);
     }
-  }, []);
+  }, [expireSession]);
 
-  // Auto-send code on mount (once)
   useEffect(() => {
     if (hasSentRef.current) return;
     hasSentRef.current = true;
@@ -51,7 +80,6 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // Focus first input once the form is revealed
   useEffect(() => {
     if (codeSent) inputRefs.current[0]?.focus();
   }, [codeSent]);
@@ -62,15 +90,11 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
     next[index] = value.slice(-1);
     setCode(next);
     setError(null);
-    if (value && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
+    if (value && index < 5) inputRefs.current[index + 1]?.focus();
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
+    if (e.key === 'Backspace' && !code[index] && index > 0) inputRefs.current[index - 1]?.focus();
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -81,8 +105,7 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
     for (let i = 0; i < 6; i++) next[i] = pasted[i] ?? '';
     setCode(next);
     setError(null);
-    const focusIdx = Math.min(pasted.length, 5);
-    inputRefs.current[focusIdx]?.focus();
+    inputRefs.current[Math.min(pasted.length, 5)]?.focus();
   };
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -100,11 +123,15 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
+      if (isAuthExpired(res, data)) {
+        expireSession();
+        return;
+      }
       if (!res.ok) throw new Error(data.error || 'Verification failed');
       onVerified();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Verification failed');
       setCode(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
     } finally {
@@ -114,84 +141,70 @@ export function MfaVerification({ email, onVerified, onSignOut }: MfaVerificatio
 
   if (!codeSent) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-slate-50">
-        <LeafLoader size={80} />
+      <div className="flex min-h-[420px] items-center justify-center">
+        <LeafLoader size={72} />
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col items-center justify-center bg-slate-50">
-      <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-green-800 via-green-500 to-green-800" />
-
-      <div className="w-full max-w-[400px] px-4">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-11 h-11 rounded-xl bg-green-800 flex items-center justify-center shadow-md shadow-green-900/20 mb-3">
-            <Icons.shield className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-bold text-slate-900 tracking-tight">
-            Afri <span className="text-green-700">Connect</span>
-          </span>
-          <span className="text-xs text-slate-400 mt-0.5">Partner Portal</span>
+    <div className="p-6 md:p-8">
+      <div className="mb-7 flex items-start gap-4">
+        <div className="flex size-11 items-center justify-center border border-green-100 bg-green-50 text-[#0b3b24]">
+          <Icons.shield className="size-5" />
         </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-lg shadow-slate-100 p-7">
-          <h1 className="text-lg font-bold text-slate-900 mb-1">Two-factor verification</h1>
-          <p className="text-sm text-slate-500 mb-5">
-            A verification code was sent to <span className="font-medium text-slate-700">{email}</span>
+        <div>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">Two-factor verification</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            {sendError ? (
+              <>We couldn't deliver the code email. Enter a code if you have one, or <span className="font-medium text-slate-800">resend</span> below.</>
+            ) : (
+              <>A verification code was sent to <span className="font-medium text-slate-800">{email}</span></>
+            )}
           </p>
+        </div>
+      </div>
 
-          {error && (
-            <div className="mb-4 p-3 rounded-xl border bg-red-50 border-red-100 text-red-600 flex items-start gap-2.5 text-xs font-medium animate-in fade-in slide-in-from-top-2">
-              <Icons.alertTriangle className="size-3.5 shrink-0 mt-0.5" />
-              <p>{error}</p>
-            </div>
-          )}
+      {error && (
+        <div className="mb-4 flex items-start gap-2.5 border border-red-100 bg-red-50 p-3 text-xs font-medium text-red-600">
+          <Icons.alertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
 
-          <form onSubmit={handleVerify} className="space-y-5">
-            <div className="flex justify-center gap-2.5">
-              {code.map((digit, i) => (
-                <input
-                  key={i}
-                  ref={el => { inputRefs.current[i] = el; }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  onChange={e => handleChange(i, e.target.value)}
-                  onKeyDown={e => handleKeyDown(i, e)}
-                  onPaste={i === 0 ? handlePaste : undefined}
-                  className="w-11 h-12 text-center text-lg font-bold rounded-xl border border-slate-200 bg-slate-50 text-slate-900 focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 focus:bg-white transition-all"
-                />
-              ))}
-            </div>
-
-            <Button type="submit" disabled={isLoading || code.join('').length !== 6}
-              className="w-full h-11 bg-green-800 hover:bg-green-700 active:scale-[0.99] text-white rounded-xl font-bold text-sm shadow-md shadow-green-900/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-              {isLoading
-                ? <Icons.spinner className="w-4 h-4 animate-spin" />
-                : <><span>Verify</span><Icons.shieldCheck className="w-4 h-4" /></>}
-            </Button>
-          </form>
-
-          <div className="mt-4 text-center">
-            <button type="button" onClick={sendCode} disabled={sending || countdown > 0}
-              className="text-[11px] font-semibold text-green-700 hover:text-green-600 transition-colors disabled:opacity-50">
-              {sending ? 'Sending…' : countdown > 0 ? `Resend code in ${countdown}s` : 'Resend code'}
-            </button>
-          </div>
-
-          <div className="mt-5 pt-4 border-t border-slate-100 text-center">
-            <button type="button" onClick={onSignOut}
-              className="text-[11px] font-semibold text-slate-400 hover:text-slate-600 transition-colors">
-              Use a different account
-            </button>
-          </div>
+      <form onSubmit={handleVerify} className="space-y-5">
+        <div className="flex justify-between gap-2">
+          {code.map((digit, i) => (
+            <input
+              key={i}
+              ref={el => { inputRefs.current[i] = el; }}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={digit}
+              onChange={e => handleChange(i, e.target.value)}
+              onKeyDown={e => handleKeyDown(i, e)}
+              onPaste={i === 0 ? handlePaste : undefined}
+              className="h-12 w-11 border border-slate-300 bg-white text-center text-lg font-semibold text-slate-950 transition-colors focus:border-[#0b3b24] focus:outline-none focus:ring-2 focus:ring-[#0b3b24]/15 sm:w-12"
+            />
+          ))}
         </div>
 
-        <p className="text-center text-[10px] text-slate-400 mt-5">
-          © 2026 Energy Capital Match &nbsp;·&nbsp; AES-256 Encrypted
-        </p>
+        <Button type="submit" disabled={isLoading || code.join('').length !== 6}
+          className="h-11 w-full text-sm font-semibold shadow-none disabled:cursor-not-allowed disabled:opacity-50">
+          {isLoading ? <Icons.spinner className="size-4 animate-spin" /> : 'Verify'}
+        </Button>
+      </form>
+
+      <div className="mt-5 flex items-center justify-between border-t border-slate-200 pt-4">
+        <button type="button" onClick={sendCode} disabled={sending || countdown > 0}
+          className="text-xs font-semibold text-[#0b3b24] transition-colors hover:text-[#0d4a2e] disabled:opacity-50">
+          {sending ? 'Sending...' : countdown > 0 ? `Resend code in ${countdown}s` : 'Resend code'}
+        </button>
+        <button type="button" onClick={onSignOut}
+          className="text-xs font-semibold text-slate-500 transition-colors hover:text-slate-700">
+          Use a different account
+        </button>
       </div>
     </div>
   );

@@ -173,24 +173,38 @@ export async function GET(
         .maybeSingle();
 
       if (partner) {
-        const { data: projects } = await admin
-          .from('projects')
-          .select('id, name, developer_id, technology_type, location_country, location_region, project_size_mw, project_stage, status, created_at')
-          .is('deleted_at', null)
-          .eq('status', 'live');
+        const { data: raw } = await admin
+          .from('power_trader_match_results')
+          .select('id, compatibility_score, score_breakdown, status, created_at, project_id')
+          .eq('power_trader_id', partner.id)
+          .order('compatibility_score', { ascending: false });
 
-        const devIds = [...new Set((projects ?? []).map((p: any) => p.developer_id).filter(Boolean))];
-        const { data: devs } = devIds.length > 0
-          ? await admin.from('companies').select('id, name').in('id', devIds)
-          : { data: [] };
+        if (raw && raw.length > 0) {
+          const projectIds = raw.map(r => r.project_id);
+          const { data: projects } = await admin
+            .from('projects')
+            .select('id, name, developer_id, technology_type, location_country, location_region, project_size_mw, capital_required, project_stage, status, created_at')
+            .in('id', projectIds);
 
-        const devMap = new Map((devs ?? []).map((d: any) => [d.id, d]));
+          const devIds = [...new Set((projects ?? []).map((p: any) => p.developer_id).filter(Boolean))];
+          const { data: devs } = devIds.length > 0
+            ? await admin.from('companies').select('id, name').in('id', devIds)
+            : { data: [] };
 
-        matches = (projects ?? []).map((p: any) => ({
-          project: p,
-          developer: devMap.get(p.developer_id) ?? null,
-          trader_profile: partner,
-        }));
+          const projMap = new Map((projects ?? []).map((p: any) => [p.id, p]));
+          const devMap = new Map((devs ?? []).map((d: any) => [d.id, d]));
+
+          matches = raw.map(r => ({
+            match_id: r.id,
+            score: r.compatibility_score,
+            score_breakdown: r.score_breakdown,
+            match_status: r.status,
+            matched_at: r.created_at,
+            project: projMap.get(r.project_id) ?? null,
+            developer: devMap.get((projMap.get(r.project_id) as any)?.developer_id) ?? null,
+            trader_profile: partner,
+          }));
+        }
       }
     }
 
@@ -220,7 +234,15 @@ export async function POST(
         return badRequest('project_id and counterparty_type are required');
       }
 
-      const partnerTable = counterparty_type === 'CAPITAL' ? 'capital_partners' : 'technical_partners';
+      const partnerTableByType: Record<string, string> = {
+        CAPITAL: 'capital_partners',
+        TECHNICAL: 'technical_partners',
+        CONSULTANT: 'consultants',
+        GRANT_PROVIDER: 'grant_providers',
+        POWER_TRADER: 'power_traders',
+      };
+      const partnerTable = partnerTableByType[counterparty_type];
+      if (!partnerTable) return badRequest('Unsupported counterparty_type');
       const { data: partner } = await admin
         .from(partnerTable)
         .select('id')
@@ -263,6 +285,7 @@ export async function POST(
         entityId: engagement.id,
         after: engagementPayload,
         req,
+        blocking: true,
       });
 
       return Response.json({ data: engagement }, { status: 201 });
@@ -300,6 +323,7 @@ export async function POST(
         before: { status: engagement.status },
         after: { status: new_status },
         req,
+        blocking: true,
       });
 
       return Response.json({ data: { id: engagement_id, status: new_status } });
@@ -311,3 +335,5 @@ export async function POST(
     return handleRouteError(e);
   }
 }
+
+

@@ -47,7 +47,7 @@ export function BookmarksTab({ bookmarks, matchScores, engagements, loading, cap
     try {
       const eng = await engagementService.requestIntroduction(projectId, capitalPartnerId, 'CAPITAL');
       setSentIds(prev => new Set(prev).add(projectId));
-      if (eng?.id) router.push(`/dashboard/engagements/${eng.id}`);
+      if (eng?.id) router.push(`/engagements/${eng.id}`);
     } catch (err) {
       console.error('Express interest failed:', err);
     } finally {
@@ -71,8 +71,8 @@ export function BookmarksTab({ bookmarks, matchScores, engagements, loading, cap
 
   if (loading) {
     return (
-      <div className="p-12 text-center bg-white rounded-[32px] border border-gray-100">
-        <Icons.spinner className="size-8 animate-spin mx-auto text-primary" />
+      <div className="py-6 text-center bg-white rounded-none border border-gray-100">
+        <Icons.spinner className="size-5 animate-spin mx-auto text-primary" />
       </div>
     );
   }
@@ -103,14 +103,14 @@ export function BookmarksTab({ bookmarks, matchScores, engagements, loading, cap
         const existingEngagement = engagedEngagementMap[project.id];
 
         return (
-          <div key={bm.id} className="p-6 rounded-[32px] bg-white border border-gray-100 shadow-soft hover:shadow-md transition-all flex items-center gap-6 group">
-            <div className="size-14 rounded-2xl bg-slate-50 flex items-center justify-center text-primary shrink-0 border border-slate-100">
-              <Icons.zap className="size-7" />
+          <div key={bm.id} className="p-4 rounded-none bg-white border border-gray-100 shadow-soft hover:shadow-md transition-all flex items-center gap-4 group">
+            <div className="size-10 rounded-none bg-slate-50 flex items-center justify-center text-primary shrink-0 border border-slate-100">
+              <Icons.zap className="size-4" />
             </div>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-1">
-                <Link href={`/projects/${project.id}`} className="text-lg font-bold text-slate-900 group-hover:text-primary transition-colors truncate">
+                <Link href={`/projects/${project.id}`} className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors truncate">
                   {project.name}
                 </Link>
                 {score !== undefined && (
@@ -139,7 +139,7 @@ export function BookmarksTab({ bookmarks, matchScores, engagements, loading, cap
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9 w-9 rounded-xl p-0 border-slate-200 hover:border-amber-300 hover:bg-amber-50"
+                className="h-9 w-9 rounded-none p-0 border-slate-200 hover:border-amber-300 hover:bg-amber-50"
                 onClick={() => handleRemoveBookmark(project.id)}
                 disabled={isRemoving}
                 title="Remove bookmark"
@@ -153,7 +153,7 @@ export function BookmarksTab({ bookmarks, matchScores, engagements, loading, cap
                 onClick={() => handleExpressInterest(project.id)}
                 disabled={isAlreadyEngaged || isSent || isSending}
                 className={cn(
-                  'h-9 px-5 rounded-xl text-xs font-bold transition-all',
+                  'h-9 px-5 rounded-none text-xs font-bold transition-all',
                   isAlreadyEngaged
                     ? 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default'
                     : isSent

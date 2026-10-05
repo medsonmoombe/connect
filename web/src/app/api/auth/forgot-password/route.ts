@@ -15,22 +15,25 @@ export async function POST(req: NextRequest) {
     // Always return the same message to prevent email enumeration
     const successMsg = { message: 'If an account exists with that email, a reset link has been sent.' };
 
-    // Look up the auth user by email
-    const { data: authData, error: listErr } = await admin.auth.admin.listUsers();
-    if (listErr) {
+    // Look up user profile by email (indexed query — O(1) instead of O(n) listUsers)
+    const { data: profile } = await admin
+      .from('user_profiles')
+      .select('id, full_name')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (!profile) {
       return Response.json(successMsg);
     }
 
-    const authUser = authData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
-    if (!authUser) {
-      return Response.json(successMsg);
-    }
+    const authUserId = profile.id;
+    const fullName = profile.full_name || email.split('@')[0];
 
     // Invalidate any previous unused reset tokens for this user
     await admin
       .from('password_resets')
       .update({ used_at: new Date().toISOString() })
-      .eq('user_id', authUser.id)
+      .eq('user_id', authUserId)
       .is('used_at', null);
 
     // Generate a random token and store its SHA-256 hash
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest) {
     const { error: insertErr } = await admin
       .from('password_resets')
       .insert({
-        user_id: authUser.id,
+        user_id: authUserId,
         token_hash: tokenHash,
         expires_at: expiresAt,
       });
@@ -51,25 +54,12 @@ export async function POST(req: NextRequest) {
       return serverError();
     }
 
-    // Look up the user's name for the email
-    let fullName = email.split('@')[0];
-    try {
-      const { data: profile } = await admin
-        .from('user_profiles')
-        .select('full_name')
-        .eq('id', authUser.id)
-        .maybeSingle();
-      if (profile?.full_name) fullName = profile.full_name;
-    } catch {
-      // Use email prefix as fallback
-    }
-
     const resetUrl = `${appUrl}/reset-password?token=${rawToken}`;
     console.log(`[ForgotPassword] Reset link generated for ${email}`);
 
     await sendPasswordResetEmail({ to: email, fullName, resetUrl });
 
-    await writeAuditLog({ userId: authUser.id, action: 'PASSWORD_FORGOT_REQUESTED', entityType: 'auth', entityId: email, req });
+    await writeAuditLog({ userId: authUserId, action: 'PASSWORD_FORGOT_REQUESTED', entityType: 'auth', entityId: email, req, blocking: true });
 
     return Response.json(successMsg);
   } catch (e: any) {

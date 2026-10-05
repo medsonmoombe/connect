@@ -11,7 +11,7 @@ const USER_UPDATE_FIELDS = ['full_name', 'phone', 'job_title', 'role'];
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can manage users. If you need admin access, contact your platform support team.');
 
     const url = new URL(req.url);
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const adminUser = await getAuthenticatedUser(req);
-    if (!adminUser.is_platform_admin) return forbidden();
+    if (!adminUser.is_platform_admin) return forbidden('Only platform administrators can provision new users. Contact your platform support team if you need to create a user.');
 
     const { email, role, password, fullName, orgName, companyId: provCompanyId } = await req.json();
     const actualPassword = password || (Math.random().toString(36).slice(-12) + 'A1!');
@@ -156,11 +156,15 @@ export async function POST(req: NextRequest) {
     const userId = authData.user.id;
 
     // 2. Create user profile
+    // Only skip onboarding if user was assigned to a company.
+    // Without a company, the user needs to go through onboarding to set one up.
+    // Determine this from the request body before creating the profile.
+    const willHaveCompany = !!(provCompanyId || orgName);
     const { error: profileErr } = await supabase.from('user_profiles').insert({
       id: userId,
       email,
       full_name: fullName || email.split('@')[0],
-      onboarding_complete: true, // Admin-provisioned users skip onboarding
+      onboarding_complete: willHaveCompany,
     });
 
     if (profileErr) {
@@ -235,7 +239,7 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    await writeAuditLog({ userId: adminUser.id, action: 'USER_PROVISIONED', entityType: 'user_profiles', entityId: userId, after: { email, company_id: companyId }, req });
+    await writeAuditLog({ userId: adminUser.id, action: 'USER_PROVISIONED', entityType: 'user_profiles', entityId: userId, after: { email, company_id: companyId }, req, blocking: true });
 
     return Response.json({
       data: {
@@ -254,7 +258,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can update user profiles. Contact your platform support team if changes are needed.');
 
     const { userId, ...updates } = await req.json();
     const supabase = getSupabaseAdmin();

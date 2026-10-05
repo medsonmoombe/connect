@@ -6,8 +6,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { DashboardSidebar, SidebarNavItem, NavSection } from './Sidebar';
 import { DashboardNavbar } from './Navbar';
 import { Icons } from '@/components/ui/icons';
+import { getRoleLabel } from '@/lib/role-labels';
+import { cn } from '@/lib/utils';
 
-// ─── Nav config type ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Nav config type â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface NavConfig {
   portalLabel: string;
@@ -15,44 +17,42 @@ interface NavConfig {
   footerWidget: ReactNode;
 }
 
-// ─── Nav configs per role ────────────────────────────────────────────────────
+// â”€â”€â”€ Nav configs per role â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const accountSection = (pathname: string): NavSection => ({
   label: 'Account',
   items: [
-    { icon: <Icons.user className="size-[18px]" />, label: 'Profile', active: pathname === '/dashboard/profile', href: '/dashboard/profile' },
-    { icon: <Icons.settings className="size-[18px]" />, label: 'Settings', active: pathname === '/dashboard/settings', href: '/dashboard/settings' },
-  ] as SidebarNavItem[],
+    { icon: <Icons.user className="size-[18px]" />, label: 'Profile', active: pathname === '/profile', href: '/profile' },
+    { icon: <Icons.users className="size-[18px]" />, label: 'Team', active: pathname.startsWith('/settings/team'), href: '/settings/team' },
+    { icon: <Icons.settings className="size-[18px]" />, label: 'Settings', active: pathname.startsWith('/settings') && !pathname.startsWith('/settings/team'), href: '/settings' },
+  ],
 });
 
-function developerNav(pathname: string, searchParams: string, isOrgAdmin: boolean): NavConfig {
-  const tab = new URLSearchParams(searchParams).get('tab');
+function developerNav(pathname: string, _searchParams: string, isOrgAdmin: boolean): NavConfig {
   return {
     portalLabel: 'Developer Portal',
     sections: [
       {
-        label: 'Main',
+        label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/developer' && !tab, href: '/dashboard/developer' },
-          { icon: <Icons.folder className="size-[18px]" />, label: 'My Projects', active: tab === 'projects', href: '/dashboard/developer?tab=projects' },
-          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Data Room', active: tab === 'dataroom', href: '/dashboard/developer?tab=dataroom' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/developer?tab=messages' },
-          { icon: <Icons.pieChart className="size-[18px]" />, label: 'Analytics', active: tab === 'analytics', href: '/dashboard/developer?tab=analytics' },
-          { icon: <Icons.users className="size-[18px]" />, label: 'Inbound Interest', active: tab === 'inbound', href: '/dashboard/developer?tab=inbound' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/developer', href: '/developer' },
+          { icon: <Icons.folder className="size-[18px]" />, label: 'My Projects', active: pathname.startsWith('/developer/projects') || pathname.includes('/submit') || pathname.startsWith('/projects/'), href: '/developer/projects' },
+          { icon: <Icons.users className="size-[18px]" />, label: 'Inbound', active: pathname.startsWith('/inbound'), href: '/inbound' },
+        ],
       },
       {
         label: 'Workspace',
         items: [
-          { icon: <Icons.search className="size-[18px]" />, label: 'Find Partners', active: tab === 'find-partners', href: '/dashboard/developer?tab=find-partners' },
-          { icon: <Icons.plus className="size-[18px]" />, label: 'Submit Project', active: pathname.includes('/submit'), href: '/dashboard/developer/submit' },
-          ...(isOrgAdmin ? [{ icon: <Icons.users className="size-[18px]" />, label: 'Team', active: pathname === '/dashboard/developer/team', href: '/dashboard/developer/team' } as SidebarNavItem] : []),
-        ] as SidebarNavItem[],
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+          { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Insights', active: pathname.startsWith('/developer/ai-insights'), href: '/developer/ai-insights' },
+          { icon: <Icons.barChart3 className="size-[18px]" />, label: 'Analytics', active: pathname.startsWith('/developer/analytics'), href: '/developer/analytics' },
+          { icon: <Icons.headphones className="size-[18px]" />, label: 'Consultation', active: pathname.startsWith('/developer/consultation') || pathname.startsWith('/developer/consultant'), href: '/developer/consultation' },
+        ],
       },
       accountSection(pathname),
     ],
     footerWidget: (
-      <div className="sidebar-widget rounded-xl p-3.5">
+      <div className="sidebar-widget rounded-none p-3.5">
         <div className="flex items-center justify-between mb-2">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">System Status</p>
           <span className="flex items-center gap-1">
@@ -72,91 +72,145 @@ function developerNav(pathname: string, searchParams: string, isOrgAdmin: boolea
   };
 }
 
-function investorNav(pathname: string, searchParams: string): NavConfig {
-  const tab = new URLSearchParams(searchParams).get('tab');
+function investorNav(pathname: string): NavConfig {
   return {
-    portalLabel: 'Investor Portal',
+    portalLabel: 'Financier Portal',
     sections: [
       {
-        label: 'Main',
+        label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/investor' && !tab, href: '/dashboard/investor' },
-          { icon: <Icons.target className="size-[18px]" />, label: 'My Matches', active: tab === 'matches', href: '/dashboard/investor?tab=matches' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/investor?tab=marketplace' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/investor?tab=portfolio' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/investor?tab=messages' },
-          { icon: <Icons.bookmark className="size-[18px]" />, label: 'Saved Projects', active: tab === 'bookmarks', href: '/dashboard/investor?tab=bookmarks' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/investor', href: '/investor' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: pathname.startsWith('/investor/marketplace') || pathname.startsWith('/investor/matches') || pathname.startsWith('/projects/'), href: '/investor/marketplace' },
+        ],
+      },
+      {
+        label: 'Deals',
+        items: [
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: pathname.startsWith('/investor/portfolio'), href: '/investor/portfolio' },
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+          { icon: <Icons.bookmark className="size-[18px]" />, label: 'Saved Projects', active: pathname.startsWith('/investor/bookmarks'), href: '/investor/bookmarks' },
+        ],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/investor?tab=reports' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Investment Profile', active: tab === 'profile', href: '/dashboard/investor?tab=profile' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.barChart3 className="size-[18px]" />, label: 'Reports', active: pathname.startsWith('/investor/reports'), href: '/investor/reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Investment Profile', active: pathname.startsWith('/investor/profile'), href: '/investor/profile' },
+        ],
       },
       accountSection(pathname),
     ],
     footerWidget: (
-      <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #166534 0%, #15803d 100%)' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-60" />
-        <div className="relative z-10">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold text-white/70 uppercase tracking-[0.1em]">Portfolio Health</p>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[9px] font-bold text-green-300 uppercase tracking-wider">Strong</span>
-            </span>
-          </div>
-          <p className="text-xl font-black text-white leading-none">$450M</p>
-          <p className="text-[10px] text-white/50 font-medium mt-0.5">Total managed assets</p>
-          <div className="w-full bg-white/15 h-1.5 rounded-full overflow-hidden mt-2.5">
-            <div className="bg-white h-full w-[65%] rounded-full" />
-          </div>
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Portfolio Health</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
+        </div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold text-slate-700">Match Engine</span>
+          <span className="text-[9px] font-bold text-primary uppercase tracking-wider">Running</span>
+        </div>
+        <div className="w-full bg-slate-200/80 h-1.5 rounded-full overflow-hidden">
+          <div className="bg-gradient-to-r from-primary to-primary-light h-full w-[85%] rounded-full" />
         </div>
       </div>
     ),
   };
 }
 
-function technicalNav(pathname: string, searchParams: string): NavConfig {
-  const tab = new URLSearchParams(searchParams).get('tab');
+function technicalNav(pathname: string): NavConfig {
   return {
-    portalLabel: 'Technical Portal',
+    portalLabel: 'EPC & Advisory Portal',
     sections: [
       {
-        label: 'Main',
+        label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/technical' && !tab, href: '/dashboard/technical' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/technical?tab=marketplace' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/technical?tab=portfolio' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/technical?tab=messages' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/technical', href: '/technical' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: pathname.startsWith('/technical/marketplace') || pathname.startsWith('/technical/matches') || pathname.startsWith('/projects/'), href: '/technical/marketplace' },
+        ],
+      },
+      {
+        label: 'Deals',
+        items: [
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: pathname.startsWith('/technical/portfolio'), href: '/technical/portfolio' },
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+        ],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/technical?tab=reports' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Partner Profile', active: tab === 'profile', href: '/dashboard/technical?tab=profile' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.barChart className="size-[18px]" />, label: 'Reports', active: pathname.startsWith('/technical/reports'), href: '/technical/reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Capability Profile', active: pathname.startsWith('/technical/profile'), href: '/technical/profile' },
+        ],
       },
       accountSection(pathname),
     ],
     footerWidget: (
-      <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/15 to-transparent opacity-50" />
-        <div className="relative z-10">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.1em]">Safety Record</p>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">Compliant</span>
-            </span>
-          </div>
-          <p className="text-xl font-black text-white leading-none">
-            0.00 <span className="text-[10px] font-bold text-white/40">LTIR</span>
-          </p>
-          <p className="text-[10px] text-white/40 font-medium mt-0.5">Lost time incident rate</p>
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Service Status</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
+        </div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold text-slate-700">Availability</span>
+          <span className="text-[9px] font-bold text-primary uppercase tracking-wider">Open</span>
+        </div>
+        <div className="w-full bg-slate-200/80 h-1.5 rounded-full overflow-hidden">
+          <div className="bg-gradient-to-r from-primary to-primary-light h-full w-[90%] rounded-full" />
+        </div>
+      </div>
+    ),
+  };
+}
+
+function consultantNav(pathname: string, _searchParams: string): NavConfig {
+  return {
+    portalLabel: 'Consulting Portal',
+    sections: [
+      {
+        label: 'Overview',
+        items: [
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/consultant', href: '/consultant' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: pathname.startsWith('/consultant/marketplace') || pathname.startsWith('/consultant/matches') || pathname.startsWith('/projects/'), href: '/consultant/marketplace' },
+        ],
+      },
+      {
+        label: 'Deals',
+        items: [
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: pathname === '/consultant/portfolio', href: '/consultant/portfolio' },
+        ],
+      },
+      {
+        label: 'Insights',
+        items: [
+          { icon: <Icons.barChart3 className="size-[18px]" />, label: 'Reports', active: pathname === '/consultant/reports', href: '/consultant/reports' },
+          { icon: <Icons.user className="size-[18px]" />, label: 'Consulting Profile', active: pathname === '/consultant/profile', href: '/consultant/profile' },
+        ],
+      },
+      accountSection(pathname),
+    ],
+    footerWidget: (
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Consulting Status</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
+        </div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold text-slate-700">Availability</span>
+          <span className="text-[9px] font-bold text-primary uppercase tracking-wider">Open</span>
+        </div>
+        <div className="w-full bg-slate-200/80 h-1.5 rounded-full overflow-hidden">
+          <div className="bg-gradient-to-r from-primary to-primary-light h-full w-[90%] rounded-full" />
         </div>
       </div>
     ),
@@ -170,30 +224,30 @@ function adminNav(pathname: string): NavConfig {
       {
         label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Overview', active: pathname === '/dashboard/admin', href: '/dashboard/admin' },
-          { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Portfolio Oversight', active: pathname === '/dashboard/admin/ai-overview', href: '/dashboard/admin/ai-overview' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Overview', active: pathname === '/admin', href: '/admin' },
+          { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Portfolio Oversight', active: pathname === '/admin/ai-overview', href: '/admin/ai-overview' },
+        ],
       },
       {
         label: 'Management',
         items: [
-          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Verification Queue', active: pathname === '/dashboard/admin/verification', href: '/dashboard/admin/verification' },
-          { icon: <Icons.mail className="size-[18px]" />, label: 'User Provisioning', active: pathname === '/dashboard/admin/users', href: '/dashboard/admin/users' },
-          { icon: <Icons.folder className="size-[18px]" />, label: 'All Projects', active: pathname === '/dashboard/admin/projects', href: '/dashboard/admin/projects' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Milestone Pipelines', active: pathname === '/dashboard/admin/engagements', href: '/dashboard/admin/engagements' },
-          { icon: <Icons.building className="size-[18px]" />, label: 'All Companies', active: pathname === '/dashboard/admin/companies', href: '/dashboard/admin/companies' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Verification Queue', active: pathname.startsWith('/admin/verification'), href: '/admin/verification' },
+          { icon: <Icons.mail className="size-[18px]" />, label: 'User Provisioning', active: pathname.startsWith('/admin/users'), href: '/admin/users' },
+          { icon: <Icons.folder className="size-[18px]" />, label: 'All Projects', active: pathname.startsWith('/admin/projects') || pathname.startsWith('/admin/review'), href: '/admin/projects' },
+          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Milestone Pipelines', active: pathname.startsWith('/admin/engagements'), href: '/admin/engagements' },
+          { icon: <Icons.building className="size-[18px]" />, label: 'All Companies', active: pathname.startsWith('/admin/companies'), href: '/admin/companies' },
+          { icon: <Icons.headphones className="size-[18px]" />, label: 'Consultation', active: pathname.startsWith('/admin/consultation'), href: '/admin/consultation' },
+        ],
       },
       {
         label: 'System',
         items: [
-          { icon: <Icons.settings className="size-[18px]" />, label: 'System Settings', active: pathname === '/dashboard/admin/settings', href: '/dashboard/admin/settings' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.settings className="size-[18px]" />, label: 'System Settings', active: pathname === '/admin/settings', href: '/admin/settings' },
+        ],
       },
     ],
-
     footerWidget: (
-      <div className="sidebar-widget rounded-xl p-3.5">
+      <div className="sidebar-widget rounded-none p-3.5">
         <div className="flex items-center justify-between mb-2">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">System Health</p>
           <span className="flex items-center gap-1">
@@ -213,92 +267,133 @@ function adminNav(pathname: string): NavConfig {
   };
 }
 
-function traderNav(pathname: string, searchParams: string): NavConfig {
-  const tab = new URLSearchParams(searchParams).get('tab');
+function authorityNav(pathname: string): NavConfig {
+  return {
+    portalLabel: 'Regulator Management',
+    sections: [
+      {
+        label: 'Overview',
+        items: [
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Overview', active: pathname === '/authority', href: '/authority' },
+        ],
+      },
+      {
+        label: 'Management',
+        items: [
+          { icon: <Icons.folder className="size-[18px]" />, label: 'Project Review', active: pathname.startsWith('/authority/projects'), href: '/authority/projects' },
+          { icon: <Icons.building className="size-[18px]" />, label: 'Profiles', active: pathname.startsWith('/authority/organizations'), href: '/authority/organizations' },
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+        ],
+      },
+      {
+        label: 'Account',
+        items: [
+          { icon: <Icons.user className="size-[18px]" />, label: 'Profile', active: pathname === '/profile', href: '/profile' },
+          { icon: <Icons.settings className="size-[18px]" />, label: 'Settings', active: pathname.startsWith('/settings'), href: '/settings' },
+        ],
+      },
+    ],
+    footerWidget: (
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Governance Status</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
+        </div>
+        <p className="text-[10px] text-slate-500 font-medium">Project review and profile oversight enabled</p>
+      </div>
+    ),
+  };
+}
+function traderNav(pathname: string, _searchParams: string): NavConfig {
   return {
     portalLabel: 'Trading Portal',
     sections: [
       {
-        label: 'Main',
+        label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/trader' && !tab, href: '/dashboard/trader' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/trader?tab=marketplace' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/trader?tab=portfolio' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/trader?tab=messages' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/trader', href: '/trader' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: pathname.startsWith('/trader/marketplace') || pathname.startsWith('/projects/'), href: '/trader/marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Active Deals', active: pathname === '/trader/portfolio', href: '/trader/portfolio' },
+        ],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/trader?tab=reports' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Trader Profile', active: tab === 'profile', href: '/dashboard/trader?tab=profile' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.barChart3 className="size-[18px]" />, label: 'Reports', active: pathname === '/trader/reports', href: '/trader/reports' },
+          { icon: <Icons.settings className="size-[18px]" />, label: 'Trading Profile', active: pathname === '/trader/profile', href: '/trader/profile' },
+        ],
+      },
+      {
+        label: 'Comms',
+        items: [
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+        ],
       },
       accountSection(pathname),
     ],
     footerWidget: (
-      <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/15 to-transparent opacity-50" />
-        <div className="relative z-10">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold text-white/50 uppercase tracking-[0.1em]">Trading Activity</p>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider">Active</span>
-            </span>
-          </div>
-          <p className="text-[10px] text-white/40 font-medium mt-0.5">Power trading platform</p>
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Trading Status</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
         </div>
+        <p className="text-[10px] text-slate-500 font-medium">Offtake pipeline ready</p>
       </div>
     ),
   };
 }
 
-function grantNav(pathname: string, searchParams: string): NavConfig {
-  const tab = new URLSearchParams(searchParams).get('tab');
+function grantNav(pathname: string, _searchParams: string): NavConfig {
   return {
     portalLabel: 'Grant Portal',
     sections: [
       {
-        label: 'Main',
+        label: 'Overview',
         items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/dashboard/grant' && !tab, href: '/dashboard/grant' },
-          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: tab === 'marketplace', href: '/dashboard/grant?tab=marketplace' },
-          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Portfolio', active: tab === 'portfolio', href: '/dashboard/grant?tab=portfolio' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Messages', active: tab === 'messages', href: '/dashboard/grant?tab=messages' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Dashboard', active: pathname === '/grant', href: '/grant' },
+          { icon: <Icons.search className="size-[18px]" />, label: 'Marketplace', active: pathname.startsWith('/grant/marketplace') || pathname.startsWith('/projects/'), href: '/grant/marketplace' },
+          { icon: <Icons.briefcase className="size-[18px]" />, label: 'Active Grants', active: pathname === '/grant/portfolio', href: '/grant/portfolio' },
+        ],
       },
       {
         label: 'Insights',
         items: [
-          { icon: <Icons.fileText className="size-[18px]" />, label: 'Reports', active: tab === 'reports', href: '/dashboard/grant?tab=reports' },
-          { icon: <Icons.user className="size-[18px]" />, label: 'Grant Profile', active: tab === 'profile', href: '/dashboard/grant?tab=profile' },
-        ] as SidebarNavItem[],
+          { icon: <Icons.barChart3 className="size-[18px]" />, label: 'Reports', active: pathname === '/grant/reports', href: '/grant/reports' },
+          { icon: <Icons.settings className="size-[18px]" />, label: 'Funding Profile', active: pathname === '/grant/profile', href: '/grant/profile' },
+        ],
+      },
+      {
+        label: 'Comms',
+        items: [
+          { icon: <Icons.handshake className="size-[18px]" />, label: 'Engagements', active: pathname.startsWith('/engagements'), href: '/engagements' },
+        ],
       },
       accountSection(pathname),
     ],
     footerWidget: (
-      <div className="rounded-xl relative overflow-hidden p-3.5" style={{ background: 'linear-gradient(135deg, #166534 0%, #15803d 100%)' }}>
-        <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-60" />
-        <div className="relative z-10">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold text-white/70 uppercase tracking-[0.1em]">Grant Activity</p>
-            <span className="flex items-center gap-1">
-              <span className="size-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[9px] font-bold text-green-300 uppercase tracking-wider">Active</span>
-            </span>
-          </div>
-          <p className="text-[10px] text-white/50 font-medium mt-0.5">Grant management platform</p>
+      <div className="sidebar-widget rounded-none p-3.5">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em]">Grant Status</p>
+          <span className="flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-[9px] font-bold text-green-600 uppercase tracking-wider">Active</span>
+          </span>
         </div>
+        <p className="text-[10px] text-slate-500 font-medium">Funding pipeline open</p>
       </div>
     ),
   };
 }
 
-// ─── Shell ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Admin has its own layout.tsx with a custom sidebar — skip only admin routes
-const SKIP_WRAP_PATHS = ['/dashboard/admin'];
+const SKIP_WRAP_PATHS = ['/admin'];
 
 export function DashboardShell({ children }: { children: ReactNode }) {
   const { user, signOut } = useAuth();
@@ -315,14 +410,20 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   const role = user?.role;
   const isOrgAdmin = user?.is_org_admin ?? false;
+  const isPlatformAdmin = user?.is_platform_admin ?? false;
   const nav =
+    isPlatformAdmin             ? adminNav(pathname) :
     role === 'DEVELOPER'         ? developerNav(pathname, searchParams, isOrgAdmin) :
-    role === 'CAPITAL_PARTNER'   ? investorNav(pathname, searchParams) :
-    role === 'TECHNICAL_PARTNER' ? technicalNav(pathname, searchParams) :
+    role === 'CAPITAL_PARTNER'   ? investorNav(pathname) :
+    role === 'TECHNICAL_PARTNER' ? technicalNav(pathname) :
+    role === 'CONSULTANT'        ? consultantNav(pathname, searchParams) :
     role === 'POWER_TRADER'      ? traderNav(pathname, searchParams) :
     role === 'GRANT_PROVIDER'    ? grantNav(pathname, searchParams) :
+    role === 'AUTHORITY_ADMIN'   ? authorityNav(pathname) :
+    role === 'AUTHORITY_REVIEWER'? authorityNav(pathname) :
+    role === 'AUTHORITY_VIEWER'  ? authorityNav(pathname) :
     role === 'ADMIN'             ? adminNav(pathname) :
-    developerNav(pathname, searchParams, isOrgAdmin); // fallback
+    developerNav(pathname, searchParams, isOrgAdmin);
 
   const allItems = nav.sections?.flatMap(s => s.items) ?? [];
   const activeLabel = allItems.find(n => n.active)?.label ?? 'Dashboard';
@@ -335,14 +436,21 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const flatNavItems = nav.sections?.flatMap(s => s.items) ?? [];
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+    // `relative` makes the app shell the containing block for absolutely
+    // positioned descendants that have no positioned ancestor of their own
+    // (e.g. `sr-only` inputs). Without it those boxes resolve against the
+    // initial containing block, escape this `overflow-hidden` frame and add
+    // phantom scroll height to the document (the window then scrolls past the
+    // whole app, showing a blank page). `z-0`-free on purpose: it creates no
+    // stacking context.
+    <div className="relative flex h-screen bg-slate-50 font-sans overflow-hidden">
       <DashboardSidebar
         portalLabel={nav.portalLabel}
         navItems={flatNavItems}
         sections={nav.sections}
         userName={user?.full_name}
         avatarUrl={user?.avatar_url}
-        userRole={user?.role?.replace('_', ' ')}
+        userRole={getRoleLabel(user?.role)}
         orgName={user?.company_name}
         onSignOut={handleSignOut}
         open={sidebarOpen}
@@ -354,9 +462,28 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           title={activeLabel}
           onMenuClick={() => setSidebarOpen(true)}
         />
-        <main className="flex-grow overflow-y-auto no-scrollbar p-8">
+        <main className="flex-grow overflow-y-auto no-scrollbar p-4 md:p-8 pb-20 md:pb-8">
           {children}
         </main>
+
+        {/* â”€â”€ Mobile Bottom Navigation â”€â”€ */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-slate-100 px-2 py-1.5 safe-area-bottom">
+          <div className="flex items-center justify-around">
+            {flatNavItems.slice(0, 5).map((item, i) => (
+              <a
+                key={i}
+                href={item.href}
+                className={cn(
+                  'flex flex-col items-center gap-0.5 px-2 py-1 rounded-none transition-colors min-w-0',
+                  item.active ? 'text-primary' : 'text-slate-400'
+                )}
+              >
+                <span className="size-5 flex items-center justify-center">{item.icon}</span>
+                <span className="text-[8px] font-bold tracking-wider truncate max-w-[48px]">{item.label}</span>
+              </a>
+            ))}
+          </div>
+        </nav>
       </div>
     </div>
   );

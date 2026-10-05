@@ -16,7 +16,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = join(__dirname, '..', 'supabase', 'migrations');
+const MIGRATIONS_DIR = join(__dirname, 'supabase', 'migrations');
 
 // ── Load env vars from .env.local ────────────────────────────────────────────
 function loadEnv() {
@@ -68,6 +68,118 @@ CREATE TABLE IF NOT EXISTS _migrations (
   applied_at timestamptz DEFAULT now()
 );`;
 
+/**
+ * Split a SQL script into top-level statements.
+ *
+ * Tracks:
+ *   - line comments       (-- ... to end of line)
+ *   - single-quoted text  ('...' with '' as the escape)
+ *   - double-quoted idents ("...")
+ *   - dollar-quoted text  ($tag$ ... $tag$ — also handles bare $$ ... $$)
+ *
+ * A ';' is only treated as a statement terminator when it appears outside
+ * any of the above.
+ */
+function splitSqlStatements(sql) {
+  const out = [];
+  let buf = '';
+  let i = 0;
+  const n = sql.length;
+
+  // Current quote context. null = not in any quote.
+  let mode = null;            // 'line' | 'squote' | 'dquote' | 'dollar'
+  let dollarTag = '';         // e.g. '$$' or '$tag$'
+  let pendingDollar = null;   // tag candidate seen as we walk (no whitespace check)
+
+  while (i < n) {
+    const c = sql[i];
+    const c2 = sql[i + 1];
+
+    if (mode === 'line') {
+      buf += c;
+      if (c === '\n') mode = null;
+      i++;
+      continue;
+    }
+
+    if (mode === 'squote') {
+      buf += c;
+      if (c === "'") {
+        if (c2 === "'") { buf += c2; i += 2; continue; } // escaped quote
+        mode = null;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === 'dquote') {
+      buf += c;
+      if (c === '"') mode = null;
+      i++;
+      continue;
+    }
+
+    if (mode === 'dollar') {
+      buf += c;
+      if (c === '$' && sql.startsWith(dollarTag, i)) {
+        buf += dollarTag.slice(1); // already added first $
+        i += dollarTag.length - 1;
+        mode = null;
+        dollarTag = '';
+      }
+      i++;
+      continue;
+    }
+
+    // mode === null — scan for next interesting character
+    if (c === '-' && c2 === '-') {
+      mode = 'line';
+      buf += c + c2;
+      i += 2;
+      continue;
+    }
+    if (c === "'") {
+      mode = 'squote';
+      buf += c;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      mode = 'dquote';
+      buf += c;
+      i++;
+      continue;
+    }
+    if (c === '$') {
+      // Try to read a dollar-quote tag: $[word]$ where word = [A-Za-z_][A-Za-z0-9_]*
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9_]/.test(sql[j])) j++;
+      if (sql[j] === '$') {
+        dollarTag = sql.slice(i, j + 1); // includes both $...$
+        mode = 'dollar';
+        buf += dollarTag;
+        i = j + 1;
+        continue;
+      }
+    }
+
+    if (c === ';') {
+      const trimmed = buf.trim();
+      if (trimmed.length > 0) out.push(trimmed);
+      buf = '';
+      i++;
+      continue;
+    }
+
+    buf += c;
+    i++;
+  }
+
+  const tail = buf.trim();
+  if (tail.length > 0) out.push(tail);
+  return out;
+}
+
 // ── Get list of SQL files sorted ─────────────────────────────────────────────
 function getMigrationFiles() {
   return readdirSync(MIGRATIONS_DIR)
@@ -97,12 +209,16 @@ async function runMigration(pool, filename) {
     await client.query('BEGIN');
     await client.query(CREATE_TABLE_SQL);
 
-    // Split by semicolons (naive but works for DDL)
-    // Execute each statement individually to handle errors gracefully
-    const statements = sql
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && !s.startsWith('--'));
+    // Split SQL into top-level statements.
+    // We can't just split on ';' because PL/pgSQL DO $$ ... $$ blocks
+    // contain semicolons that aren't statement terminators. This splitter
+    // skips over:
+    //   - line comments      (-- ...)
+    //   - single-quoted strings ('...''s are escaped via doubled quotes)
+    //   - double-quoted identifiers ("...")
+    //   - dollar-quoted strings ($$ ... $$)
+    // A ';' outside any of those is a statement terminator.
+    const statements = splitSqlStatements(sql);
 
     let applied = 0;
     let skipped = 0;

@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseAdmin, fetchProfileWithMemberships } from '@/lib/supabase-server';
 import { getSupabaseServer } from '@/lib/supabase-server';
-import { unauthorized, serverError, writeAuditLog, handleRouteError } from '@/lib/api-helpers';
+import { unauthorized, serverError, writeAuditLog, handleRouteError, badRequest } from '@/lib/api-helpers';
+import { validate, profilePatchSchema } from '@/lib/validation';
 
 const DEFAULT_NOTIFICATION_PREFS = {
   match_found: true,
@@ -40,9 +41,25 @@ export async function PATCH(req: NextRequest) {
     if (authErr || !user) return unauthorized();
 
     const body = await req.json();
-    const { full_name, avatar_url, phone, job_title, mfa_enabled, notification_preferences } = body;
+
+    const parsed = validate(profilePatchSchema, body);
+    if (!parsed.ok) return badRequest(parsed.error);
+
+    const { full_name, avatar_url, phone, job_title, mfa_enabled, notification_preferences } = parsed.data;
 
     const admin = getSupabaseAdmin();
+
+    // ── Guard: block disabling MFA when org enforces it ───────────────────────
+    if (mfa_enabled === false) {
+      const profile = await fetchProfileWithMemberships(admin, user.id);
+      const membership = (profile as any)?.company_members?.[0];
+      const company = membership?.companies;
+      if (company?.mfa_enforced) {
+        return badRequest(
+          'Your organization requires MFA. Contact an admin to disable MFA enforcement first.'
+        );
+      }
+    }
     const updates: Record<string, any> = {};
     if (full_name !== undefined) updates.full_name = full_name;
     if (avatar_url !== undefined) updates.avatar_url = avatar_url;
@@ -57,7 +74,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (Object.keys(updates).length === 0) {
-      return Response.json({ error: 'No fields to update' }, { status: 400 });
+      return badRequest('No fields to update');
     }
 
     const { error: updateErr } = await admin

@@ -1,8 +1,8 @@
 import { UserRole, OrgMemberRole } from '@/types';
 
-// ── Role-based access control ────────────────────────────────────────────────
+// â”€â”€ Role-based access control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Platform Admin (membership.role === 'ADMIN') = internal staff with full system access
-// Org Admin (membership.role !== 'ADMIN', user.role derived from org.primary_role) = org-level管理者
+// Org Admin (membership.role !== 'ADMIN', user.role derived from org.primary_role) = org-levelç®¡ç†è€…
 
 export const rolePermissions: Record<UserRole, string[]> = {
   DEVELOPER: [
@@ -64,7 +64,42 @@ export const rolePermissions: Record<UserRole, string[]> = {
     'grants:create',
     'grants:update',
   ],
-  ADMIN: [
+  CONSULTANT: [
+    'projects:read',
+    'profiles:read',
+    'profiles:update',
+    'matches:read',
+    'engagements:create',
+    'engagements:read',
+    'engagements:update',
+    'messages:send',
+    'messages:read',
+    'messages:update',
+    'quotes:send',
+    'quotes:receive',
+    'companies:read',
+  ],
+  AUTHORITY_ADMIN: [
+    'projects:read',
+    'projects:review',
+    'projects:approve',
+    'companies:read',
+    'organizations:read',
+    'matches:read',
+    'audit_logs:read',
+  ],
+  AUTHORITY_REVIEWER: [
+    'projects:read',
+    'projects:review',
+    'projects:approve',
+    'companies:read',
+    'matches:read',
+  ],
+  AUTHORITY_VIEWER: [
+    'projects:read',
+    'companies:read',
+    'matches:read',
+  ],  ADMIN: [
     'users:read',
     'users:create',
     'users:update',
@@ -89,7 +124,7 @@ export const rolePermissions: Record<UserRole, string[]> = {
   ],
 };
 
-// Platform Admin permissions — full system access (internal staff)
+// Platform Admin permissions â€” full system access (internal staff)
 // This overrides the role-based permissions above
 export const PLATFORM_ADMIN_PERMISSIONS: string[] = [
   'users:read',
@@ -123,7 +158,7 @@ export const PLATFORM_ADMIN_PERMISSIONS: string[] = [
   'grants:delete',
 ];
 
-// Org-level permissions — restricted to own org's data
+// Org-level permissions â€” restricted to own org's data
 // Applied when membership.role !== 'ADMIN' (i.e., OWNER, ADMIN, MEMBER)
 export const ORG_MEMBER_PERMISSIONS: Record<OrgMemberRole, string[]> = {
   OWNER: [
@@ -164,14 +199,14 @@ export const ORG_MEMBER_PERMISSIONS: Record<OrgMemberRole, string[]> = {
   ],
 };
 
-// ── Route-level access control ───────────────────────────────────────────────
+// â”€â”€ Route-level access control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Maps URL path prefixes to required permissions
 export const routePermissions: Record<string, string> = {
-  '/dashboard/admin': 'ADMIN',
+  '/admin': 'ADMIN',
   '/api/admin': 'ADMIN',
 };
 
-// ── Helper functions ─────────────────────────────────────────────────────────
+// â”€â”€ Helper functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Check if a user has a specific permission.
@@ -197,7 +232,7 @@ export function isPlatformAdmin(membershipRole?: string): boolean {
 }
 
 /**
- * Check if a user is an Org Admin (org-level管理者).
+ * Check if a user is an Org Admin (org-levelç®¡ç†è€…).
  * Org Admin = membership.role is 'OWNER' or 'ADMIN' (but NOT 'ADMIN' in the Platform Admin sense).
  * This is determined by checking if the org has is_platform_org = false.
  */
@@ -234,7 +269,7 @@ export function canAccessResource(
 }
 
 /**
- * Middleware function for API routes — throws if not authorized.
+ * Middleware function for API routes â€” throws if not authorized.
  */
 export function checkPermission(
   role: UserRole,

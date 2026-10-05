@@ -4,6 +4,10 @@ import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import { AuthSplitShell } from '@/components/auth/AuthSplitShell';
+
+const inputClass = 'h-11 w-full rounded-none border border-slate-300 bg-white px-3 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700/15';
+const labelClass = 'text-[11px] font-semibold uppercase tracking-widest text-slate-500';
 
 function ForgotPasswordForm() {
   const [email, setEmail] = useState('');
@@ -21,13 +25,11 @@ function ForgotPasswordForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-
+      await res.json();
       if (!res.ok) {
         setError('Something went wrong. Please try again.');
         return;
       }
-
       setSent(true);
     } catch {
       setError('Something went wrong. Please try again.');
@@ -36,79 +38,55 @@ function ForgotPasswordForm() {
     }
   };
 
-  // Success state
-  if (sent) {
-    return (
-      <div className="min-h-screen bg-mesh flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-[480px] z-10 text-center">
-          <div className="premium-card p-10">
-            <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-6">
-              <Icons.check className="w-8 h-8 text-green-700" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-3">Check your email</h1>
-            <p className="text-slate-500">
-              If an account exists with <strong>{email}</strong>, we&apos;ve sent a password reset link.
-            </p>
-          </div>
-          <p className="mt-8 text-sm text-slate-500">
-            <Link href="/login" className="text-green-700 font-bold hover:underline">Back to login</Link>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Request form
   return (
-    <div className="min-h-screen bg-mesh flex flex-col items-center justify-center p-6">
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-green-100/40 rounded-full blur-[120px] -z-10 translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-green-100/20 rounded-full blur-[120px] -z-10 -translate-x-1/2 translate-y-1/2" />
-
-      <div className="w-full max-w-[480px] z-10">
-        <div className="flex justify-center mb-12">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-12 h-12 flex items-center justify-center text-green-800">
-              <Icons.logo className="w-full h-full" />
+    <AuthSplitShell
+      eyebrow="Account recovery"
+      title="Recover your account"
+      description="Reset access securely and return to your company workspace without involving support."
+      points={['Encrypted reset link', 'Work email verification', 'Session-safe recovery']}
+      footerLink={{ text: 'Remembered your password?', href: '/login', label: 'Back to login' }}
+    >
+      <div className="p-6 md:p-8">
+        {sent ? (
+          <div className="space-y-6 text-center">
+            <div className="mx-auto flex size-12 items-center justify-center border border-green-100 bg-green-50 text-green-800">
+              <Icons.check className="size-6" />
             </div>
-            <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Afri <span className="text-green-700">Connect</span>
-            </span>
-          </Link>
-        </div>
-        <div className="premium-card p-10">
-          <h1 className="text-2xl font-bold text-slate-900 mb-3 text-center">Reset Password</h1>
-          <p className="text-slate-500 text-center mb-8">Enter your email and we&apos;ll send you a reset link.</p>
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-medium">
-              {error}
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Reset link sent</p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Check your email</h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">If an account exists with <strong>{email}</strong>, we sent a password reset link.</p>
             </div>
-          )}
-          <form onSubmit={handleRequestReset} className="space-y-4">
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="name@company.com"
-              required
-              className="w-full h-9 px-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm"
-            />
-            <Button type="submit" disabled={isLoading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg font-bold text-sm">
-              {isLoading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : 'Send Reset Link'}
-            </Button>
-          </form>
-        </div>
-        <p className="mt-8 text-center text-sm text-slate-500">
-          <Link href="/login" className="text-green-700 font-bold hover:underline">Back to login</Link>
-        </p>
+            <Link href="/login" className="inline-flex h-10 items-center justify-center rounded-none border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Back to login</Link>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+      
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Reset password</h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Enter your work email and we will send a reset link.</p>
+            </div>
+            {error && <Notice message={error} />}
+            <form onSubmit={handleRequestReset} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className={labelClass}>Work Email</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" required className={inputClass} />
+              </div>
+              <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-none bg-green-800 text-sm font-semibold text-white shadow-none hover:bg-green-700">
+                {isLoading ? <Icons.spinner className="size-4 animate-spin" /> : 'Send Reset Link'}
+              </Button>
+            </form>
+          </div>
+        )}
       </div>
-    </div>
+    </AuthSplitShell>
   );
 }
 
+function Notice({ message }: { message: string }) {
+  return <div className="border border-red-100 bg-red-50 p-3 text-xs font-medium text-red-600">{message}</div>;
+}
+
 export default function ForgotPasswordPage() {
-  return (
-    <Suspense>
-      <ForgotPasswordForm />
-    </Suspense>
-  );
+  return <Suspense><ForgotPasswordForm /></Suspense>;
 }

@@ -1,174 +1,197 @@
 /**
- * Seed Script - Creates test users in Firebase Auth + Supabase
- * Run: node seed.js
+ * Seed Script — Creates the platform admin user in Supabase Auth + app tables.
+ * Usage:
+ *   node seed.js
+ *   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='StrongP@ss!' node seed.js
+ *
+ * Reads SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from ../.env.local.
+ * Override either admin email or password via env vars shown above.
  */
 
-const admin = require('firebase-admin');
+const { readFileSync } = require('fs');
+const { join, dirname } = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const ws = require('ws');
-const serviceAccount = require('./serviceAccountKey.json');
 
-const SUPABASE_URL = 'https://sawqtppqrslmlwwaaiyy.supabase.co';
+const ROOT = join(__dirname, '..');
+
+// ── Load .env.local ────────────────────────────────────────────
+function loadEnv() {
+  try {
+    const envPath = join(ROOT, '.env.local');
+    const content = readFileSync(envPath, 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+      if (!process.env[key]) process.env[key] = val;
+    }
+  } catch {
+    // .env.local not found — rely on environment variables
+  }
+}
+loadEnv();
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+if (!SUPABASE_URL) {
+  console.error('ERROR: SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) not set.');
+  console.error('Add it to web/.env.local or set it as an environment variable.');
+  process.exit(1);
+}
 if (!SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('ERROR: Set SUPABASE_SERVICE_ROLE_KEY env var before running.');
+  console.error('ERROR: SUPABASE_SERVICE_ROLE_KEY not set.');
+  console.error('Add it to web/.env.local or set it as an environment variable.');
   process.exit(1);
 }
 
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
   realtime: { transport: ws },
 });
 
-const TEST_PASSWORD = 'Test1234!';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@test.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin1234!';
+const ADMIN_NAME = process.env.ADMIN_NAME || 'Platform Admin';
 
-const COMPANY_DEV_ID  = 'a1a1a1a1-0001-4001-a001-000000000001';
-const COMPANY_CAP_ID  = 'a2a2a2a2-0002-4002-a002-000000000002';
-const COMPANY_TECH_ID = 'a3a3a3a3-0003-4003-a003-000000000003';
-const PROJECT_1_ID    = 'b1b1b1b1-0001-4001-b001-000000000001';
-const PROJECT_2_ID    = 'b2b2b2b2-0002-4002-b002-000000000002';
+const PLATFORM_COMPANY_ID = 'a4a4a4a4-0004-4004-a004-000000000004';
 
-const testUsers = [
-  { email: 'admin@test.com',     full_name: 'Admin User',        role: 'ADMIN',            company_id: null },
-  { email: 'developer@test.com', full_name: 'Dev User',          role: 'DEVELOPER',        company_id: COMPANY_DEV_ID },
-  { email: 'capital@test.com',   full_name: 'Capital Partner',   role: 'CAPITAL_PARTNER',  company_id: COMPANY_CAP_ID },
-  { email: 'technical@test.com', full_name: 'Technical Partner', role: 'TECHNICAL_PARTNER',company_id: COMPANY_TECH_ID },
-];
-
-const companies = [
-  { id: COMPANY_DEV_ID,  name: 'Zambia Power Dev',    type: 'DEVELOPER', country: 'Zambia',        years_operating: 12, team_size: 45,  website: 'https://zambiapower.com',  description: 'Leading renewable energy developer in the Copperbelt region with a strong track record in solar and hydro projects.' },
-  { id: COMPANY_CAP_ID,  name: 'GreenGrowth Capital', type: 'CAPITAL',   country: 'South Africa',  years_operating: 20, team_size: 150, website: 'https://greengrowth.cap',   description: 'Institutional infrastructure fund focused on ESG-compliant energy projects across Sub-Saharan Africa.' },
-  { id: COMPANY_TECH_ID, name: 'Global EPC Solutions', type: 'TECHNICAL', country: 'Zambia',       years_operating: 25, team_size: 500, website: 'https://globalepc.com',     description: 'Tier 1 EPC contractor for power generation and transmission lines with over 1500 MW delivered across Africa.' },
-];
-
-const projects = [
-  {
-    id: PROJECT_1_ID,
-    developer_id: COMPANY_DEV_ID,
-    name: 'Solana West Phase II',
-    technology_type: 'Solar PV',
-    location_country: 'Zambia',
-    location_region: 'Copperbelt',
-    project_size_mw: 40,
-    capital_required: 35000000,
-    capital_structure_type: 'EQUITY',
-    project_stage: 'READY_TO_BUILD',
-    governance_terms: 'Board observer seat offered to lead investor.',
-    exit_terms: 'Strategic sale or IPO within 7 years.',
-    risk_disclosures: 'Grid connection subject to ZESCO approval timeline.',
-  },
-  {
-    id: PROJECT_2_ID,
-    developer_id: COMPANY_DEV_ID,
-    name: 'Copperbelt Mining Solar',
-    technology_type: 'Solar PV',
-    location_country: 'Zambia',
-    location_region: 'Copperbelt',
-    project_size_mw: 20,
-    capital_required: 15000000,
-    capital_structure_type: 'PROFIT_SHARING',
-    project_stage: 'FEASIBILITY',
-    governance_terms: 'No board seat. Profit sharing quarterly.',
-    exit_terms: 'Buyout option after year 5.',
-    risk_disclosures: 'Mining offtake agreement under negotiation.',
-  },
-];
-
-const capitalPartners = [{
-  company_id: COMPANY_CAP_ID,
-  preferred_structures: ['EQUITY', 'PROFIT_SHARING'],
-  min_ticket_size: 5000000,
-  max_ticket_size: 100000000,
-  risk_tolerance: 'MEDIUM',
-  governance_preference: 'BOARD_SEAT',
-  geographic_focus: ['Zambia', 'Kenya', 'South Africa'],
-  sector_focus: ['Solar PV', 'Wind', 'Storage'],
-}];
-
-const technicalPartners = [{
-  company_id: COMPANY_TECH_ID,
-  service_categories: ['EPC', 'Engineering Design'],
-  sector_experience: ['Solar PV', 'Wind', 'Transmission'],
-  min_mw_capacity: 10,
-  max_mw_capacity: 500,
-  regions_operated: ['Zambia', 'DRC', 'Angola'],
-  annual_delivery_capacity_mw: 250,
-  total_mw_delivered: 1500,
-  bonding_capacity: 100000000,
-}];
-
-async function seed() {
-  console.log('🌱 Starting seed...\n');
-
-  // Step 1: Companies
-  console.log('\n📦 Inserting companies...');
-  const { error: compErr } = await supabase.from('companies').upsert(companies, { onConflict: 'id' });
-  if (compErr) console.error('  Companies error:', compErr.message);
-  else console.log(`  ✓ ${companies.length} companies`);
-
-  // Step 3: Firebase users + Supabase rows
-  console.log('\n👤 Creating users...');
-  for (const u of testUsers) {
-    let uid;
-    try {
-      const existing = await admin.auth().getUserByEmail(u.email);
-      uid = existing.uid;
-      console.log(`  ~ ${u.email} already exists in Firebase (${uid})`);
-    } catch {
-      const created = await admin.auth().createUser({ email: u.email, password: TEST_PASSWORD, displayName: u.full_name });
-      uid = created.uid;
-      console.log(`  + ${u.email} created in Firebase (${uid})`);
-    }
-
-    const { error: userErr } = await supabase.from('users').upsert({
-      id: uid,
-      email: u.email,
-      full_name: u.full_name,
-      role: u.role,
-      company_id: u.company_id,
-      verification_status: 'VERIFIED',
-    }, { onConflict: 'email' });
-
-    if (userErr) console.error(`  ✗ ${u.email}:`, userErr.message);
-    else console.log(`  ✓ ${u.email} → ${u.role}`);
+/** Set is_platform_org flag on the companies table. */
+async function setPlatformOrgFlag(supabase, companyId) {
+  const { error } = await supabase.from('companies').update({ is_platform_org: true }).eq('id', companyId);
+  if (error && !error.message?.includes('column')) {
+    console.error('  ⚠ Could not set is_platform_org:', error.message);
   }
-
-  // Step 4: Projects
-  console.log('\n📁 Inserting projects...');
-  const { error: projErr } = await supabase.from('projects').upsert(projects, { onConflict: 'id' });
-  if (projErr) console.error('  Projects error:', projErr.message);
-  else console.log(`  ✓ ${projects.length} projects`);
-
-  // Step 5: Capital partners (insert, skip if exists)
-  console.log('\n💰 Inserting capital partner profiles...');
-  const { error: capErr } = await supabase.from('capital_partners').insert(capitalPartners, { ignoreDuplicates: true });
-  if (capErr) console.error('  Capital partners error:', capErr.message);
-  else console.log(`  ✓ ${capitalPartners.length} capital partner profiles`);
-
-  // Step 6: Technical partners
-  console.log('\n🔧 Inserting technical partner profiles...');
-  const { error: techErr } = await supabase.from('technical_partners').insert(technicalPartners, { ignoreDuplicates: true });
-  if (techErr) console.error('  Technical partners error:', techErr.message);
-  else console.log(`  ✓ ${technicalPartners.length} technical partner profiles`);
-
-  // Step 7: Project scores
-  console.log('\n📊 Inserting project scores...');
-  const scores = [
-    { project_id: PROJECT_1_ID, capital_readiness_score: 88, regulatory_score: 36, financial_score: 30, developer_score: 22, summary: 'Strong utility-scale solar project. Land rights secured, Grid Impact Study approved by ZESCO.', recommendations: ['Finalise PPA with ZESCO', 'Upload updated financial model'], risk_flags: ['Grid connection timeline risk'] },
-    { project_id: PROJECT_2_ID, capital_readiness_score: 65, regulatory_score: 24, financial_score: 22, developer_score: 19, summary: 'Early-stage solar project with strong developer track record. Feasibility study in progress.', recommendations: ['Complete feasibility study', 'Secure offtake agreement'], risk_flags: ['Offtake agreement not yet signed'] },
-  ];
-  const { error: scoreErr } = await supabase.from('project_scores').insert(scores, { ignoreDuplicates: true });
-  if (scoreErr) console.error('  Project scores error:', scoreErr.message);
-  else console.log(`  ✓ ${scores.length} project scores`);
-
-  console.log('\n✅ Seed complete!\n');
-  console.log('Test accounts (password: Test1234!):');
-  testUsers.forEach(u => console.log(`  ${u.role.padEnd(18)} → ${u.email}`));
 }
 
-seed().catch(err => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+async function seed() {
+  console.log('🌱 Starting platform seed...\n');
+
+  // ── 1. Platform company (base table from schema.sql) ──────
+  console.log('📦 Upserting platform company...');
+  const { error: compErr } = await supabase
+    .from('companies')
+    .upsert({
+      id: PLATFORM_COMPANY_ID,
+      name: 'Platform Admin',
+      type: 'DEVELOPER',
+      primary_role: 'ADMIN',
+      country: 'Zambia',
+      description: 'Platform administration organization.',
+    }, { onConflict: 'id' });
+  if (compErr) { console.error('  ✗ Company:', compErr.message); process.exit(1); }
+  console.log('  ✓ Platform company created');
+  await setPlatformOrgFlag(supabase, PLATFORM_COMPANY_ID);
+
+  // ── 2. Create / update platform admin auth user ───────────
+  console.log(`\n👤 Creating platform admin user (${ADMIN_EMAIL})...`);
+
+  const { data: existing } = await supabase.auth.admin.listUsers();
+  const found = existing?.users?.find(au => au.email === ADMIN_EMAIL);
+
+  let userId;
+  if (found) {
+    userId = found.id;
+    console.log(`  ~ ${ADMIN_EMAIL} already exists (${userId})`);
+    // Reset password to current value (so reseed always lands on a known password)
+    const { error: updErr } = await supabase.auth.admin.updateUserById(userId, {
+      password: ADMIN_PASSWORD,
+      email_confirm: true,
+    });
+    if (updErr) console.error('  ⚠ Could not reset password:', updErr.message);
+    else console.log('  ✓ Password reset to current ADMIN_PASSWORD');
+  } else {
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
+      email_confirm: true,
+    });
+    if (createErr || !created.user) {
+      console.error('  ✗ Failed to create admin user:', createErr?.message);
+      process.exit(1);
+    }
+    userId = created.user.id;
+    console.log(`  + ${ADMIN_EMAIL} created (${userId})`);
+  }
+
+  // ── 3. User profile (base table from schema.sql) ──────────
+  const { error: profileErr } = await supabase
+    .from('user_profiles')
+    .upsert({
+      id: userId,
+      email: ADMIN_EMAIL,
+      full_name: ADMIN_NAME,
+      onboarding_complete: true,
+    }, { onConflict: 'id' });
+  if (profileErr) console.error('  ✗ Profile:', profileErr.message);
+  else console.log('  ✓ User profile created');
+
+  // ── 4. Company membership (ADMIN role for platform admin) ──
+  const { error: memberErr } = await supabase
+    .from('company_members')
+    .upsert({
+      user_id: userId,
+      company_id: PLATFORM_COMPANY_ID,
+      role: 'ADMIN',
+    }, { onConflict: 'user_id,company_id' });
+  if (memberErr) console.error('  ✗ Membership:', memberErr.message);
+  else console.log('  ✓ Company membership created');
+
+  // ── 5. Legacy users table ──────────────────────────────────
+  await supabase.from('users').upsert({
+    id: userId,
+    email: ADMIN_EMAIL,
+    full_name: ADMIN_NAME,
+    role: 'ADMIN',
+    company_id: PLATFORM_COMPANY_ID,
+    verification_status: 'VERIFIED',
+  }, { onConflict: 'email' });
+
+  // ── 6. AI provider config (singleton row id=1) ─────────────
+  console.log('\n🤖 Seeding AI provider config...');
+  const { error: aiConfigErr } = await supabase
+    .from('ai_provider_config')
+    .upsert({
+      id: 1,
+      active_provider: 'gemini',
+      active_model: 'gemini-3.5-flash-lite',
+      prompt_version: 1,
+      confidence_threshold: 0.70,
+      max_chars_per_doc: 48000,
+      platform_monthly_budget_usd: 200.00,
+    }, { onConflict: 'id' });
+  if (aiConfigErr) console.error('  ✗ AI config:', aiConfigErr.message);
+  else console.log('  ✓ AI provider config seeded');
+
+  // ── 7. AI model catalog ────────────────────────────────────
+  const { error: aiCatalogErr } = await supabase
+    .from('ai_model_catalog')
+    .upsert([
+      { provider: 'gemini',   model: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', input_per_1m: 0.30,  output_per_1m: 2.50, supports_vision: true,  max_input_tokens: 1000000, max_output_tokens: 8192, enabled: true  },
+      { provider: 'gemini',   model: 'gemini-3.6-flash',      label: 'Gemini 3.6 Flash',      input_per_1m: 1.50,  output_per_1m: 7.50, supports_vision: true,  max_input_tokens: 1000000, max_output_tokens: 8192, enabled: true  },
+      { provider: 'gemini',   model: 'gemini-2.0-flash-lite', label: 'Gemini Flash-Lite',      input_per_1m: 0.075, output_per_1m: 0.30, supports_vision: true,  max_input_tokens: 1000000, max_output_tokens: 8192, enabled: false },
+      { provider: 'gemini',   model: 'gemini-2.0-flash',      label: 'Gemini Flash',           input_per_1m: 0.10,  output_per_1m: 0.40, supports_vision: true,  max_input_tokens: 1000000, max_output_tokens: 8192, enabled: false },
+      { provider: 'mistral',  model: 'mistral-small-latest',  label: 'Mistral Small',          input_per_1m: 0.15,  output_per_1m: 0.60, supports_vision: true,  max_input_tokens: 128000,  max_output_tokens: 8192, enabled: true  },
+      { provider: 'deepseek', model: 'deepseek-chat',         label: 'DeepSeek V4 Flash',      input_per_1m: 0.14,  output_per_1m: 0.28, supports_vision: false, max_input_tokens: 128000,  max_output_tokens: 8192, enabled: false },
+    ], { onConflict: 'provider,model' });
+  if (aiCatalogErr) console.error('  ✗ AI catalog:', aiCatalogErr.message);
+  else console.log('  ✓ AI model catalog seeded (6 models)');
+
+  console.log('\n✅ Seed complete!');
+  console.log(`\n  Platform admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
+  console.log('');
+}
+
+module.exports = { seed, PLATFORM_COMPANY_ID, ADMIN_EMAIL, ADMIN_PASSWORD };
+
+if (require.main === module) {
+  seed().catch(err => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}

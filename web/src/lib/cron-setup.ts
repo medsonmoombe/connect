@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from './supabase-server';
 let cronEnsured = false;
 
 /**
- * Ensures the pg_cron activation job is scheduled with the interval
+ * Ensures the pg_cron activation and matching jobs are scheduled with the interval
  * from CRON_CHECK_INTERVAL_MINUTES env var. Runs once per server process.
  */
 export async function ensureActivationCron(): Promise<void> {
@@ -14,16 +14,30 @@ export async function ensureActivationCron(): Promise<void> {
 
   try {
     const supabase = getSupabaseAdmin();
-    const { error } = await supabase.rpc('reschedule_activation_cron', {
-      interval_minutes: intervalMinutes,
-    });
-    if (error) {
-      console.error('[Cron] Failed to reschedule activation cron:', error.message);
-      return;
+
+    // Schedule activation cron (moves pending_live → live projects)
+    try {
+      const { error } = await supabase.rpc('reschedule_activation_cron', {
+        interval_minutes: intervalMinutes,
+      });
+      if (error) console.error('[Cron] Failed to reschedule activation cron:', error.message);
+    } catch (e: any) {
+      console.error('[Cron] Failed to reschedule activation cron:', e.message);
     }
-    console.log(`[Cron] Activation cron scheduled: every ${intervalMinutes} minutes`);
+
+    // Schedule matching engine cron (runs matching for all live projects × verified partners)
+    try {
+      const { error } = await supabase.rpc('reschedule_matching_cron', {
+        interval_minutes: intervalMinutes,
+      });
+      if (error) console.error('[Cron] Failed to reschedule matching cron:', error.message);
+    } catch (e: any) {
+      console.error('[Cron] Failed to reschedule matching cron:', e.message);
+    }
+
+    console.log(`[Cron] Jobs scheduled: every ${intervalMinutes} minutes`);
     cronEnsured = true;
   } catch (e: any) {
-    console.error('[Cron] Failed to ensure activation cron:', e.message);
+    console.error('[Cron] Failed to ensure cron jobs:', e.message);
   }
 }

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { projectService } from '@/services/projects';
-import { Project } from '@/types';
+import { Project, InvestorInterestIndex } from '@/types';
 import type { ProjectAnalyticsResponse } from '@/app/api/projects/[id]/analytics/route';
 import { apiClient } from '@/lib/api-client';
 
@@ -95,13 +95,13 @@ function StatCard({ label, value, sub, icon }: {
   label: string; value: number | string; sub?: string; icon: React.ReactNode;
 }) {
   return (
-    <div className="p-5 rounded-2xl bg-surface border border-gray-100 shadow-soft flex items-center justify-between gap-3 min-w-0">
+    <div className="p-5 rounded-none bg-surface border border-gray-100 shadow-soft flex items-center justify-between gap-3 min-w-0">
       <div className="min-w-0">
         <p className="text-meta mb-1 truncate">{label}</p>
         <p className="text-2xl font-extrabold text-text-main tabular-nums truncate">{value}</p>
         {sub && <p className="text-[10px] font-bold text-text-muted mt-1 uppercase tracking-wider truncate">{sub}</p>}
       </div>
-      <div className="size-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary shrink-0">
+      <div className="size-10 bg-primary/10 rounded-none flex items-center justify-center text-primary shrink-0">
         {icon}
       </div>
     </div>
@@ -110,13 +110,13 @@ function StatCard({ label, value, sub, icon }: {
 
 // ── Skeleton ──────────────────────────────────────────────────
 function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse bg-gray-100 rounded-2xl', className)} />;
+  return <div className={cn('animate-pulse bg-gray-100 rounded-none', className)} />;
 }
 
 // ── Section Card — matches the site's card pattern ────────────
 function SectionCard({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn('p-6 rounded-2xl bg-surface border border-gray-100 shadow-soft', className)}>
+    <div className={cn('p-6 rounded-none bg-surface border border-gray-100 shadow-soft', className)}>
       {children}
     </div>
   );
@@ -125,7 +125,7 @@ function SectionCard({ children, className }: { children: React.ReactNode; class
 function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <h3 className="text-base font-bold text-text-main mb-5 flex items-center gap-2.5">
-      <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary shrink-0">
+      <div className="size-8 bg-primary/10 rounded-none flex items-center justify-center text-primary shrink-0">
         {icon}
       </div>
       <span className="truncate">{children}</span>
@@ -141,6 +141,7 @@ export default function ProjectAnalyticsPage() {
 
   const [project, setProject]     = useState<Project | null>(null);
   const [analytics, setAnalytics] = useState<ProjectAnalyticsResponse | null>(null);
+  const [interestIndex, setInterestIndex] = useState<InvestorInterestIndex | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError]         = useState<string | null>(null);
 
@@ -152,11 +153,12 @@ export default function ProjectAnalyticsPage() {
 
     async function load() {
       try {
-        const [proj, data] = await Promise.all([
+        const [proj, data, interest] = await Promise.all([
           projectService.getProjectDetails(projectId),
           fetchAnalytics(projectId),
+          apiClient.get<{ data: InvestorInterestIndex }>(`/projects/${projectId}/interest`).then(r => r.data).catch(() => null),
         ]);
-        if (!cancelled) { setProject(proj); setAnalytics(data); }
+        if (!cancelled) { setProject(proj); setAnalytics(data); setInterestIndex(interest); }
       } catch (e: any) {
         if (!cancelled) setError(e.message);
       } finally {
@@ -201,12 +203,12 @@ export default function ProjectAnalyticsPage() {
           className="inline-flex items-center gap-1.5 text-xs font-bold text-text-muted hover:text-primary transition-colors uppercase tracking-widest"
         >
           <ArrowLeft className="size-3.5" />
-          Back to Project
+          Back
         </Link>
       )}
 
       {/* Hero — same rounded card pattern as the dashboard */}
-      <div className="p-6 rounded-2xl bg-surface border border-gray-100 shadow-soft relative overflow-hidden">
+      <div className="p-6 rounded-none bg-surface border border-gray-100 shadow-soft relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-primary/5 rounded-bl-[120px] -z-10" />
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="min-w-0">
@@ -220,14 +222,14 @@ export default function ProjectAnalyticsPage() {
             <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-wider">
               {project && (
                 <>
-                  <span className="flex items-center gap-1.5 bg-background px-3 py-1.5 rounded-xl shrink-0">
+                  <span className="flex items-center gap-1.5 bg-background px-3 py-1.5 rounded-none shrink-0">
                     <Zap className="size-3.5 text-primary" /> {project.project_size_mw} MW
                   </span>
-                  <span className="flex items-center gap-1.5 bg-background px-3 py-1.5 rounded-xl min-w-0">
+                  <span className="flex items-center gap-1.5 bg-background px-3 py-1.5 rounded-none min-w-0">
                     <MapPin className="size-3.5 text-primary shrink-0" /> <span className="truncate">{project.location_country}</span>
                   </span>
                   <span className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-widest border shrink-0',
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-none text-[10px] font-bold uppercase tracking-widest border shrink-0',
                     project.status === 'live' ? 'bg-green-50 text-green-600 border-green-100' :
                     project.status === 'scoring' ? 'bg-yellow-50 text-yellow-600 border-yellow-100' :
                     project.status === 'deactivated' ? 'bg-red-50 text-red-600 border-red-100' :
@@ -243,7 +245,7 @@ export default function ProjectAnalyticsPage() {
           </div>
           {/* Readiness score mini — mirrors hero card */}
           {project?.scores && (
-            <div className="flex flex-col items-center justify-center p-5 bg-white border border-gray-100 rounded-2xl min-w-[110px] shadow-soft shrink-0">
+            <div className="flex flex-col items-center justify-center p-5 bg-white border border-gray-100 rounded-none min-w-[110px] shadow-soft shrink-0">
               <p className="text-meta mb-1.5">Readiness</p>
               <p className="text-3xl font-black text-primary">{project.scores.capital_readiness_score ?? 0}%</p>
               <div className="w-full bg-gray-100 h-1 rounded-full mt-2.5 overflow-hidden">
@@ -255,7 +257,13 @@ export default function ProjectAnalyticsPage() {
       </div>
 
       {/* Top stat row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <StatCard
+          label="Interest Index"
+          value={interestIndex?.score ?? 0}
+          sub="investor signal"
+          icon={<Icons.star className="size-4" />}
+        />
         <StatCard
           label="Viewers"
           value={analytics?.views.unique ?? 0}
@@ -309,7 +317,7 @@ export default function ProjectAnalyticsPage() {
               </div>
             )}
             {analytics && analytics.funnel.intro.count === 0 && (
-              <div className="mt-5 p-6 text-center bg-background rounded-2xl border border-dashed border-gray-200">
+              <div className="mt-5 p-6 text-center bg-background rounded-none border border-dashed border-gray-200">
                 <p className="text-meta">No engagements yet</p>
                 <p className="text-xs font-medium text-text-muted mt-1">
                   Funnel data will appear once partners engage with this project
@@ -333,7 +341,7 @@ export default function ProjectAnalyticsPage() {
               {analytics && totalDayViews > 0
                 ? <Sparkline data={analytics.velocity} />
                 : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-gray-200 rounded-2xl">
+                  <div className="h-full flex items-center justify-center border border-dashed border-gray-200 rounded-none">
                     <p className="text-meta">No viewers yet</p>
                   </div>
                 )
@@ -363,13 +371,13 @@ export default function ProjectAnalyticsPage() {
         <div className="space-y-5">
 
           {/* Match Breakdown — dark card, same as project page sidebar */}
-          <div className="p-6 rounded-2xl bg-slate-900 text-white shadow-soft relative overflow-hidden">
+          <div className="p-6 rounded-none bg-slate-900 text-white shadow-soft relative overflow-hidden">
             <div className="absolute top-0 right-0 w-28 h-28 bg-white/5 rounded-bl-[80px]" />
             <h3 className="text-base font-bold mb-5">Match Breakdown</h3>
             <div className="space-y-5">
               <div>
                 <div className="flex justify-between items-center gap-3 mb-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Capital Partners</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Financiers</span>
                   <span className="text-lg font-extrabold tabular-nums shrink-0">{analytics?.matches.capital ?? 0}</span>
                 </div>
                 <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -381,7 +389,7 @@ export default function ProjectAnalyticsPage() {
               </div>
               <div>
                 <div className="flex justify-between items-center gap-3 mb-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">Technical Partners</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">EPC / Operators</span>
                   <span className="text-lg font-extrabold tabular-nums shrink-0">{analytics?.matches.technical ?? 0}</span>
                 </div>
                 <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -398,6 +406,62 @@ export default function ProjectAnalyticsPage() {
             </div>
           </div>
 
+          {/* Investor Interest Index */}
+          {interestIndex && interestIndex.score > 0 && (
+            <SectionCard>
+              <SectionTitle icon={<Icons.star className="size-4" />}>
+                Investor Interest Index
+              </SectionTitle>
+              <div className="text-center mb-5">
+                <p className={cn(
+                  'text-5xl font-black tabular-nums',
+                  interestIndex.score >= 75 ? 'text-green-600' :
+                  interestIndex.score >= 50 ? 'text-amber-600' : 'text-slate-500'
+                )}>
+                  {interestIndex.score}
+                </p>
+                <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mt-1">out of 100</p>
+              </div>
+              <div className="space-y-3">
+                {[
+                  { label: 'Express Interest', value: interestIndex.breakdown.express_interest, icon: Icons.star },
+                  { label: 'Bookmarks', value: interestIndex.breakdown.bookmarks, icon: Icons.bookmark },
+                  { label: 'Views', value: interestIndex.breakdown.views, icon: Icons.eye },
+                  { label: 'Dataroom Opens', value: interestIndex.breakdown.dataroom_opens, icon: Icons.lock },
+                  { label: 'Downloads', value: interestIndex.breakdown.document_downloads, icon: Icons.download },
+                  { label: 'Messages', value: interestIndex.breakdown.messages, icon: Icons.messageSquare },
+                  { label: 'Engagements', value: interestIndex.breakdown.engagements, icon: Icons.zap },
+                ].map(({ label, value, icon: Icon }) => (
+                  <div key={label} className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-[11px] font-medium text-text-muted">
+                      <Icon className="size-3 text-slate-400" />
+                      {label}
+                    </span>
+                    <span className="text-sm font-extrabold text-text-main tabular-nums">{value}</span>
+                  </div>
+                ))}
+              </div>
+              {interestIndex.trend.some(t => t.score > 0) && (
+                <div className="mt-5 pt-4 border-t border-gray-50">
+                  <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-3">7-Day Signal Trend</p>
+                  <div className="flex items-end gap-1 h-12">
+                    {interestIndex.trend.map((t, i) => {
+                      const max = Math.max(...interestIndex.trend.map(d => d.score), 1);
+                      return (
+                        <div
+                          key={i}
+                          className="flex-1 bg-primary/20 rounded-t transition-all"
+                          style={{ height: `${Math.max((t.score / max) * 100, 4)}%` }}
+                          title={`${t.date}: ${t.score} signals`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+          )}
+
           {/* Deal Pipeline */}
           <SectionCard>
             <SectionTitle icon={<Icons.handshake className="size-4" />}>
@@ -405,7 +469,7 @@ export default function ProjectAnalyticsPage() {
             </SectionTitle>
             <div className="space-y-2.5">
               {funnelStages.map((stage, i) => (
-                <div key={stage.label} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-background border border-gray-50">
+                <div key={stage.label} className="flex items-center justify-between gap-3 p-3 rounded-none bg-background border border-gray-50">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className={cn('size-2 rounded-full shrink-0', FUNNEL_DOT[i])} />
                     <span className="text-xs font-bold text-text-muted truncate">{stage.label}</span>
@@ -426,9 +490,9 @@ export default function ProjectAnalyticsPage() {
                 { label: 'Viewers',  value: analytics?.views.unique ?? 0, icon: <Icons.globe className="size-4" /> },
                 { label: 'Data Room Opens', value: analytics?.views.dataroom ?? 0, icon: <Icons.lock className="size-4" /> },
               ].map(row => (
-                <div key={row.label} className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-background border border-gray-50">
+                <div key={row.label} className="flex items-center justify-between gap-3 p-3.5 rounded-none bg-background border border-gray-50">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="size-8 bg-primary/10 rounded-lg flex items-center justify-center text-primary shrink-0">
+                    <div className="size-8 bg-primary/10 rounded-none flex items-center justify-center text-primary shrink-0">
                       {row.icon}
                     </div>
                     <p className="text-meta truncate">{row.label}</p>

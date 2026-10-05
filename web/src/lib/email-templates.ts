@@ -1,6 +1,6 @@
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-const BRAND_NAME = 'Afri Connect';
-const SUPPORT_EMAIL = 'support@africonnect.io';
+const BRAND_NAME = process.env.APP_NAME || process.env.NEXT_PUBLIC_APP_NAME || 'Afri Connect';
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@africonnect.io';
 
 function escapeHtml(str: string): string {
   return str
@@ -203,7 +203,7 @@ export function adminNewOrgEmail(params: {
       ['Submitted by', params.requesterName],
       ['Date', new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })],
     ])}
-    ${cta('Review Organisation', `${APP_URL}/dashboard/admin/verification`)}
+    ${cta('Review Organisation', `${APP_URL}/admin/verification`)}
   `;
   return { subject: `Pending review: ${params.orgName}`, html: shell('New Registration', `${params.orgName} is awaiting review.`, body) };
 }
@@ -222,7 +222,7 @@ export function adminOrgResubmittedEmail(params: {
       ['Updated by', params.requesterName],
       ['Date', new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })],
     ])}
-    ${cta('Review Organisation', `${APP_URL}/dashboard/admin/verification`)}
+    ${cta('Review Organisation', `${APP_URL}/admin/verification`)}
   `;
   return { subject: `Resubmitted for review: ${params.orgName}`, html: shell('Organisation Resubmitted', `${params.orgName} has been resubmitted and is awaiting review.`, body) };
 }
@@ -335,7 +335,7 @@ export function projectSubmittedEmail(params: {
     ${h(heading)}
     ${p(`Hi ${escapeHtml(params.recipientName)},`)}
     ${p(bodyText)}
-    ${cta('View Project', `${APP_URL}/dashboard/developer`)}
+    ${cta('View Project', `${APP_URL}/developer`)}
   `;
   return { subject: `Project submitted: ${params.projectName}`, html: shell(heading, `${params.projectName} has been submitted.`, body) };
 }
@@ -477,7 +477,7 @@ export function projectLiveEmail(params: { projectName: string }) {
     ${h(heading)}
     ${p(`Great news — your project "<strong>${escapeHtml(params.projectName)}</strong>" is now visible to investors and technical partners on the platform.`)}
     ${p('Matched partners will begin appearing on your project page. You will be notified as matches are found.')}
-    ${cta('View Project', `${APP_URL}/dashboard/developer`)}
+    ${cta('View Project', `${APP_URL}/developer`)}
   `;
   return { subject: `Your project is live: ${params.projectName}`, html: shell(heading, `${params.projectName} is now live on the platform.`, body) };
 }
@@ -513,16 +513,47 @@ export function expressInterestEmail(params: {
   partnerName: string;
   recipientName: string;
   engagementUrl: string;
+  requestType?: string;
 }) {
-  const heading = 'A partner has expressed interest in your project';
+  const typeLabel = params.requestType === 'quote'
+    ? 'a quote request'
+    : params.requestType === 'meeting'
+    ? 'a meeting request'
+    : 'an introduction request';
+  const heading = `You received ${typeLabel}`;
   const body = `
     ${h(heading)}
     ${p(`Hi ${escapeHtml(params.recipientName)},`)}
-    ${p(`<strong>${escapeHtml(params.partnerName)}</strong> has expressed interest in your project "<strong>${escapeHtml(params.projectName)}</strong>".`)}
-    ${p('Log in to review the introduction request and accept or decline to proceed.')}
-    ${cta('Review Interest', `${APP_URL}${params.engagementUrl}`)}
+    ${p(`<strong>${escapeHtml(params.partnerName)}</strong> sent you ${typeLabel} for the project "<strong>${escapeHtml(params.projectName)}</strong>".`)}
+    ${p('Log in to review the request and respond.')}
+    ${cta('Review Request', `${APP_URL}${params.engagementUrl}`)}
   `;
-  return { subject: `New interest in "${params.projectName}"`, html: shell(heading, `${params.partnerName} expressed interest in ${params.projectName}.`, body) };
+  return { subject: `New ${typeLabel} for "${params.projectName}"`, html: shell(heading, `${params.partnerName} sent you ${typeLabel}.`, body) };
+}
+
+export function partnerRequestEmail(params: {
+  projectName: string;
+  developerName: string;
+  recipientName: string;
+  engagementUrl: string;
+  requestType?: string;
+  message?: string;
+}) {
+  const typeLabel = params.requestType === 'quote'
+    ? 'a quote request'
+    : params.requestType === 'meeting'
+    ? 'a meeting request'
+    : 'an introduction request';
+  const heading = `You received ${typeLabel}`;
+  const body = `
+    ${h(heading)}
+    ${p(`Hi ${escapeHtml(params.recipientName)},`)}
+    ${p(`<strong>${escapeHtml(params.developerName)}</strong> sent you ${typeLabel} regarding the project "<strong>${escapeHtml(params.projectName)}</strong>".`)}
+    ${params.message ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0;"><tr><td style="background:#f9fafb;border:1px solid #e0e0e0;padding:14px 18px;font-size:14px;color:#444;line-height:1.6;">${escapeHtml(params.message)}</td></tr></table>` : ''}
+    ${p('Log in to review the request and respond.')}
+    ${cta('View Request', `${APP_URL}${params.engagementUrl}`)}
+  `;
+  return { subject: `${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)}: ${params.projectName}`, html: shell(heading, `${params.developerName} sent you ${typeLabel}.`, body) };
 }
 
 export function messageReceivedEmail(params: {
@@ -536,7 +567,7 @@ export function messageReceivedEmail(params: {
     ${p(`Hi ${escapeHtml(params.recipientName)},`)}
     ${p(`<strong>${escapeHtml(params.senderName)}</strong> sent you a new message regarding "<strong>${escapeHtml(params.projectName)}</strong>".`)}
     ${p(`Open the conversation to view and respond.`)}
-    ${cta('Open Conversation', `${APP_URL}/dashboard/engagements/${params.engagementId}`)}
+    ${cta('Open Conversation', `${APP_URL}/engagements/${params.engagementId}`)}
   `;
   return { subject: `New message from ${params.senderName}`, html: shell('New Message', `${params.senderName} sent you a message.`, body) };
 }

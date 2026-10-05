@@ -30,14 +30,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const user = await getAuthenticatedUser(req);
     const membership = (user.company_members as any[])?.[0];
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) {
+      return forbidden('Only organisation owners and admins can manage team members. Contact your owner if you need to make changes.');
+    }
 
     const { memberId } = await params;
     const body = await req.json();
 
     // Normalise legacy { role } shape into { action: 'role', role }
     const action: string = body.action ?? (body.role ? 'role' : undefined);
-    if (!action) return badRequest('Missing action');
+    if (!action) return badRequest('Please specify an action: role change, profile update, suspend, or reactivate.');
 
     const admin = getSupabaseAdmin();
     const companyId = membership.company_id;
@@ -48,8 +50,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (action === 'role') {
       const newRole: string = body.role;
       if (!['MEMBER', 'ADMIN'].includes(newRole)) return badRequest('role must be MEMBER or ADMIN');
-      if (target.role === 'OWNER') return forbidden();
-      if (target.user_id === user.id) return badRequest('You cannot change your own role');
+      if (target.role === 'OWNER') return forbidden('The organisation owner cannot have their role changed. Only they can transfer ownership.');
+      if (target.user_id === user.id) return badRequest('You cannot change your own role. Ask another admin to make this change.');
 
       const { error } = await admin
         .from('company_members')
@@ -69,6 +71,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         before: { role: target.role },
         after: { role: newRole },
         req,
+        blocking: true,
       });
 
       return Response.json({ data: { user_id: memberId, role: newRole } });
@@ -113,8 +116,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     // ── Suspend (deactivate) ───────────────────────────────────────────────
     if (action === 'suspend') {
-      if (target.role === 'OWNER') return forbidden();
-      if (target.user_id === user.id) return badRequest('You cannot deactivate yourself');
+      if (target.role === 'OWNER') return forbidden('The organisation owner cannot be deactivated.');
+      if (target.user_id === user.id) return badRequest('You cannot deactivate yourself. Ask another admin to do this.');
 
       // Check if already suspended
       const { data: profile } = await admin
@@ -143,8 +146,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         action: 'ORG_MEMBER_DEACTIVATED',
         entityType: 'user_profiles',
         entityId: memberId,
+        before: { suspended_at: profile?.suspended_at ?? null },
         after: { suspended_at: new Date().toISOString(), reason },
         req,
+        blocking: true,
       });
 
       return Response.json({ data: { user_id: memberId, suspended: true } });
@@ -171,6 +176,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         entityType: 'user_profiles',
         entityId: memberId,
         req,
+        blocking: true,
       });
 
       return Response.json({ data: { user_id: memberId, suspended: false } });
@@ -188,7 +194,9 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const user = await getAuthenticatedUser(req);
     const membership = (user.company_members as any[])?.[0];
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) {
+      return forbidden('Only organisation owners and admins can remove team members.');
+    }
 
     const { memberId } = await params;
 
@@ -205,10 +213,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     if (fetchErr || !target) return badRequest('Member not found in your organisation');
 
     // Cannot remove the OWNER
-    if (target.role === 'OWNER') return forbidden();
+    if (target.role === 'OWNER') return forbidden('The organisation owner cannot be removed from the team.');
 
     // Cannot remove yourself
-    if (target.user_id === user.id) return badRequest('You cannot remove yourself');
+    if (target.user_id === user.id) return badRequest('You cannot remove yourself from the team. Ask another admin to do this.');
 
     const { error } = await admin
       .from('company_members')
@@ -228,6 +236,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       entityId: memberId,
       before: { role: target.role, company_id: membership.company_id },
       req,
+      blocking: true,
     });
 
     return Response.json({ success: true });
@@ -243,7 +252,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     const user = await getAuthenticatedUser(req);
     const membership = (user.company_members as any[])?.[0];
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) {
+      return forbidden('Only organisation owners and admins can resend invites.');
+    }
 
     const { memberId: inviteId } = await params;
     const admin = getSupabaseAdmin();

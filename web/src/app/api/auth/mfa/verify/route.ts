@@ -4,9 +4,57 @@ import { cookies } from 'next/headers';
 import { getSupabaseAdmin, fetchProfileWithMemberships } from '@/lib/supabase-server';
 import { badRequest, serverError, unauthorized } from '@/lib/api-helpers';
 import { isMfaRequired, verifyMfaCode } from '@/lib/mfa';
+import { signMfaCookie } from '@/lib/mfa-cookie';
 
 const MFA_COOKIE = 'mfa_verified';
 const MFA_MAX_AGE = 60 * 60; // 1 hour
+
+// â”€â”€ Per-user brute-force protection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// In-memory store. In multi-instance deployments, upgrade to Redis-backed store.
+const MFA_MAX_ATTEMPTS = 5;
+const MFA_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+const attemptStore = new Map<string, { count: number; windowStart: number }>();
+
+function checkMfaRateLimit(userId: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const record = attemptStore.get(userId);
+
+  if (!record || now - record.windowStart > MFA_WINDOW_MS) {
+    attemptStore.set(userId, { count: 1, windowStart: now });
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (record.count >= MFA_MAX_ATTEMPTS) {
+    const retryAfterMs = MFA_WINDOW_MS - (now - record.windowStart);
+    return { allowed: false, retryAfterMs };
+  }
+
+  record.count++;
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+function recordMfaFailure(userId: string): void {
+  const now = Date.now();
+  const record = attemptStore.get(userId);
+  if (!record || now - record.windowStart > MFA_WINDOW_MS) {
+    attemptStore.set(userId, { count: 1, windowStart: now });
+  } else {
+    record.count++;
+  }
+}
+
+function clearMfaAttempts(userId: string): void {
+  attemptStore.delete(userId);
+}
+
+// Periodic cleanup every 5 minutes to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of attemptStore) {
+    if (now - val.windowStart > MFA_WINDOW_MS) attemptStore.delete(key);
+  }
+}, 5 * 60 * 1000);
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,6 +80,16 @@ export async function POST(req: NextRequest) {
 
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return unauthorized();
+
+    // â”€â”€ Brute-force gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const rateCheck = checkMfaRateLimit(user.id);
+    if (!rateCheck.allowed) {
+      const retryMin = Math.ceil(rateCheck.retryAfterMs / 60_000);
+      return Response.json(
+        { error: `Too many verification attempts. Try again in ${retryMin} minute${retryMin > 1 ? 's' : ''}.` },
+        { status: 429 }
+      );
+    }
 
     const admin = getSupabaseAdmin();
     const profile = await fetchProfileWithMemberships(admin, user.id);
@@ -70,13 +128,16 @@ export async function POST(req: NextRequest) {
     // Verify the code
     const valid = verifyMfaCode(token.trim(), mfaRecord.code_hash);
     if (!valid) {
+      recordMfaFailure(user.id);
       return Response.json(
         { error: 'Invalid verification code' },
         { status: 401 }
       );
     }
 
-    // Mark code as used
+    // â”€â”€ Success: clear attempts and mark code used â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    clearMfaAttempts(user.id);
+
     await admin
       .from('mfa_codes')
       .update({ used_at: new Date().toISOString() })
@@ -84,7 +145,8 @@ export async function POST(req: NextRequest) {
 
     const response = NextResponse.json({ mfa_verified: true });
 
-    response.cookies.set(MFA_COOKIE, '1', {
+    const mfaCookieValue = await signMfaCookie(user.id);
+    response.cookies.set(MFA_COOKIE, mfaCookieValue, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

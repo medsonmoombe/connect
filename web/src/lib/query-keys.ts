@@ -62,4 +62,20 @@ export const queryKeys = {
     history: ()             => ['ai-analysis', 'history']       as const,
     detail:  (id: string)   => ['ai-analysis', 'detail', id]    as const,
   },
+
+  // ── Interest Index ────────────────────────────────────────
+  interest: {
+    project: (id: string)   => ['projects', 'detail', id, 'interest'] as const,
+  },
+
+  // ── Digests ───────────────────────────────────────────────
+  digests: {
+    all:         ()         => ['digests']                       as const,
+    preferences: ()         => ['digests', 'preferences']       as const,
+  },
+
+  // ── Platform Analytics ────────────────────────────────────
+  analytics: {
+    platform:    ()         => ['analytics', 'platform']         as const,
+  },
 } as const;

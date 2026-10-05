@@ -34,6 +34,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       req,
     });
 
+    // Track view as interest signal (non-blocking)
+    try {
+      await supabase.from('project_interest_signals').insert({
+        project_id: id,
+        user_id: user.id,
+        signal_type: 'view',
+      });
+    } catch { /* non-blocking */ }
+
     return Response.json({ success: true, counted: true });
   } catch (e: any) {
     return handleRouteError(e);

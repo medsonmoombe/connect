@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseServer, getSupabaseAdmin } from '@/lib/supabase-server';
-import { unauthorized, badRequest, serverError, handleRouteError } from '@/lib/api-helpers';
+import { unauthorized, badRequest, serverError, handleRouteError, validatePasswordComplexity } from '@/lib/api-helpers';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,8 +15,9 @@ export async function POST(req: NextRequest) {
       return badRequest('current_password and new_password are required');
     }
 
-    if (new_password.length < 8) {
-      return badRequest('New password must be at least 8 characters');
+    const pwError = validatePasswordComplexity(new_password);
+    if (pwError) {
+      return badRequest(pwError);
     }
 
     // Verify current password by attempting to sign in
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     if (pwErr) {
       console.error('[ChangePassword] Error:', pwErr.message);
-      return badRequest(pwErr.message || 'Failed to update password');
+      return serverError('Failed to update password. Please try again.');
     }
 
     // Update password_changed_at timestamp

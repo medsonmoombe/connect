@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Icons } from '@/components/ui/icons';
 import { Drawer } from '@/components/ui/drawer';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { getRoleLabel } from '@/lib/role-labels';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
+import { MessagesDrawer } from './MessagesDrawer';
 
 interface DashboardNavbarProps {
   title: string;
@@ -47,6 +49,7 @@ function useBreadcrumbs() {
     settings: 'Settings',
     profile: 'Profile',
     verification: 'Verification',
+    'audit-logs': 'Audit Logs',
     'ai-overview': 'AI Overview',
   };
 
@@ -66,11 +69,35 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ type: string; id: string; title: string; subtitle: string }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [messagesOpen, setMessagesOpen] = useState(false);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced search
+  const fetchSearch = useCallback(async (q: string) => {
+    if (!q.trim() || q.trim().length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}`);
+      if (res.ok) {
+        const json = await res.json();
+        setSearchResults(json.data ?? []);
+      }
+    } catch { /* silent */ }
+    finally { setSearchLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => fetchSearch(searchQuery), 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchQuery, fetchSearch]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -98,13 +125,13 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
   };
 
   return (
-    <header className="h-14 navbar-bg navbar-border flex items-center justify-between px-4 lg:px-5 shrink-0 z-20 gap-3">
+    <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-5 shrink-0 z-20 gap-3">
       {/* ── Left: hamburger + breadcrumb ──────────────────── */}
       <div className="flex items-center gap-2 min-w-0">
         {/* Mobile hamburger */}
         <button
           onClick={onMenuClick}
-          className="lg:hidden navbar-btn size-9 shrink-0"
+          className="lg:hidden flex items-center justify-center size-9 text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors shrink-0"
           aria-label="Open menu"
         >
           <svg className="size-[18px]" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -112,7 +139,6 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           </svg>
         </button>
 
-        {/* Breadcrumb — desktop */}
         <nav className="hidden md:flex items-center gap-0 text-[13px] min-w-0">
           {breadcrumbs.map((crumb, i) => (
             <span key={crumb.href} className="flex items-center min-w-0">
@@ -124,7 +150,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
               ) : (
                 <Link
                   href={crumb.href}
-                  className="text-slate-400 font-medium hover:text-slate-600 transition-colors truncate"
+                  className="text-slate-400 font-medium hover:text-slate-700 transition-colors truncate"
                 >
                   {crumb.label}
                 </Link>
@@ -133,7 +159,6 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           ))}
         </nav>
 
-        {/* Mobile title */}
         <span className="md:hidden text-[13px] font-semibold text-slate-900 truncate">{title}</span>
       </div>
 
@@ -143,28 +168,56 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
         {/* Search */}
         <div className="relative">
           {searchOpen ? (
-            <div className="flex items-center gap-2 navbar-search-expanded rounded-xl px-3 h-9 w-52 lg:w-64">
-              <Icons.search className="size-4 text-slate-400 shrink-0" />
-              <input
-                ref={searchRef}
-                type="text"
-                placeholder="Search projects, partners..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Escape' && setSearchOpen(false)}
-                className="bg-transparent text-[13px] text-slate-900 placeholder:text-slate-400 outline-none flex-grow min-w-0"
-              />
-              <button
-                onClick={() => { setSearchOpen(false); setSearchQuery(''); }}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <Icons.close className="size-3.5" />
-              </button>
+            <div className="relative">
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 h-9 w-52 lg:w-64">
+                <Icons.search className="size-4 text-slate-400 shrink-0" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  placeholder="Search projects, partners..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Escape' && (setSearchOpen(false), setSearchQuery(''))}
+                  className="bg-transparent text-[13px] text-slate-900 placeholder:text-slate-400 outline-none flex-grow min-w-0"
+                />
+                {searchLoading ? (
+                  <Icons.spinner className="size-3.5 animate-spin text-[#0b3b24] shrink-0" />
+                ) : (
+                  <button onClick={() => { setSearchOpen(false); setSearchQuery(''); }} className="text-slate-400 hover:text-slate-700">
+                    <Icons.close className="size-3.5" />
+                  </button>
+                )}
+              </div>
+              {/* Search results dropdown */}
+              {searchQuery.trim().length >= 2 && (
+                <div className="absolute right-0 top-full mt-1 w-80 max-h-80 overflow-y-auto bg-white rounded-none border border-slate-200 shadow-lg z-50">
+                  {searchResults.length === 0 && !searchLoading ? (
+                    <div className="p-4 text-center text-[13px] text-slate-400">No results found</div>
+                  ) : (
+                    searchResults.map(r => (
+                      <button
+                        key={`${r.type}-${r.id}`}
+                        onClick={() => { setSearchOpen(false); setSearchQuery(''); router.push(`/${r.type}/${r.id}`); }}
+                        className="w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors flex items-start gap-3 border-b border-slate-50 last:border-0"
+                      >
+                        <span className={cn(
+                          'mt-0.5 size-2 rounded-full shrink-0',
+                          r.type === 'projects' ? 'bg-blue-500' : r.type === 'companies' ? 'bg-emerald-500' : 'bg-amber-500'
+                        )} />
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-slate-900 truncate">{r.title}</p>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">{r.subtitle}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <button
               onClick={() => setSearchOpen(true)}
-              className="navbar-btn size-9 gap-1.5 px-0"
+              className="flex items-center justify-center size-9 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
               aria-label="Search"
             >
               <Icons.search className="size-[18px]" />
@@ -175,7 +228,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
         {/* Notifications */}
         <button
           onClick={() => { setNotifOpen(true); setProfileOpen(false); }}
-          className="navbar-btn size-9 relative"
+          className="flex items-center justify-center size-9 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors relative"
           aria-label="Notifications"
         >
           <Icons.zap className="size-[18px]" />
@@ -184,10 +237,10 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           )}
         </button>
 
-        {/* Messages inbox — distinct unread-messages counter */}
+        {/* Messages */}
         <button
-          onClick={() => router.push('/dashboard')}
-          className="navbar-btn size-9 relative"
+          onClick={() => setMessagesOpen(true)}
+          className="flex items-center justify-center size-9 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors relative"
           aria-label={`Messages${unreadMessages > 0 ? ` (${unreadMessages} unread)` : ''}`}
         >
           <Icons.messageSquare className="size-[18px]" />
@@ -230,7 +283,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
                   key={n.id}
                   onClick={() => handleNotifClick(n)}
                   className={cn(
-                    'p-3.5 rounded-xl flex gap-3 cursor-pointer border',
+                    'p-3.5 rounded-none flex gap-3 cursor-pointer border',
                     n.read
                       ? 'bg-white border-slate-100 hover:bg-slate-50/80'
                       : 'bg-primary/[0.03] border-primary/10'
@@ -267,32 +320,39 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
           </div>
         </Drawer>
 
+        <MessagesDrawer
+          open={messagesOpen}
+          onClose={() => setMessagesOpen(false)}
+        />
+
+
+
         {/* User role chip */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200">
-          <Icons.user className="size-3.5 text-slate-500 shrink-0" />
-          <span className="text-[11px] font-bold text-slate-600 tracking-wide">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#0b3b24]/[0.06] border border-[#0b3b24]/15">
+          <Icons.user className="size-3.5 text-[#0b3b24] shrink-0" />
+          <span className="text-[10px] font-bold text-[#0b3b24] uppercase tracking-widest">
             {(() => {
               const r = user?.org_member_role || user?.role || 'member';
-              const label = r.toLowerCase() === 'owner' ? 'admin' : r.replace(/_/g, ' ').toLowerCase();
-              return label.charAt(0).toUpperCase() + label.slice(1);
+              const label = r.toLowerCase() === 'owner' ? 'Admin' : getRoleLabel(r);
+              return label;
             })()}
           </span>
         </div>
 
         {/* Divider */}
-        <div className="w-px h-5 bg-slate-200/80 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1" />
 
         {/* Profile */}
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => { setProfileOpen(v => !v); setNotifOpen(false); }}
-            className="flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 rounded-xl hover:bg-slate-50"
+            className="flex items-center gap-2.5 pl-1.5 pr-2 py-1.5 hover:bg-slate-100 transition-colors"
           >
             {/* Avatar */}
             <div className="relative shrink-0">
-              <div className="navbar-avatar size-8 rounded-lg flex items-center justify-center overflow-hidden">
+              <div className="navbar-avatar size-8 rounded-none flex items-center justify-center overflow-hidden">
                 {user?.avatar_url ? (
-                  <img src={user.avatar_url} alt="" className="size-8 rounded-lg object-cover" />
+                  <img src={user.avatar_url} alt="" className="size-8 rounded-none object-cover" />
                 ) : (
                   <span className="text-[11px] font-bold text-white tracking-wide">
                     {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
@@ -306,21 +366,21 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
               <p className="text-[13px] font-semibold text-slate-900 leading-none">
                 {user?.full_name?.split(' ')[0] || 'User'}
               </p>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em] mt-1">
-                {user?.role?.replace('_', ' ') || 'Member'}
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                {user?.role ? getRoleLabel(user.role) : 'Member'}
               </p>
             </div>
             <Icons.chevronDown className="hidden lg:block size-3.5 text-slate-400 ml-0.5" />
           </button>
 
           {profileOpen && (
-            <div className="navbar-dropdown absolute right-0 top-full mt-2 w-56 overflow-hidden z-50">
+            <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 shadow-lg overflow-hidden z-50">
               {/* User card */}
-              <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50">
+              <div className="px-4 py-3 border-b border-slate-100 bg-[#0b3b24]/[0.04]">
                 <div className="flex items-center gap-3">
-                  <div className="navbar-avatar size-9 rounded-lg flex items-center justify-center shrink-0 overflow-hidden">
+                  <div className="navbar-avatar size-9 flex items-center justify-center shrink-0 overflow-hidden">
                     {user?.avatar_url ? (
-                      <img src={user.avatar_url} alt="" className="size-9 rounded-lg object-cover" />
+                      <img src={user.avatar_url} alt="" className="size-9 object-cover" />
                     ) : (
                       <span className="text-[11px] font-bold text-white tracking-wide">
                         {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
@@ -336,19 +396,30 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
               {/* Menu items */}
               <div className="py-1.5 px-1.5">
                 <button
-                  onClick={() => { setProfileOpen(false); router.push('/dashboard/profile'); }}
+                  onClick={() => { setProfileOpen(false); router.push('/profile'); }}
                   className="navbar-menu-item w-full"
                 >
-                  <span className="flex items-center justify-center size-7 rounded-lg bg-slate-100 shrink-0">
+                  <span className="flex items-center justify-center size-7 rounded-none bg-slate-100 shrink-0">
                     <Icons.user className="size-3.5 text-slate-500" />
                   </span>
                   My Profile
                 </button>
+                {(user?.is_platform_admin || user?.is_org_admin) && (
+                  <button
+                    onClick={() => { setProfileOpen(false); router.push('/audit-logs'); }}
+                    className="navbar-menu-item w-full"
+                  >
+                    <span className="flex items-center justify-center size-7 rounded-none bg-slate-100 shrink-0">
+                      <Icons.zap className="size-3.5 text-slate-500" />
+                    </span>
+                    Audit Logs
+                  </button>
+                )}
                 <button
-                  onClick={() => { setProfileOpen(false); router.push(user?.role === 'ADMIN' ? '/dashboard/admin/settings' : '/dashboard/settings'); }}
+                  onClick={() => { setProfileOpen(false); router.push(user?.role === 'ADMIN' ? '/admin/settings' : '/settings'); }}
                   className="navbar-menu-item w-full"
                 >
-                  <span className="flex items-center justify-center size-7 rounded-lg bg-slate-100 shrink-0">
+                  <span className="flex items-center justify-center size-7 rounded-none bg-slate-100 shrink-0">
                     <Icons.settings className="size-3.5 text-slate-500" />
                   </span>
                   Settings
@@ -360,7 +431,7 @@ export function DashboardNavbar({ title, onMenuClick }: DashboardNavbarProps) {
                   onClick={() => { setProfileOpen(false); signOut(); }}
                   className="navbar-menu-item w-full text-red-600 hover:bg-red-50 hover:text-red-700"
                 >
-                  <span className="flex items-center justify-center size-7 rounded-lg bg-red-50 shrink-0">
+                  <span className="flex items-center justify-center size-7 rounded-none bg-red-50 shrink-0">
                     <Icons.logOut className="size-3.5 text-red-500" />
                   </span>
                   Sign out

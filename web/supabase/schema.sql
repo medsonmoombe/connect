@@ -6,10 +6,10 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ── Enums ────────────────────────────────────────────────────
-CREATE TYPE user_role AS ENUM ('DEVELOPER','CAPITAL_PARTNER','TECHNICAL_PARTNER','ADMIN','POWER_TRADER');
-CREATE TYPE company_type AS ENUM ('DEVELOPER','CAPITAL','TECHNICAL','POWER_TRADER');
-CREATE TYPE project_stage AS ENUM ('CONCEPT','FEASIBILITY','PERMITTING','FINANCIAL_CLOSE','CONSTRUCTION','OPERATIONS');
-CREATE TYPE capital_structure_type AS ENUM ('EQUITY','PROFIT_SHARING','LEASING','GRANT');
+CREATE TYPE user_role AS ENUM ('DEVELOPER','CAPITAL_PARTNER','TECHNICAL_PARTNER','ADMIN','POWER_TRADER','CONSULTANT','GRANT_PROVIDER','AUTHORITY_ADMIN','AUTHORITY_REVIEWER','AUTHORITY_VIEWER');
+CREATE TYPE company_type AS ENUM ('DEVELOPER','CAPITAL','TECHNICAL','POWER_TRADER','CONSULTANT','GRANT_PROVIDER','AUTHORITY');
+CREATE TYPE project_stage AS ENUM ('CONCEPT','PRE_FEASIBILITY','FULL_FEASIBILITY','REGULATORY_APPROVAL','PPA_READY','FINANCIAL_CLOSE','CONSTRUCTION','OPERATION');
+CREATE TYPE capital_structure_type AS ENUM ('DEBT','EQUITY','PROFIT_SHARING','LEASING','GRANT');
 CREATE TYPE risk_tolerance AS ENUM ('LOW','MEDIUM','HIGH');
 CREATE TYPE governance_preference AS ENUM ('PASSIVE','BOARD_SEAT','ACTIVE_ROLE');
 CREATE TYPE engagement_status AS ENUM ('INTRO_SENT','INTRO_ACCEPTED','NDA_SIGNED','DUE_DILIGENCE','TERM_SHEET','CONTRACT_SIGNED','CAPITAL_COMMITTED','CLOSED','DROPPED');
@@ -29,9 +29,17 @@ CREATE TABLE companies (
   description                         TEXT,
   logo_url                            TEXT,
   is_new_company_with_experienced_team BOOLEAN DEFAULT FALSE,
+  is_platform_org                     BOOLEAN DEFAULT FALSE,
+  is_authority_org                    BOOLEAN DEFAULT FALSE,
   management_team_experience          JSONB DEFAULT '{}',
   project_submission_mode             TEXT DEFAULT 'direct' CHECK (project_submission_mode IN ('internal_review', 'direct')),
   internal_reviewer_id                TEXT REFERENCES users(id) ON DELETE SET NULL,
+  registration_number                 TEXT,
+  ownership_structure                 TEXT,
+  ownership_details                   TEXT,
+  contact_email                       TEXT,
+  contact_phone                       TEXT,
+  management_experience_summary       TEXT,
   created_at                          TIMESTAMPTZ DEFAULT NOW(),
   updated_at                          TIMESTAMPTZ DEFAULT NOW()
 );
@@ -58,10 +66,14 @@ CREATE TABLE projects (
   project_size_mw             DECIMAL(10,2) NOT NULL,
   capital_required            BIGINT NOT NULL,
   capital_structure_type      capital_structure_type NOT NULL,
+  capex                       NUMERIC,
+  opex                        NUMERIC,
+  funding_required            NUMERIC,
+  description                 TEXT,
   governance_terms            TEXT,
   exit_terms                  TEXT,
   risk_disclosures            TEXT,
-  project_stage               project_stage NOT NULL DEFAULT 'FEASIBILITY',
+  project_stage               project_stage NOT NULL DEFAULT 'CONCEPT',
   status TEXT DEFAULT 'draft' CHECK (status IN ('draft','scoring','pending_live','live','deactivated','archived')),
   target_financial_close_date DATE,
   target_cod                  DATE,
@@ -91,6 +103,14 @@ CREATE TABLE project_documents (
   project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   document_type TEXT NOT NULL,
   file_url      TEXT NOT NULL,
+  storage_path  TEXT,
+  file_hash     TEXT,
+  mime_type     TEXT,
+  classification TEXT DEFAULT 'RESTRICTED',
+  version       INTEGER DEFAULT 1,
+  replaced_by   UUID,
+  replaced_at   TIMESTAMPTZ,
+  deleted_at    TIMESTAMPTZ,
   uploaded_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -99,7 +119,8 @@ CREATE TABLE project_tech_requirements (
   required_services  TEXT[],
   terrain_complexity TEXT CHECK (terrain_complexity IN ('SIMPLE','MODERATE','COMPLEX')),
   grid_status        TEXT CHECK (grid_status IN ('CONNECTED','PENDING','OFF_GRID')),
-  budget_preference  TEXT CHECK (budget_preference IN ('FIXED','MILESTONE','NEGOTIABLE'))
+  budget_preference  TEXT CHECK (budget_preference IN ('FIXED','MILESTONE','NEGOTIABLE')),
+  ppa_status         TEXT CHECK (ppa_status IN ('SECURED','IN_PROGRESS','NOT_STARTED','NOT_APPLICABLE'))
 );
 
 CREATE TABLE capital_partners (
@@ -167,6 +188,8 @@ CREATE TABLE project_scores (
   risk_flags                  TEXT[],
   recommendations             TEXT[],
   summary                     TEXT,
+  determined_stage            TEXT,
+  stage_rationale             TEXT,
   created_at                  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(project_id)
 );
@@ -307,3 +330,4 @@ CREATE POLICY "service_role_all" ON technical_match_results FOR ALL USING (true)
 CREATE POLICY "service_role_all" ON engagements            FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON messages               FOR ALL USING (true);
 CREATE POLICY "service_role_all" ON audit_logs             FOR ALL USING (true);
+

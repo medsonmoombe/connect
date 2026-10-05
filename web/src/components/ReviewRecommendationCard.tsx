@@ -11,7 +11,7 @@ const TONE_STYLES: Record<ReviewRecommendation['tone'], string> = {
 
 export function ReviewRecommendationCard({ recommendation }: { recommendation: ReviewRecommendation }) {
   return (
-    <div className={cn('rounded-xl border p-3', TONE_STYLES[recommendation.tone])}>
+    <div className={cn('rounded-none border p-3', TONE_STYLES[recommendation.tone])}>
       <div className="flex items-start gap-2.5">
         <Icons.zap className="size-4 mt-0.5 shrink-0" />
         <div className="min-w-0">

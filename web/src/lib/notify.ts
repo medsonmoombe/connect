@@ -7,22 +7,25 @@ import { sendEmail } from './email';
 
 // ── Default notification preferences ──────────────────────────────────────────
 // Keys match the NotificationType union (minus system_announcement, which is always on).
+// Each type maps to { email: boolean, inApp: boolean } for per-channel control.
 
-export const DEFAULT_NOTIFICATION_PREFS: Record<string, boolean> = {
-  match_found: true,
-  engagement_updates: true,
-  project_status: true,
-  project_live: true,
-  project_rejected: true,
-  project_internal_rejected: true,
-  project_pending_internal_review: true,
-  project_approved_internal: true,
-  new_messages: true,
+export type NotificationChannelPrefs = { email: boolean; inApp: boolean };
+
+export const DEFAULT_NOTIFICATION_PREFS: Record<string, NotificationChannelPrefs> = {
+  match_found: { email: true, inApp: true },
+  engagement_updates: { email: true, inApp: true },
+  project_status: { email: true, inApp: true },
+  project_live: { email: true, inApp: true },
+  project_rejected: { email: true, inApp: true },
+  project_internal_rejected: { email: true, inApp: true },
+  project_pending_internal_review: { email: true, inApp: true },
+  project_approved_internal: { email: true, inApp: true },
+  new_messages: { email: true, inApp: true },
 };
 
 // ── Fetch a user's notification preferences ───────────────────────────────────
 
-export async function getUserPreferences(userId: string): Promise<Record<string, boolean>> {
+export async function getUserPreferences(userId: string): Promise<Record<string, NotificationChannelPrefs>> {
   try {
     const admin = getSupabaseAdmin();
     const { data, error } = await admin
@@ -33,19 +36,34 @@ export async function getUserPreferences(userId: string): Promise<Record<string,
 
     if (error || !data) return { ...DEFAULT_NOTIFICATION_PREFS };
 
-    const stored = (data.notification_preferences as Record<string, boolean> | null) ?? {};
-    return { ...DEFAULT_NOTIFICATION_PREFS, ...stored };
+    const stored = (data.notification_preferences as Record<string, any> | null) ?? {};
+    // Merge: handle both old boolean format and new channel format
+    const merged: Record<string, NotificationChannelPrefs> = {};
+    for (const [key, defaults] of Object.entries(DEFAULT_NOTIFICATION_PREFS)) {
+      const val = stored[key];
+      if (typeof val === 'boolean') {
+        // Migrate old boolean format: value controls both channels
+        merged[key] = { email: val, inApp: val };
+      } else if (val && typeof val === 'object') {
+        merged[key] = { ...defaults, ...val };
+      } else {
+        merged[key] = { ...defaults };
+      }
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_NOTIFICATION_PREFS };
   }
 }
 
-// ── Check if a specific notification type is enabled for a user ────────────────
+// ── Check if a specific notification type+channel is enabled for a user ────────
 
-export async function shouldNotify(userId: string, type: NotificationType): Promise<boolean> {
+export async function shouldNotify(userId: string, type: NotificationType, channel: 'email' | 'inApp' = 'inApp'): Promise<boolean> {
   if (type === 'system_announcement') return true; // always on
   const prefs = await getUserPreferences(userId);
-  return prefs[type] !== false;
+  const typePrefs = prefs[type];
+  if (!typePrefs) return true; // unknown type, default on
+  return typePrefs[channel] !== false;
 }
 
 // ── Create a notification ────────────────────────────────────────────────────
@@ -239,7 +257,7 @@ export async function notifyUser(params: {
   const sendEmailFlag = (ch === 'email' || ch === 'both') && params.emailTo && params.emailTemplate;
 
   if (sendInApp) {
-    const allowed = await shouldNotify(params.userId, type);
+    const allowed = await shouldNotify(params.userId, type, 'inApp');
     if (allowed) {
       const res = await createNotification({ userId: params.userId, payload: params.payload });
       result.inApp = res.success;
@@ -247,7 +265,7 @@ export async function notifyUser(params: {
   }
 
   if (sendEmailFlag) {
-    const allowed = await shouldNotify(params.userId, type);
+    const allowed = await shouldNotify(params.userId, type, 'email');
     if (allowed && params.emailTo && params.emailTemplate) {
       const res = await sendEmail({
         to: params.emailTo,
@@ -288,24 +306,42 @@ export async function notifyUsers(params: {
     .select('id, notification_preferences')
     .in('id', params.userIds);
 
-  const prefMap = new Map<string, Record<string, boolean>>();
+  const prefMap = new Map<string, Record<string, NotificationChannelPrefs>>();
   for (const p of profiles ?? []) {
-    const stored = (p.notification_preferences as Record<string, boolean> | null) ?? {};
-    prefMap.set(p.id, { ...DEFAULT_NOTIFICATION_PREFS, ...stored });
+    const stored = (p.notification_preferences as Record<string, any> | null) ?? {};
+    const merged: Record<string, NotificationChannelPrefs> = {};
+    for (const [key, defaults] of Object.entries(DEFAULT_NOTIFICATION_PREFS)) {
+      const val = stored[key];
+      if (typeof val === 'boolean') merged[key] = { email: val, inApp: val };
+      else if (val && typeof val === 'object') merged[key] = { ...defaults, ...val };
+      else merged[key] = { ...defaults };
+    }
+    prefMap.set(p.id, merged);
   }
 
-  // Filter to users who have this type enabled
-  const allowed = params.userIds.filter(uid => {
+  // Filter to users who have this type+channel enabled
+  const sendInApp = ch === 'in_app' || ch === 'both';
+  const sendEmailFlag = ch === 'email' || ch === 'both';
+
+  const inAppAllowed = sendInApp ? params.userIds.filter(uid => {
     if (params.payload.type === 'system_announcement') return true;
     const prefs = prefMap.get(uid) ?? { ...DEFAULT_NOTIFICATION_PREFS };
-    return prefs[params.payload.type] !== false;
-  });
+    const typePrefs = prefs[params.payload.type];
+    return typePrefs?.inApp !== false;
+  }) : [];
 
-  if (allowed.length === 0) return { inAppCount: 0, emailCount: 0 };
+  const emailAllowed = sendEmailFlag ? params.userIds.filter(uid => {
+    if (params.payload.type === 'system_announcement') return true;
+    const prefs = prefMap.get(uid) ?? { ...DEFAULT_NOTIFICATION_PREFS };
+    const typePrefs = prefs[params.payload.type];
+    return typePrefs?.email !== false;
+  }) : [];
+
+  if (inAppAllowed.length === 0 && emailAllowed.length === 0) return { inAppCount: 0, emailCount: 0 };
 
   // Batch insert in-app notifications
-  if (ch === 'in_app' || ch === 'both') {
-    const rows = allowed.map(userId => ({
+  if (inAppAllowed.length > 0) {
+    const rows = inAppAllowed.map(userId => ({
       user_id: userId,
       type: params.payload.type,
       title: params.payload.title,
@@ -319,8 +355,8 @@ export async function notifyUsers(params: {
   }
 
   // Send individual emails (Resend doesn't support batch send)
-  if ((ch === 'email' || ch === 'both') && params.emailTemplate && params.emailMap) {
-    for (const uid of allowed) {
+  if (emailAllowed.length > 0 && params.emailTemplate && params.emailMap) {
+    for (const uid of emailAllowed) {
       const email = params.emailMap[uid];
       if (!email) continue;
       const res = await sendEmail({
@@ -366,7 +402,7 @@ export const notificationBuilders = {
     title: 'New organization pending review',
     body: `${params.requesterName} registered "${params.orgName}" (${params.orgType}) and is awaiting verification.`,
     entity_type: 'organizations',
-    action_url: '/dashboard/admin/verification',
+    action_url: '/admin/verification',
   }),
 
   orgResubmitted: (params: {
@@ -377,7 +413,7 @@ export const notificationBuilders = {
     title: 'Organization resubmitted for review',
     body: `${params.requesterName} updated and resubmitted "${params.orgName}" for verification.`,
     entity_type: 'organizations',
-    action_url: '/dashboard/admin/verification',
+    action_url: '/admin/verification',
   }),
 
   matchFound: (params: {
@@ -396,14 +432,43 @@ export const notificationBuilders = {
     projectName: string;
     partnerName: string;
     engagementId: string;
-  }): NotificationPayload => ({
-    type: 'engagement_updates',
-    title: `New interest in "${params.projectName}"`,
-    body: `${params.partnerName} has expressed interest in your project. Review and accept to proceed.`,
-    entity_type: 'engagements',
-    entity_id: params.engagementId,
-    action_url: `/dashboard/engagements/${params.engagementId}`,
-  }),
+    requestType?: string;
+  }): NotificationPayload => {
+    const typeLabel = params.requestType === 'quote'
+      ? 'a quote request'
+      : params.requestType === 'meeting'
+      ? 'a meeting request'
+      : 'an introduction request';
+    return {
+      type: 'engagement_updates',
+      title: `New ${typeLabel} for "${params.projectName}"`,
+      body: `${params.partnerName} sent ${typeLabel} for your project. Review and respond to proceed.`,
+      entity_type: 'engagements',
+      entity_id: params.engagementId,
+      action_url: `/engagements/${params.engagementId}`,
+    };
+  },
+
+  partnerRequestReceived: (params: {
+    projectName: string;
+    developerName: string;
+    engagementId: string;
+    requestType?: string;
+  }): NotificationPayload => {
+    const typeLabel = params.requestType === 'quote'
+      ? 'a quote request'
+      : params.requestType === 'meeting'
+      ? 'a meeting request'
+      : 'an introduction request';
+    return {
+      type: 'engagement_updates',
+      title: `You received ${typeLabel}`,
+      body: `${params.developerName} sent you ${typeLabel} for "${params.projectName}". Open to review and respond.`,
+      entity_type: 'engagements',
+      entity_id: params.engagementId,
+      action_url: `/engagements/${params.engagementId}`,
+    };
+  },
 
   engagementUpdate: (params: {
     projectName: string;
@@ -425,7 +490,7 @@ export const notificationBuilders = {
     body: `${params.senderName} sent you a message. Open to view.`,
     entity_type: 'messages',
     entity_id: params.engagementId,
-    action_url: `/dashboard/engagements/${params.engagementId}`,
+    action_url: `/engagements/${params.engagementId}`,
   }),
 
   systemAnnouncement: (params: {
@@ -447,7 +512,7 @@ export const notificationBuilders = {
     title: `Project "${params.projectName}" rejected`,
     body: `Your project was not approved. Reason: ${params.reason}`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectSubmittedForReview: (params: {
@@ -458,7 +523,7 @@ export const notificationBuilders = {
     title: `Project "${params.projectName}" submitted for platform review`,
     body: `Your project has been submitted and is now awaiting platform admin review.`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectInternalRejected: (params: {
@@ -470,7 +535,7 @@ export const notificationBuilders = {
     title: `Project "${params.projectName}" needs rework`,
     body: `Your internal reviewer requested changes: ${params.reason}`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectPendingInternalReview: (params: {
@@ -483,7 +548,7 @@ export const notificationBuilders = {
     title: `Project pending your review`,
     body: `${params.submitterName} submitted "${params.projectName}" (${params.orgName}) for your internal review before platform submission.`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectSubmittedInternalReview: (params: {
@@ -494,7 +559,7 @@ export const notificationBuilders = {
     title: `Project sent for internal review`,
     body: `"${params.projectName}" has been sent to your designated internal reviewer for approval before platform submission.`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectApprovedByInternal: (params: {
@@ -505,7 +570,7 @@ export const notificationBuilders = {
     title: `Project "${params.projectName}" approved internally`,
     body: `Your project has been approved by your internal reviewer and submitted to the platform for final review.`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
   }),
 
   projectValidated: (params: {
@@ -526,7 +591,7 @@ export const notificationBuilders = {
     title: `"${params.projectName}" is now live`,
     body: `Your project is now visible to investors and technical partners. Matched partners will appear shortly.`,
     entity_type: 'projects',
-    action_url: '/dashboard/developer',
+    action_url: '/developer',
   }),
 
   projectStatusChanged: (params: {
@@ -538,6 +603,19 @@ export const notificationBuilders = {
     title: `Project "${params.projectName}" status updated`,
     body: `Your project status has changed to ${params.newStatus.replace(/_/g, ' ')}.`,
     entity_type: 'projects',
-    action_url: params.actionUrl ?? '/dashboard/developer',
+    action_url: params.actionUrl ?? '/developer',
+  }),
+
+  /** PRD §14.1: AI analysis failed after multiple retries — admin attention needed. */
+  projectScoringRetry: (params: {
+    projectName: string;
+    failureCount: number;
+    actionUrl?: string;
+  }): NotificationPayload => ({
+    type: 'project_status',
+    title: `Scoring failed for "${params.projectName}"`,
+    body: `AI scoring for project "${params.projectName}" failed ${params.failureCount} times. Admin review or manual scoring may be required.`,
+    entity_type: 'projects',
+    action_url: params.actionUrl ?? '/admin/projects',
   }),
 };

@@ -97,6 +97,13 @@ export async function GET(req: NextRequest, { params }: Params) {
         if (error) console.error('[Download] Access log error:', error.message);
       });
 
+    // Track document download as interest signal (fire and forget)
+    supabase.from('project_interest_signals').insert({
+      project_id: projectId,
+      user_id: user.id,
+      signal_type: 'document_download',
+    });
+
     return Response.json({ signedUrl });
   } catch (e) {
     return handleRouteError(e);

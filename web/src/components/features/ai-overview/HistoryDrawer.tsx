@@ -163,7 +163,7 @@ export function HistoryDrawer({ open, onClose, onLoad }: HistoryDrawerProps) {
           <StatCard label="Failed" value={failedCount} valueClassName={failedCount > 0 ? 'text-red-600' : 'text-slate-900'} />
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-none border border-slate-200 shadow-sm overflow-hidden">
           {loading ? <HistoryTableSkeleton /> : (
             <DataTable
               columns={columns}

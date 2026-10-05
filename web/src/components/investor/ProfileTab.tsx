@@ -16,8 +16,8 @@ interface ProfileTabProps {
 }
 
 // ── Exact same styles as onboarding ──────────────────────────────────────────
-const inputClass = "w-full h-9 px-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm";
-const selectClass = "w-full h-9 px-4 pr-10 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm appearance-none";
+const inputClass = "w-full h-9 px-4 rounded-none border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm";
+const selectClass = "w-full h-9 px-4 pr-10 rounded-none border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm appearance-none";
 const labelClass = "text-[11px] font-bold text-slate-400 uppercase tracking-widest ml-1";
 
 const SECTORS = [
@@ -36,6 +36,7 @@ const ZAMBIAN_PROVINCES = [
 ];
 
 const CAPITAL_STRUCTURES = [
+  { value: 'DEBT', label: 'Debt' },
   { value: 'EQUITY', label: 'Equity' },
   { value: 'PROFIT_SHARING', label: 'Profit Sharing' },
   { value: 'LEASING', label: 'Leasing' },
@@ -44,11 +45,13 @@ const CAPITAL_STRUCTURES = [
 
 const PROJECT_STAGES = [
   { value: 'CONCEPT', label: 'Concept' },
-  { value: 'FEASIBILITY', label: 'Feasibility' },
-  { value: 'PERMITTING', label: 'Permitting' },
+  { value: 'PRE_FEASIBILITY', label: 'Pre-Feasibility' },
+  { value: 'FULL_FEASIBILITY', label: 'Full Feasibility' },
+  { value: 'REGULATORY_APPROVAL', label: 'Regulatory Approval' },
+  { value: 'PPA_READY', label: 'PPA Ready' },
   { value: 'FINANCIAL_CLOSE', label: 'Financial Close' },
   { value: 'CONSTRUCTION', label: 'Construction' },
-  { value: 'OPERATIONS', label: 'Operations' },
+  { value: 'OPERATION', label: 'Operation' },
 ];
 
 const RISK_LEVELS = [
@@ -212,11 +215,11 @@ export function ProfileTab({ capProfile, capitalPartnerId, userId, onProfileSave
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
-        <div className="p-8 bg-white border border-slate-100 rounded-[32px] space-y-6">
+        <div className="p-6 bg-white border border-slate-100 rounded-none space-y-5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-9 w-full rounded-xl" />
+              <Skeleton className="h-9 w-full ounded-xl" />
             </div>
           ))}
         </div>
@@ -228,12 +231,12 @@ export function ProfileTab({ capProfile, capitalPartnerId, userId, onProfileSave
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between px-1">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Investment Preferences</h2>
+          <h2 className="text-base font-bold text-slate-900 tracking-tight">Investment Preferences</h2>
           <p className="text-sm text-slate-500 mt-1">Update your criteria to improve match accuracy.</p>
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="p-8 bg-white border border-slate-100 rounded-[32px] shadow-soft space-y-6">
+      <form onSubmit={handleSave} className="p-6 bg-white border border-slate-100 rounded-none shadow-soft space-y-5">
 
         {/* Ticket Size */}
         <div className="grid grid-cols-2 gap-4">
@@ -346,14 +349,14 @@ export function ProfileTab({ capProfile, capitalPartnerId, userId, onProfileSave
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-100 flex items-center gap-2 text-red-600 text-sm">
+          <div className="p-3 rounded-none bg-red-50 border border-red-100 flex items-center gap-2 text-red-600 text-sm">
             <Icons.alertTriangle className="size-4 shrink-0" />
             {error}
           </div>
         )}
 
         <div className="flex justify-end pt-2 border-t border-slate-50">
-          <Button type="submit" disabled={saving} className="h-10 px-8 rounded-xl font-bold bg-green-800 hover:bg-green-700 text-white">
+          <Button type="submit" disabled={saving} className="h-10 px-8 rounded-none font-bold bg-green-800 hover:bg-green-700 text-white">
             {saving ? <Icons.spinner className="size-4 animate-spin" /> : <Icons.check className="size-4" />}
             Save Preferences
           </Button>

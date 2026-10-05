@@ -52,7 +52,7 @@ export default function AuthCallbackPage() {
   if (status === 'error') {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-6 bg-slate-50">
-        <div className="p-6 bg-white rounded-2xl border border-red-100 shadow-lg max-w-md w-full text-center space-y-4">
+        <div className="p-6 bg-white rounded-none border border-red-100 shadow-lg max-w-md w-full text-center space-y-4">
           <Icons.alertTriangle className="size-10 text-red-500 mx-auto" />
           <h2 className="text-lg font-bold text-slate-900">Verification Failed</h2>
           <p className="text-sm text-slate-500">{errorMsg}</p>

@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { engagementService } from '@/lib/engagement';
 import { Project, Engagement } from '@/types';
+import { MatchBreakdownPanel } from '@/components/ui/MatchBreakdownPanel';
 
 interface MatchScore {
   id: string;
@@ -30,15 +31,6 @@ interface MyMatchesTabProps {
   bookmarkedIds?: Set<string>;
   onBookmarkToggle?: (projectId: string, bookmarked: boolean) => void;
 }
-
-const BREAKDOWN_LABELS: Record<string, string> = {
-  capital_range_overlap: 'Capital Range',
-  structure_compatibility: 'Structure Fit',
-  risk_tolerance_alignment: 'Risk Alignment',
-  governance_preference_alignment: 'Governance Fit',
-  sector_match: 'Sector Match',
-  geographic_match: 'Geography',
-};
 
 export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmarkedIds = new Set(), onBookmarkToggle }: MyMatchesTabProps) {
   const router = useRouter();
@@ -83,7 +75,7 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
     try {
       const eng = await engagementService.requestIntroduction(match.project_id, match.capital_partner_id || '', 'CAPITAL');
       setSentIds(prev => new Set(prev).add(match.project_id));
-      if (eng?.id) router.push(`/dashboard/engagements/${eng.id}`);
+      if (eng?.id) router.push(`/engagements/${eng.id}`);
     } catch (err) {
       console.error('Express interest failed:', err);
     } finally {
@@ -127,13 +119,13 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sort:</span>
             <button
               onClick={() => setSortBy('score')}
-              className={cn("px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all", sortBy === 'score' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}
+              className={cn("px-3 py-1 rounded-none text-[10px] font-bold uppercase tracking-widest transition-all", sortBy === 'score' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}
             >
               By Score
             </button>
             <button
               onClick={() => setSortBy('capital')}
-              className={cn("px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all", sortBy === 'capital' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}
+              className={cn("px-3 py-1 rounded-none text-[10px] font-bold uppercase tracking-widest transition-all", sortBy === 'capital' ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}
             >
               By Capital
             </button>
@@ -157,11 +149,11 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
     return (
       <div
         key={match.id || match.project_id}
-        className="rounded-2xl bg-white border border-gray-100 shadow-soft overflow-hidden hover:shadow-md transition-all"
+        className="rounded-none bg-white border border-gray-100 shadow-soft overflow-hidden hover:shadow-md transition-all"
       >
         {/* Main Row */}
         <div className="p-4 flex items-center gap-3">
-          <div className="size-10 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100">
+          <div className="size-10 rounded-none bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100">
             <Icons.zap className="size-5 text-primary" />
           </div>
 
@@ -209,7 +201,7 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
             <Button
               variant="outline"
               size="sm"
-              className="rounded-lg text-xs size-8 p-0"
+              className="rounded-none text-xs size-8 p-0"
               onClick={() => setExpandedId(isExpanded ? null : match.project_id)}
             >
               <ChevronDown className={cn("size-3.5 transition-transform", isExpanded && "rotate-180")} />
@@ -217,7 +209,7 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
             <Button
               variant="outline"
               size="sm"
-              className="size-8 rounded-lg p-0 border-slate-200"
+              className="size-8 rounded-none p-0 border-slate-200"
               onClick={() => handleBookmark(project.id)}
               disabled={bookmarkingId === project.id}
               title={bookmarkedIds.has(project.id) ? 'Remove bookmark' : 'Bookmark'}
@@ -237,7 +229,7 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
               onClick={() => !isAlreadyEngaged && handleExpressInterest(match)}
               disabled={isAlreadyEngaged || isSent || isSending}
               className={cn(
-                "h-8 px-3 rounded-lg text-[11px] font-bold transition-all",
+                "h-8 px-3 rounded-none text-[11px] font-bold transition-all",
                 isAlreadyEngaged
                   ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
                   : isSent
@@ -260,36 +252,15 @@ export function MyMatchesTab({ matches, engagements, loading, onRefresh, bookmar
         </div>
 
         {/* Expanded Breakdown */}
-        {isExpanded && breakdown && (
-          <div className="px-4 pb-4 border-t border-gray-50 pt-3">
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-              Score Breakdown
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {Object.entries(BREAKDOWN_LABELS).map(([key, label]) => {
-                let val = breakdown[key];
-                if (val > 100) val = 100;
-                if (val === undefined) return null;
-                return (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100 min-w-0"
-                  >
-                    <span className="text-[11px] font-semibold text-slate-600 truncate">{label}</span>
-                    <span
-                      className={cn(
-                        "text-xs font-black shrink-0 ml-1",
-                        val >= 80 ? "text-green-600" : val >= 50 ? "text-amber-500" : "text-slate-400"
-                      )}
-                    >
-                      {val}%
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+        {isExpanded && (
+          <div className="px-4 pb-4 border-t border-slate-100 pt-4">
+            <MatchBreakdownPanel
+              breakdown={breakdown}
+              totalScore={match.compatibility_score}
+              variant="full"
+            />
             <Link href={`/projects/${project.id}`}>
-              <Button variant="outline" className="w-full h-9 mt-3 rounded-lg text-[11px] font-bold">
+              <Button variant="outline" className="w-full h-9 mt-4 rounded-none text-[11px] font-bold">
                 View Project Details
               </Button>
             </Link>

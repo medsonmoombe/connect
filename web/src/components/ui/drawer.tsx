@@ -84,7 +84,7 @@ export function Drawer({ open, onClose, title, description, size = 'md', childre
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+            className="p-1.5 rounded-none text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
           >
             <Icons.close className="size-4" />
           </button>

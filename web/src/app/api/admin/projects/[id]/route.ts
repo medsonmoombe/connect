@@ -8,6 +8,34 @@ import { transitionProject, type ProjectStatus } from '@/lib/project-state-machi
 
 type Params = { params: Promise<{ id: string }> };
 
+// ── GET /api/admin/projects/[id]
+export async function GET(req: NextRequest, { params }: Params) {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user.is_platform_admin) return forbidden('Platform administrators only.');
+    const { id } = await params;
+    const admin = getSupabaseAdmin();
+    const { data, error } = await admin
+      .from('projects')
+      .select(`
+        *,
+        developer:companies!projects_developer_id_fkey(
+          id, name, country, website, description, team_size, years_operating, registration_number
+        ),
+        documents:project_documents(*),
+        scores:project_scores(*),
+        tech_requirements:project_tech_requirements(*)
+      `)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single();
+    if (error || !data) return badRequest('Project not found');
+    return Response.json({ data });
+  } catch (e: any) {
+    return handleRouteError(e);
+  }
+}
+
 // ── PATCH /api/admin/projects/[id]
 // Handles sub-actions via `action` field:
 //   action: 'force_state'    — force project to a new status with a required note
@@ -16,7 +44,7 @@ type Params = { params: Promise<{ id: string }> };
 export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can manage projects from the admin panel. Contact your platform support team if you need to make changes.');
 
     const { id } = await params;
     const body = await req.json();
@@ -33,12 +61,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         projectId: id,
         toStatus: status as ProjectStatus,
         actorId: user.id,
+        actorRole: 'platform_admin',
+        skipRoleCheck: true,
         reason: note,
         req,
       });
 
-      if (!result.success) {
-        return badRequest(result.error || 'Transition failed');
+      if (!result.ok) {
+        return badRequest(result.error);
       }
 
       const { data: project } = await admin
@@ -107,6 +137,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         before: { is_visible_to_investors: false },
         after: { is_visible_to_investors: true, note },
         req,
+        blocking: true,
       });
 
       // Notify developer org admins (email + in-app)
@@ -156,6 +187,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         entityId: id,
         after: { ...sanitized, note },
         req,
+        blocking: true,
       });
 
       // Notify org admins about score override

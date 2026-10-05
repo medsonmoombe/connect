@@ -1,0 +1,91 @@
+# ── Afri Connect — Docker Compose ──────────────────────────────
+# Usage:
+#   docker compose up --build          # start everything
+#   docker compose up -d               # start in background
+#   docker compose down                # stop all
+#   docker compose logs -f app         # tail app logs
+#   docker compose exec app sh         # shell into app container
+#
+# Redis is available at redis://redis:6379 inside the app container.
+# The app reads REDIS_URL from .env.docker automatically.
+
+services:
+  # ── Next.js app ──────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    # container_name removed — incompatible with replicas > 1
+    restart: unless-stopped
+    ports:
+      - "3000-3001:3000"
+    env_file:
+      - ./web/.env.docker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      # AI work runs in the worker container instead of blocking API requests
+      - AI_ORCHESTRATOR_ENABLED=true
+      - AI_SYNC_WORKER=false
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      # At 1000+ users: 2 replicas keep p95 latency flat during OCR/AI bursts.
+      # Scale further with: docker compose up -d --scale app=3
+      replicas: 2
+    networks:
+      - afri-net
+
+  # ── AI worker (drains ai_jobs queue every 30s) ─────────────
+  # Handles ALL AI/OCR work so heavy tesseract/pdf processing never blocks
+  # API request handlers. Scale independently under load:
+  #   docker compose up -d --scale ai-worker=2
+  ai-worker:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./web/.env.docker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+    entrypoint: >
+      sh -c "while true; do
+        curl -sf -X POST http://app:3000/api/internal/ai-worker
+          -H 'Authorization: Bearer $${AI_WORKER_SECRET}'
+          > /dev/null || true;
+        sleep 30;
+      done"
+    depends_on:
+      - app
+    networks:
+      - afri-net
+
+  # ── Redis (rate limiting + sessions) ─────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: afri-connect-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - afri-net
+
+volumes:
+  redis-data:
+
+networks:
+  afri-net:
+    driver: bridge

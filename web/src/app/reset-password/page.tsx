@@ -5,48 +5,19 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/ui/icons';
+import { AuthSplitShell } from '@/components/auth/AuthSplitShell';
+
+const inputClass = 'h-11 w-full rounded-none border border-slate-300 bg-white px-3 text-sm text-slate-900 transition-colors placeholder:text-slate-400 focus:border-green-700 focus:outline-none focus:ring-2 focus:ring-green-700/15';
+const labelClass = 'text-[11px] font-semibold uppercase tracking-widest text-slate-500';
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (!token) {
-    return (
-      <div className="min-h-screen bg-mesh flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-[480px] z-10">
-          <div className="flex justify-center mb-12">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-12 h-12 flex items-center justify-center text-green-800">
-                <Icons.logo className="w-full h-full" />
-              </div>
-              <span className="text-2xl font-bold tracking-tight text-slate-900">
-                Afri <span className="text-green-700">Connect</span>
-              </span>
-            </Link>
-          </div>
-          <div className="premium-card p-10 text-center">
-            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-6">
-              <Icons.x className="w-8 h-8 text-red-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-3">Invalid Reset Link</h1>
-            <p className="text-slate-500 mb-8">This password reset link is invalid or missing a token.</p>
-            <Link href="/forgot-password" className="inline-flex items-center justify-center h-10 px-6 rounded-xl bg-green-800 hover:bg-green-700 text-white font-bold text-sm shadow-lg transition-colors">
-              Request a New Link
-            </Link>
-          </div>
-          <p className="mt-8 text-center text-sm text-slate-500">
-            <Link href="/login" className="text-green-700 font-bold hover:underline">Back to login</Link>
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,8 +25,14 @@ function ResetPasswordForm() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+    const pwErrors: string[] = [];
+    if (password.length < 8) pwErrors.push('at least 8 characters');
+    if (!/[A-Z]/.test(password)) pwErrors.push('an uppercase letter');
+    if (!/[a-z]/.test(password)) pwErrors.push('a lowercase letter');
+    if (!/[0-9]/.test(password)) pwErrors.push('a number');
+    if (!/[^A-Za-z0-9]/.test(password)) pwErrors.push('a special character');
+    if (pwErrors.length > 0) {
+      setError('Password must contain ' + pwErrors.join(', '));
       return;
     }
     setIsLoading(true);
@@ -80,74 +57,58 @@ function ResetPasswordForm() {
   };
 
   return (
-    <div className="min-h-screen bg-mesh flex flex-col items-center justify-center p-6">
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-green-100/40 rounded-full blur-[120px] -z-10 translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-green-100/20 rounded-full blur-[120px] -z-10 -translate-x-1/2 translate-y-1/2" />
-
-      <div className="w-full max-w-[480px] z-10">
-        <div className="flex justify-center mb-12">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-12 h-12 flex items-center justify-center text-green-800">
-              <Icons.logo className="w-full h-full" />
+    <AuthSplitShell
+      eyebrow="Account recovery"
+      title="Set a secure password"
+      description="Create a fresh password for your Afri Connect account and continue with protected access."
+      points={['Password policy checks', 'Secure reset token', 'Protected sign-in flow']}
+      footerLink={{ text: 'Need another link?', href: '/forgot-password', label: 'Request reset' }}
+    >
+      <div className="p-6 md:p-8">
+        {!token ? (
+          <div className="space-y-6 text-center">
+            <div className="mx-auto flex size-12 items-center justify-center border border-red-100 bg-red-50 text-red-600">
+              <Icons.x className="size-6" />
             </div>
-            <span className="text-2xl font-bold tracking-tight text-slate-900">
-              Afri <span className="text-green-700">Connect</span>
-            </span>
-          </Link>
-        </div>
-        <div className="premium-card p-10">
-          <h1 className="text-2xl font-bold text-slate-900 mb-3 text-center">Set New Password</h1>
-          {error && (
-            <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-medium">
-              {error}
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Invalid reset link</h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">This password reset link is invalid or missing a token.</p>
             </div>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="New password (min 8 characters)"
-                required
-                minLength={8}
-                className="w-full h-9 px-4 pr-10 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                tabIndex={-1}
-              >
-                {showPassword ? <Icons.eyeOff className="w-4 h-4" /> : <Icons.eye className="w-4 h-4" />}
-              </button>
+            <Link href="/forgot-password" className="inline-flex h-10 items-center justify-center rounded-none bg-green-800 px-4 text-sm font-semibold text-white hover:bg-green-700">Request a New Link</Link>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Set new password</h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Choose a strong password for your Afri Connect account.</p>
             </div>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={confirmPassword}
-              onChange={e => setConfirmPassword(e.target.value)}
-              placeholder="Confirm new password"
-              required
-              minLength={8}
-              className="w-full h-9 px-4 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm"
-            />
-            <Button type="submit" disabled={isLoading} className="w-full h-10 bg-green-800 hover:bg-green-700 text-white rounded-xl shadow-lg font-bold text-sm">
-              {isLoading ? <Icons.spinner className="w-4 h-4 animate-spin" /> : 'Reset Password'}
-            </Button>
-          </form>
-        </div>
-        <p className="mt-8 text-center text-sm text-slate-500">
-          <Link href="/login" className="text-green-700 font-bold hover:underline">Back to login</Link>
-        </p>
+            {error && <div className="border border-red-100 bg-red-50 p-3 text-xs font-medium text-red-600">{error}</div>}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className={labelClass}>New Password</label>
+                <div className="relative">
+                  <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="Minimum 8 characters" required minLength={8} className={`${inputClass} pr-10`} />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" tabIndex={-1}>
+                    {showPassword ? <Icons.eyeOff className="size-4" /> : <Icons.eye className="size-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Confirm Password</label>
+                <input type={showPassword ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat password" required minLength={8} className={inputClass} />
+              </div>
+              <Button type="submit" disabled={isLoading} className="h-11 w-full rounded-none bg-green-800 text-sm font-semibold text-white shadow-none hover:bg-green-700">
+                {isLoading ? <Icons.spinner className="size-4 animate-spin" /> : 'Reset Password'}
+              </Button>
+            </form>
+            <p className="text-center text-sm text-slate-500"><Link href="/login" className="font-semibold text-green-700 hover:underline">Back to login</Link></p>
+          </div>
+        )}
       </div>
-    </div>
+    </AuthSplitShell>
   );
 }
 
 export default function ResetPasswordPage() {
-  return (
-    <Suspense>
-      <ResetPasswordForm />
-    </Suspense>
-  );
+  return <Suspense><ResetPasswordForm /></Suspense>;
 }

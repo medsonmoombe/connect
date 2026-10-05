@@ -1,4 +1,4 @@
-import { EngagementStatus, Engagement } from '@/types';
+import { EngagementStatus, Engagement, CounterpartyType } from '@/types';
 import { apiClient } from './api-client';
 import { projectService } from '@/services/projects';
 
@@ -57,24 +57,37 @@ const TRANSITION_ROLES: Record<string, TransitionRole> = {
   'CAPITAL_COMMITTED→CLOSED': 'developer',
 };
 
-/** Returns which role is allowed to perform a given transition. */
+/** Returns which role is allowed to perform a given transition.
+ *
+ * `introOrigin` disambiguates the INTRO_SENT → INTRO_ACCEPTED step, which is
+ * performed by the party that did NOT initiate the request:
+ *   • 'developer' → the developer requested the introduction, so the
+ *     COUNTERPARTY (partner) accepts it.
+ *   • 'partner'/null → the partner expressed interest, so the DEVELOPER
+ *     accepts it (legacy behaviour for rows created before intro_origin).
+ */
 export function getTransitionRole(
   currentState: EngagementStatus,
-  nextState: EngagementStatus
+  nextState: EngagementStatus,
+  introOrigin?: 'developer' | 'partner' | null
 ): TransitionRole {
   if (nextState === 'DROPPED') return 'either';
+  if (currentState === 'INTRO_SENT' && nextState === 'INTRO_ACCEPTED') {
+    return introOrigin === 'developer' ? 'counterparty' : 'developer';
+  }
   return TRANSITION_ROLES[`${currentState}→${nextState}`] ?? 'either';
 }
 
 /** Returns the next states the given role is allowed to trigger. */
 export function getTransitionsForRole(
   currentState: EngagementStatus,
-  userRole: TransitionRole | null
+  userRole: TransitionRole | null,
+  introOrigin?: 'developer' | 'partner' | null
 ): EngagementStatus[] {
   if (!userRole) return [];
   const all = STATE_TRANSITIONS[currentState] ?? [];
   return all.filter(ns => {
-    const required = getTransitionRole(currentState, ns);
+    const required = getTransitionRole(currentState, ns, introOrigin);
     return required === 'either' || required === userRole;
   });
 }
@@ -161,12 +174,28 @@ export class EngagementService {
   /**
    * Create a new engagement (Request Introduction)
    */
-  static async requestIntroduction(projectId: string, counterpartyId: string, counterpartyType: 'CAPITAL' | 'TECHNICAL') {
+  static async requestIntroduction(
+    projectId: string,
+    counterpartyId: string,
+    counterpartyType: CounterpartyType,
+    options?: {
+      message?: string;
+      requestOrigin?: 'developer' | 'partner';
+      requestType?: 'introduction' | 'quote' | 'meeting';
+      gapIds?: string[];
+      requestedService?: string;
+    }
+  ) {
     const { data } = await apiClient.post<{ data: any }>('/engagements', {
       project_id: projectId,
       counterparty_id: counterpartyId,
       counterparty_type: counterpartyType,
       status: 'INTRO_SENT',
+      message: options?.message,
+      request_origin: options?.requestOrigin,
+      request_type: options?.requestType,
+      gap_ids: options?.gapIds,
+      requested_service: options?.requestedService,
     });
     return data;
   }

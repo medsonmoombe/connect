@@ -6,7 +6,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-server';
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.company_id) return forbidden();
+    if (!user.company_id) return forbidden('You need to belong to an organisation to view settings. Contact your admin if you believe this is an error.');
 
     const admin = getSupabaseAdmin();
 
@@ -103,10 +103,10 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.company_id) return forbidden();
+    if (!user.company_id) return forbidden('You need to belong to an organisation to update settings. Contact your admin if you believe this is an error.');
 
     const membership = (user.company_members as any[])?.[0];
-    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) return forbidden();
+    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) return forbidden('Only organisation owners and admins can change organisation settings. Contact your admin if you need changes made.');
 
     const body = await req.json();
     const { mfa_enforced, password_expiry_days, min_password_length } = body;

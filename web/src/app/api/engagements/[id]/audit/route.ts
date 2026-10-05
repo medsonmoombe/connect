@@ -55,9 +55,10 @@ export async function GET(req: NextRequest, { params }: Params) {
     // Legacy audit log entries for the engagement (full traceability).
     const { data: audit, error: auditErr } = await supabase
       .from('audit_logs')
-      .select('*')
+      .select('action_type, entity_type, entity_id, before_state, after_state, actor_id, timestamp')
       .eq('entity_id', id)
-      .order('timestamp', { ascending: false });
+      .order('timestamp', { ascending: false })
+      .limit(100);
 
     if (auditErr) {
       console.error('[Audit] audit_logs query error:', auditErr.message);

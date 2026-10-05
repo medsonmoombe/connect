@@ -2,13 +2,16 @@ export const storageService = {
   async uploadProjectDocument(
     projectId: string,
     file: File,
-    _documentType: string,
+    documentType: string,
     onProgress?: (progress: number) => void,
     classification: string = 'RESTRICTED'
-  ): Promise<{ file_url: string; storage_path: string; file_hash?: string }> {
+  ): Promise<{ file_url: string; storage_path: string; file_hash?: string; mime_type?: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('classification', classification);
+    // The intended document slot — the server scopes its duplicate check by
+    // this, so one file may legitimately fill several document/proof slots.
+    if (documentType) formData.append('document_type', documentType);
 
     const res = await fetch(`/api/projects/${projectId}/documents/upload`, {
       method: 'POST',

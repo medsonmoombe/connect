@@ -1,4 +1,5 @@
 import type { ProjectScore } from '@/types';
+import { READINESS_REWORK_THRESHOLD, READINESS_VALIDATION_THRESHOLD } from './readiness-thresholds';
 
 export type ReviewRecommendationAction = 'run_analysis' | 'validate' | 'review' | 'reject';
 
@@ -33,7 +34,7 @@ export function getReviewRecommendation(score?: ProjectScore | null): ReviewReco
     };
   }
 
-  if (normalizedScore >= 75) {
+  if (normalizedScore >= READINESS_VALIDATION_THRESHOLD) {
     return {
       action: 'validate',
       score: normalizedScore,
@@ -44,7 +45,7 @@ export function getReviewRecommendation(score?: ProjectScore | null): ReviewReco
     };
   }
 
-  if (normalizedScore >= 50) {
+  if (normalizedScore >= READINESS_REWORK_THRESHOLD) {
     return {
       action: 'review',
       score: normalizedScore,

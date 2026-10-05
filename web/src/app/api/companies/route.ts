@@ -22,7 +22,9 @@ export async function GET(req: NextRequest) {
       console.error('[Companies] Query error:', error.message);
       return serverError();
     }
-    return Response.json({ data });
+    return Response.json({ data }, {
+      headers: { 'Cache-Control': 'private, max-age=60' },
+    });
   } catch (e: any) {
     return handleRouteError(e);
   }

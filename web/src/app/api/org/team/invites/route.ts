@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
     const membership = (user.company_members as any[])?.[0];
-    if (!membership?.company_id) return forbidden();
+    if (!membership?.company_id) return forbidden('You need to belong to an organisation to view pending invites. Contact your organisation admin if you need access.');
 
     const admin = getSupabaseAdmin();
     const { data, error } = await admin

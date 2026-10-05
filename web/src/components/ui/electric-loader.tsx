@@ -1,184 +1,145 @@
 'use client';
 
-export default function ElectricLoader({ size = 280, className = '' }) {
-  const bolt = size * 0.38;
+import { useId } from 'react';
+
+interface ElectricLoaderProps {
+  size?: number;
+  className?: string;
+  dark?: boolean;
+  label?: string;
+}
+
+export default function ElectricLoader({ size = 280, className = '', dark = false, label }: ElectricLoaderProps) {
+  const uid = useId().replace(/:/g, '');
+  const id = `elx${uid}`;
+
+  const tilePx = Math.round(size * 0.362);
+
+  // Center of the 200x200 viewBox
+  const cx = 100;
+  const cy = 100;
+
+  // Color palette
+  const p = dark
+    ? {
+        track1: 'rgba(148,163,184,0.24)',
+        track2: 'rgba(148,163,184,0.15)',
+        dotted: 'rgba(110,231,183,0.16)',
+        arc: '#34D399',
+        tail: '#6EE7B7',
+        dot: '#ECFDF5',
+        tileShadow: '0 0 0 1px rgba(255,255,255,0.06), 0 0 22px rgba(16,185,129,0.25), 0 14px 34px -10px rgba(6,95,70,0.7), inset 0 1px 1px rgba(255,255,255,0.22)',
+        tileShadowHi: '0 0 0 1px rgba(255,255,255,0.06), 0 0 34px rgba(16,185,129,0.4), 0 18px 46px -8px rgba(6,95,70,0.85), inset 0 1px 1px rgba(255,255,255,0.22)',
+        labelColor: '#93A8A0',
+      }
+    : {
+        track1: '#E3EBE6',
+        track2: '#EAF0EC',
+        dotted: 'rgba(6,95,70,0.16)',
+        arc: '#10B981',
+        tail: '#34D399',
+        dot: '#FFFFFF',
+        tileShadow: '0 2px 5px rgba(6,95,70,0.16), 0 12px 30px -10px rgba(16,185,129,0.38), inset 0 1px 1px rgba(255,255,255,0.45)',
+        tileShadowHi: '0 2px 5px rgba(6,95,70,0.16), 0 18px 44px -10px rgba(16,185,129,0.55), inset 0 1px 1px rgba(255,255,255,0.45)',
+        labelColor: '#6B8177',
+      };
 
   return (
-    <div className={className} style={{ width: size, height: size, display: 'inline-block', position: 'relative' }}>
+    <div className={`inline-flex flex-col items-center ${className}`} role="status" aria-label="Loading">
       <style>{`
-        @keyframes el-pulse {
-          0%, 100% { opacity: 1;   transform: scale(1); }
-          50%       { opacity: 0.75; transform: scale(0.92); }
+        @keyframes ${id}-cw  { to { transform: rotate(360deg); } }
+        @keyframes ${id}-ccw { to { transform: rotate(-360deg); } }
+        @keyframes ${id}-grow {
+          from { stroke-dasharray: 16 84; }
+          to   { stroke-dasharray: 46 54; }
         }
-        @keyframes el-glow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0),     0 8px 40px -8px rgba(22,101,52,0.6); }
-          50%       { box-shadow: 0 0 0 14px rgba(34,197,94,0.08), 0 8px 56px -4px rgba(22,101,52,0.9); }
+        @keyframes ${id}-tile {
+          0%, 100% { transform: translate(-50%, -50%) scale(1);     box-shadow: ${p.tileShadow}; }
+          50%      { transform: translate(-50%, -50%) scale(0.972);  box-shadow: ${p.tileShadowHi}; }
         }
-
-        /* Ring base rotations */
-        @keyframes el-r1 { to { transform: rotate(360deg);  } }
-        @keyframes el-r2 { to { transform: rotate(-360deg); } }
-        @keyframes el-r3 { to { transform: rotate(360deg);  } }
-        .el-r1 { animation: el-r1 3s   linear infinite; transform-origin: 100px 100px; }
-        .el-r2 { animation: el-r2 4.5s linear infinite; transform-origin: 100px 100px; }
-        .el-r3 { animation: el-r3 6.5s linear infinite; transform-origin: 100px 100px; }
-
-        /* Comets — strokeDashoffset races around each ring circumference */
-        /* r=90 → C≈565 */
-        @keyframes el-c1 { to { stroke-dashoffset: -565; } }
-        .el-c1 { stroke-dasharray: 40 525; stroke-dashoffset: 0; animation: el-c1 1.4s linear infinite; }
-
-        /* r=76 → C≈478 */
-        @keyframes el-c2 { to { stroke-dashoffset: 478; } }
-        .el-c2 { stroke-dasharray: 30 448; stroke-dashoffset: 0; animation: el-c2 2s linear infinite; }
-
-        /* r=60 → C≈377 */
-        @keyframes el-c3 { to { stroke-dashoffset: -377; } }
-        .el-c3 { stroke-dasharray: 20 357; stroke-dashoffset: 0; animation: el-c3 2.6s linear infinite; }
-
-        /* Arc flicker */
-        @keyframes el-arc {
-          0%,100%      { opacity: 0; }
-          8%, 10%      { opacity: 1; }
-          9%           { opacity: 0.3; }
-          48%, 50%     { opacity: 0.85; }
-          49%          { opacity: 0.1; }
+        .${id}-o1 { transform-origin: ${cx}px ${cy}px; animation: ${id}-cw 1.8s linear infinite; }
+        .${id}-o2 { transform-origin: ${cx}px ${cy}px; animation: ${id}-ccw 2.7s linear infinite; }
+        .${id}-o3 { transform-origin: ${cx}px ${cy}px; animation: ${id}-cw 46s linear infinite; }
+        .${id}-arc1 {
+          stroke-dasharray: 16 84;
+          animation: ${id}-grow 3.6s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
         }
-        .el-a1 { animation: el-arc 1.1s ease-in-out infinite; }
-        .el-a2 { animation: el-arc 1.7s ease-in-out infinite 0.35s; }
-        .el-a3 { animation: el-arc 0.95s ease-in-out infinite 0.7s; }
-        .el-a4 { animation: el-arc 1.45s ease-in-out infinite 0.15s; }
-
-        .el-container { animation: el-glow 2s ease-in-out infinite; }
-        .el-icon      { animation: el-pulse 2s ease-in-out infinite; }
+        .${id}-tile { animation: ${id}-tile 2.8s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .${id}-o1, .${id}-o2, .${id}-o3, .${id}-arc1, .${id}-tile { animation: none; }
+        }
       `}</style>
 
-      <svg
-        width={size}
-        height={size}
-        viewBox="0 0 200 200"
-        style={{ position: 'absolute', inset: 0 }}
-      >
-        <defs>
-          <filter id="el-gf" x="-80%" y="-80%" width="260%" height="260%">
-            <feGaussianBlur stdDeviation="2" result="blur"/>
-            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-          <filter id="el-bf" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3"/>
-          </filter>
-        </defs>
-
-        {/* ── Ring 1 (r=90) — bare dark track ── */}
-        <circle cx="100" cy="100" r="90"
-          fill="none" stroke="#1e293b" strokeWidth="1.5" opacity="0.7" />
-
-        {/* Comet 1 — electric white/cyan */}
-        <circle cx="100" cy="100" r="90"
-          fill="none" stroke="url(#el-comet1)" strokeWidth="3"
-          strokeLinecap="round"
-          className="el-r1 el-c1"
-          filter="url(#el-gf)" />
-        {/* Soft bloom behind comet 1 */}
-        <circle cx="100" cy="100" r="90"
-          fill="none" stroke="#e0ffe8" strokeWidth="8"
-          strokeLinecap="round" opacity="0.12"
-          className="el-r1 el-c1"
-          filter="url(#el-bf)" />
-
-        {/* ── Ring 2 (r=76) — bare dark track ── */}
-        <circle cx="100" cy="100" r="76"
-          fill="none" stroke="#1e293b" strokeWidth="1.5" opacity="0.7" />
-
-        {/* Comet 2 */}
-        <circle cx="100" cy="100" r="76"
-          fill="none" stroke="url(#el-comet2)" strokeWidth="2.5"
-          strokeLinecap="round"
-          className="el-r2 el-c2"
-          filter="url(#el-gf)" />
-        <circle cx="100" cy="100" r="76"
-          fill="none" stroke="#e0ffe8" strokeWidth="6"
-          strokeLinecap="round" opacity="0.1"
-          className="el-r2 el-c2"
-          filter="url(#el-bf)" />
-
-        {/* ── Ring 3 (r=60) — bare dark track ── */}
-        <circle cx="100" cy="100" r="60"
-          fill="none" stroke="#1e293b" strokeWidth="1" opacity="0.6" />
-
-        {/* Comet 3 */}
-        <circle cx="100" cy="100" r="60"
-          fill="none" stroke="url(#el-comet3)" strokeWidth="2"
-          strokeLinecap="round"
-          className="el-r3 el-c3"
-          filter="url(#el-gf)" />
-
-        {/* ── Arc sparks — jagged electric bolts between rings ── */}
-        <polyline points="158,47 164,40 167,47 172,40 176,46"
-          fill="none" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round"
-          opacity="0" className="el-a1" filter="url(#el-gf)" />
-        <polyline points="38,150 32,157 29,150 24,157 21,151"
-          fill="none" stroke="#e0ffe8" strokeWidth="1.5" strokeLinecap="round"
-          opacity="0" className="el-a2" filter="url(#el-gf)" />
-        <polyline points="44,50 38,43 35,50 30,43 27,50"
-          fill="none" stroke="#ffffff" strokeWidth="1.2" strokeLinecap="round"
-          opacity="0" className="el-a3" filter="url(#el-gf)" />
-        <polyline points="160,152 166,159 169,152 173,158 177,152"
-          fill="none" stroke="#e0ffe8" strokeWidth="1.2" strokeLinecap="round"
-          opacity="0" className="el-a4" filter="url(#el-gf)" />
-
-        {/* Comet gradient defs — white head → transparent tail */}
-        <defs>
-          <linearGradient id="el-comet1" gradientUnits="userSpaceOnUse" x1="100" y1="10" x2="180" y2="100">
-            <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-            <stop offset="40%"  stopColor="#86efac" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#166534" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="el-comet2" gradientUnits="userSpaceOnUse" x1="100" y1="24" x2="170" y2="100">
-            <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-            <stop offset="40%"  stopColor="#86efac" stopOpacity="0.85" />
-            <stop offset="100%" stopColor="#166534" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="el-comet3" gradientUnits="userSpaceOnUse" x1="100" y1="40" x2="155" y2="100">
-            <stop offset="0%"   stopColor="#ffffff" stopOpacity="1" />
-            <stop offset="50%"  stopColor="#86efac" stopOpacity="0.7" />
-            <stop offset="100%" stopColor="#166534" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-      </svg>
-
-      {/* ── Center logo tile ── */}
-      <div
-        className="el-container"
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: bolt,
-          height: bolt,
-          borderRadius: '22%',
-          background: 'linear-gradient(135deg, #166534 0%, #22c55e 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <div className="relative" style={{ width: size, height: size }}>
         <svg
-          className="el-icon"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="white"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ width: bolt * 0.52, height: bolt * 0.52 }}
+          width={size}
+          height={size}
+          viewBox="0 0 200 200"
+          aria-hidden="true"
+          focusable="false"
+          className="absolute inset-0"
         >
-          <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-          <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+          <defs>
+            <linearGradient id={`${id}-tail`} gradientUnits="userSpaceOnUse" x1="170" y1="100" x2="147.9" y2="151">
+              <stop offset="0%" stopColor={p.tail} stopOpacity={1} />
+              <stop offset="55%" stopColor={p.tail} stopOpacity={0.55} />
+              <stop offset="100%" stopColor={p.tail} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
+          {/* Outer track ring */}
+          <circle cx={cx} cy={cy} r="88" fill="none" stroke={p.track1} strokeWidth="2" />
+          {/* Middle track ring */}
+          <circle cx={cx} cy={cy} r="70" fill="none" stroke={p.track2} strokeWidth="1.5" />
+
+          {/* Innermost dotted ring (slow spin) */}
+          <g className={`${id}-o3`}>
+            <circle cx={cx} cy={cy} r="52" fill="none" stroke={p.dotted} strokeWidth="1.6" strokeLinecap="round" strokeDasharray="0.1 8.976" />
+          </g>
+
+          {/* Outer arc + comet dot */}
+          <g className={`${id}-o1`}>
+            <circle cx={cx} cy={cy} r="88" fill="none" stroke={p.arc} strokeWidth="3.2" strokeLinecap="round" pathLength={100} strokeDasharray="16 84" className={`${id}-arc1`} />
+            <circle cx="188" cy={cy} r="2.7" fill={p.dot} style={{ filter: `drop-shadow(0 0 3px ${dark ? 'rgba(52,211,153,0.9)' : 'rgba(16,185,129,0.85)'})` }} />
+          </g>
+
+          {/* Middle arc + comet dot */}
+          <g className={`${id}-o2`}>
+            <circle cx={cx} cy={cy} r="70" fill="none" stroke={`url(#${id}-tail)`} strokeWidth="2.4" strokeLinecap="round" pathLength={100} strokeDasharray="13 87" />
+            <circle cx="170" cy={cy} r="2.2" fill={p.dot} style={{ filter: `drop-shadow(0 0 3px ${dark ? 'rgba(52,211,153,0.9)' : 'rgba(16,185,129,0.85)'})` }} />
+          </g>
         </svg>
+
+        {/* Center logo (no card) */}
+        <div
+          className={`${id}-tile absolute top-1/2 left-1/2 flex items-center justify-center`}
+          style={{
+            width: tilePx,
+            height: tilePx,
+          }}
+        >
+          <img
+            src="/Afri%20Connect%20Logo.png"
+            alt=""
+            aria-hidden="true"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+        </div>
       </div>
+
+      {label && (
+        <div
+          className="mt-2.5 text-center uppercase tracking-[0.16em] leading-relaxed"
+          style={{ fontSize: 10, fontWeight: 600, color: p.labelColor }}
+        >
+          {label}
+        </div>
+      )}
     </div>
   );
 }

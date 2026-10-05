@@ -1,0 +1,528 @@
+import { Project, CapitalPartner, TechnicalPartner, ConsultantProfile, CapitalMatchResult, TechnicalMatchResult, ConsultantMatchResult } from '@/types';
+
+// Capital Matching Algorithm Weights
+const CAPITAL_MATCH_WEIGHTS = {
+  capital_range_overlap: 0.30,
+  structure_compatibility: 0.20,
+  risk_tolerance_alignment: 0.15,
+  governance_preference_alignment: 0.15,
+  sector_match: 0.10,
+  geographic_match: 0.10,
+};
+
+/** Format monetary values for readable detail strings. */
+function fmtMoney(val: number | undefined | null): string {
+  if (val == null) return 'N/A';
+  if (val >= 1_000_000_000) return `ZMW ${(val / 1_000_000_000).toFixed(1)}B`;
+  if (val >= 1_000_000) return `ZMW ${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `ZMW ${(val / 1_000).toFixed(0)}K`;
+  return `ZMW ${val}`;
+}
+
+/** Build a human-readable capital-overlap detail string. */
+function capitalOverlapDetail(required: number, min: number, max: number, rawScore: number): string {
+  if (rawScore >= 100) return `${fmtMoney(required)} is fully within partner range (${fmtMoney(min)}–${fmtMoney(max)})`;
+  if (rawScore >= 80) return `${fmtMoney(required)} is within 20% of partner range (${fmtMoney(min)}–${fmtMoney(max)})`;
+  if (rawScore > 0) return `${fmtMoney(required)} partially overlaps partner range (${fmtMoney(min)}–${fmtMoney(max)})`;
+  return `${fmtMoney(required)} is outside partner range (${fmtMoney(min)}–${fmtMoney(max)})`;
+}
+
+/** Build a human-readable structure detail string. */
+function structureDetail(projectType: string | undefined | null, partnerStructures: string[] | undefined, rawScore: number): string {
+  const type = projectType ?? 'No structure type';
+  const list = (partnerStructures ?? []).join(', ');
+  if (rawScore >= 100) return `${type.replace(/_/g, ' ')} structure accepted${list ? ` (prefers: ${list})` : ''}`;
+  if (rawScore > 0) return `Partial ${type.replace(/_/g, ' ')} match${list ? ` — partner prefers ${list}` : ''}`;
+  return `${type.replace(/_/g, ' ')} not in partner preferences${list ? ` (prefers: ${list})` : ''}`;
+}
+
+/** Build a human-readable risk alignment detail string. */
+function riskDetail(tolerance: string, baseScore: number, hasDisclosures: boolean): string {
+  let detail = `${tolerance} risk tolerance`;
+  if (hasDisclosures) detail += ' — risk disclosures provided';
+  if (baseScore >= 100) detail += ' — strong alignment';
+  else if (baseScore >= 85) detail += ' — good alignment';
+  else if (baseScore >= 60) detail += ' — moderate alignment';
+  else detail += ' — limited alignment';
+  return detail;
+}
+
+/** Build a human-readable governance detail string. */
+function governanceDetail(terms: string | undefined, preference: string, rawScore: number): string {
+  if (!terms) return `No governance terms specified — partner prefers ${preference.replace(/_/g, ' ')}`;
+  if (rawScore >= 100) return `${preference.replace(/_/g, ' ')} preference matched`;
+  if (rawScore >= 70) return `Partial match: partner prefers ${preference.replace(/_/g, ' ')} — terms mention governance`;
+  return `Mismatch: partner wants ${preference.replace(/_/g, ' ')}`;
+}
+
+/** Build a human-readable sector detail string. */
+function sectorDetail(projectTech: string, partnerSectors: string[], rawScore: number): string {
+  const cat = TECH_TO_CATEGORY[projectTech] ?? projectTech;
+  if (rawScore >= 100) return `${cat} sector match — direct overlap`;
+  if (rawScore >= 50) return `${cat} adjacent sector match`;
+  return 'No sector overlap';
+}
+
+/** Build a human-readable geography detail string. */
+function geographyDetail(region: string | undefined, country: string, focus: string[], rawScore: number): string {
+  if (rawScore >= 100) return `Same province: ${region}`;
+  if (rawScore >= 75) return `Same country: ${country}`;
+  if (rawScore >= 50) return `No specific province overlap${focus.length ? ` (focus: ${focus.join(', ')})` : ''}`;
+  return `Outside partner geographic focus${focus.length ? ` (focus: ${focus.join(', ')})` : ''}`;
+}
+
+// ── Sector mapping helpers (shared across capital + technical) ────────────
+
+const TECH_TO_CATEGORY: Record<string, string> = {
+  SOLAR: 'SOLAR', SOLAR_PV: 'SOLAR', CONCENTRATED_SOLAR: 'SOLAR', CSP: 'SOLAR',
+  WIND: 'WIND', ONSHORE_WIND: 'WIND', OFFSHORE_WIND: 'WIND',
+  HYDRO: 'HYDRO', RUN_OF_RIVER: 'HYDRO', LARGE_HYDRO: 'HYDRO', SMALL_HYDRO: 'HYDRO',
+  STORAGE: 'STORAGE', BATTERY_STORAGE: 'STORAGE', PUMPED_HYDRO: 'STORAGE',
+  BIOMASS: 'BIOMASS', GEOTHERMAL: 'GEOTHERMAL', GRID_INFRA: 'GRID_INFRA',
+};
+
+// ── Calculate Capital Match Score ────────────────────────────────────────
+
+export function calculateCapitalMatchScore(
+  project: Project,
+  partner: CapitalPartner,
+  hasAcceptedEPC: boolean = false
+): CapitalMatchResult {
+  let score = 0;
+
+  // Capital Range Overlap (30%)
+  const capitalOverlap = calculateCapitalOverlap(
+    project.capital_required,
+    partner.min_ticket_size,
+    partner.max_ticket_size
+  );
+  score += capitalOverlap * CAPITAL_MATCH_WEIGHTS.capital_range_overlap;
+
+  // Structure Compatibility (20%)
+  const structureMatch = calculateStructureMatch(project, partner);
+  score += structureMatch * CAPITAL_MATCH_WEIGHTS.structure_compatibility;
+
+  // Risk Tolerance Alignment (15%)
+  const readinessScore = project.scores?.regulatory_score || 50;
+  const riskAlignment = calculateRiskAlignment(project.risk_disclosures, partner.risk_tolerance, readinessScore);
+  score += riskAlignment * CAPITAL_MATCH_WEIGHTS.risk_tolerance_alignment;
+
+  // Governance Preference Alignment (15%)
+  const governanceAlignment = calculateGovernanceAlignment(project.governance_terms, partner.governance_preference);
+  score += governanceAlignment * CAPITAL_MATCH_WEIGHTS.governance_preference_alignment;
+
+  // Sector Match (10%)
+  const projectCategory = TECH_TO_CATEGORY[project.technology_type] ?? project.technology_type;
+  const partnerCategories = (partner.sector_focus ?? []).map(s => TECH_TO_CATEGORY[s] ?? s);
+  const sectorMatch = partnerCategories.includes(projectCategory) ? 100 : 50;
+  score += sectorMatch * CAPITAL_MATCH_WEIGHTS.sector_match;
+
+  // Geographic Match (10%)
+  const geoFocus = partner.geographic_focus ?? [];
+  const geoMatch = geoFocus.length === 0 ? 50
+    : geoFocus.includes(project.location_region ?? '') ? 100
+    : geoFocus.includes(project.location_country) ? 75
+    : 0;
+  score += geoMatch * CAPITAL_MATCH_WEIGHTS.geographic_match;
+
+  // Project Stage Alignment — flat bonus
+  let stageBonus = 0;
+  if (partner.preferred_project_stage && partner.preferred_project_stage.includes(project.project_stage)) {
+    stageBonus = 5;
+    score += stageBonus;
+  }
+
+  // Joint Entity Bonus — flat bonus for accepted EPC engagement
+  let epcBonus = 0;
+  if (hasAcceptedEPC) {
+    epcBonus = 10;
+    score += epcBonus;
+  }
+
+  const compatibilityScore = Math.min(100, Math.round(score));
+
+  return {
+    id: '',
+    project_id: project.id,
+    capital_partner_id: partner.id,
+    compatibility_score: compatibilityScore,
+    score_breakdown: {
+      // PRD §5.4 — detailed breakdown with human-readable explanations
+      capital_overlap: {
+        score: Math.round(capitalOverlap * CAPITAL_MATCH_WEIGHTS.capital_range_overlap),
+        detail: capitalOverlapDetail(project.capital_required, partner.min_ticket_size, partner.max_ticket_size, capitalOverlap),
+      },
+      structure: {
+        score: Math.round(structureMatch * CAPITAL_MATCH_WEIGHTS.structure_compatibility),
+        detail: structureDetail(project.capital_structure_type, partner.preferred_capital_structure, structureMatch),
+      },
+      risk: {
+        score: Math.round(riskAlignment * CAPITAL_MATCH_WEIGHTS.risk_tolerance_alignment),
+        detail: riskDetail(partner.risk_tolerance, riskAlignment, !!project.risk_disclosures),
+      },
+      governance: {
+        score: Math.round(governanceAlignment * CAPITAL_MATCH_WEIGHTS.governance_preference_alignment),
+        detail: governanceDetail(project.governance_terms, partner.governance_preference, governanceAlignment),
+      },
+      sector: {
+        score: Math.round(sectorMatch * CAPITAL_MATCH_WEIGHTS.sector_match),
+        detail: sectorDetail(project.technology_type, partner.sector_focus ?? [], sectorMatch),
+      },
+      geography: {
+        score: Math.round(geoMatch * CAPITAL_MATCH_WEIGHTS.geographic_match),
+        detail: geographyDetail(project.location_region, project.location_country, geoFocus, geoMatch),
+      },
+      bonuses: {
+        stage_alignment: { score: stageBonus, detail: stageBonus > 0 ? `Project stage ${project.project_stage.replace(/_/g, ' ')} matches partner preference` : 'No stage match' },
+        joint_entity: { score: epcBonus, detail: epcBonus > 0 ? 'Accepted EPC engagement — joint entity bonus applied' : 'No accepted EPC engagement' },
+      },
+      // Legacy flat keys (backward compat for existing UI code)
+      capital_range_overlap: Math.round(capitalOverlap),
+      structure_compatibility: Math.round(structureMatch),
+      risk_tolerance_alignment: Math.round(riskAlignment),
+      governance_preference_alignment: Math.round(governanceAlignment),
+      sector_match: Math.round(sectorMatch),
+      geographic_match: Math.round(geoMatch),
+    },
+    created_at: new Date().toISOString(),
+  };
+}
+
+// ── Helper functions ─────────────────────────────────────────────────────
+
+function calculateCapitalOverlap(projectCapital: number, minTicket: number, maxTicket: number): number {
+  if (!projectCapital || !minTicket || !maxTicket) return 50;
+  
+  if (projectCapital >= minTicket && projectCapital <= maxTicket) {
+    return 100;
+  }
+  
+  if (projectCapital < minTicket) {
+    const diff = minTicket - projectCapital;
+    if (diff / minTicket < 0.2) return 80;
+    return Math.max(0, 100 - (diff / minTicket) * 100);
+  }
+  
+  const diff = projectCapital - maxTicket;
+  if (diff / maxTicket < 0.2) return 80;
+  return Math.max(0, 100 - (diff / maxTicket) * 100);
+}
+
+function calculateStructureMatch(project: Project, partner: CapitalPartner): number {
+  if (!project.capital_structure_type) return 50;
+  if (partner.preferred_capital_structure?.includes(project.capital_structure_type)) return 100;
+  return 0;
+}
+
+function calculateRiskAlignment(riskDisclosures: string | undefined, riskTolerance: string, regulatoryScore: number): number {
+  let baseScore = 50;
+  switch (riskTolerance) {
+    case 'LOW':
+      baseScore = regulatoryScore > 30 ? 90 : 40;
+      break;
+    case 'MEDIUM':
+      baseScore = regulatoryScore > 20 ? 85 : 60;
+      break;
+    case 'HIGH':
+      baseScore = 100;
+      break;
+    default:
+      baseScore = 50;
+  }
+  if (riskDisclosures) baseScore += 10;
+  return Math.min(100, baseScore);
+}
+
+function calculateGovernanceAlignment(governanceTerms: string | undefined, preference: string): number {
+  if (!governanceTerms) return 50;
+  const terms = governanceTerms.toLowerCase();
+  if (preference === 'ACTIVE_ROLE' && (terms.includes('active') || terms.includes('management'))) return 100;
+  if (preference === 'BOARD_SEAT' && (terms.includes('board') || terms.includes('seat'))) return 100;
+  if (preference === 'PASSIVE' && (terms.includes('passive') || terms.includes('no control'))) return 100;
+  return 70;
+}
+
+// ── Technical Matching ───────────────────────────────────────────────────
+
+const NEW_TECHNICAL_MATCH_WEIGHTS = {
+  sector_tech: 0.25,
+  project_size: 0.25,
+  ticket_size: 0.20,
+  geography: 0.15,
+  experience: 0.15,
+};
+
+/** Build human-readable sector/tech detail for technical matching. */
+function techSectorDetail(tech: string, experience: string[], rawScore: number): string {
+  if (rawScore >= 100) return `${tech.replace(/_/g, ' ')} — direct sector experience`;
+  if (rawScore >= 50) return `${tech.replace(/_/g, ' ')} — adjacent sector (experience in ${experience.slice(0, 3).join(', ')})`;
+  return `No sector experience in ${tech.replace(/_/g, ' ')}`;
+}
+
+/** Build human-readable project-size detail. */
+function sizeDetail(mw: number, min: number, max: number, rawScore: number): string {
+  if (rawScore >= 100) return `${mw} MW within partner capacity (${min}–${max} MW)`;
+  if (rawScore >= 50) return `${mw} MW within 20% of partner range (${min}–${max} MW)`;
+  return `${mw} MW outside partner capacity (${min}–${max} MW)`;
+}
+
+/** Build human-readable ticket-size detail. */
+function ticketDetail(required: number, min: number | undefined, max: number | undefined, rawScore: number): string {
+  if (!min || !max) return 'Partner has no ticket size set';
+  if (rawScore >= 100) return `${fmtMoney(required)} within partner ticket range (${fmtMoney(min)}–${fmtMoney(max)})`;
+  if (rawScore >= 50) return `${fmtMoney(required)} within 20% of partner ticket range (${fmtMoney(min)}–${fmtMoney(max)})`;
+  return `${fmtMoney(required)} outside partner ticket range (${fmtMoney(min)}–${fmtMoney(max)})`;
+}
+
+/** Build human-readable geography detail for technical matching. */
+function techGeoDetail(region: string | undefined, country: string, operated: string[], rawScore: number): string {
+  if (rawScore >= 100) return `Operates in same province: ${region}`;
+  if (rawScore >= 50) return `Operates in same country: ${country}`;
+  return `No geographic overlap${operated.length ? ` (operates in: ${operated.join(', ')})` : ''}`;
+}
+
+/** Build human-readable experience detail. */
+function experienceDetail(years: number | undefined, isExperienced: boolean | undefined, isNew: boolean | undefined, rawScore: number): string {
+  const yrs = years ?? 0;
+  let d = `${yrs} years of experience`;
+  if (isExperienced) d += ' + experienced leadership (bonus applied)';
+  if (isNew && yrs < 2 && !isExperienced) d += ' — young company penalty applied';
+  if (rawScore <= 0) d = 'Insufficient experience data';
+  return d;
+}
+
+export function calculateTechnicalMatchScore(
+  project: Project,
+  partner: TechnicalPartner
+): TechnicalMatchResult {
+  let score = 0;
+
+  // 1. Sector/Technology (25%)
+  const sectorScore = calculateSectorScore(project.technology_type, partner.sector_experience);
+  score += sectorScore * NEW_TECHNICAL_MATCH_WEIGHTS.sector_tech;
+
+  // 2. Project Size MW (25%)
+  const sizeScore = calculateProjectSizeScore(project.project_size_mw, partner.min_mw_capacity, partner.max_mw_capacity);
+  score += sizeScore * NEW_TECHNICAL_MATCH_WEIGHTS.project_size;
+
+  // 3. Ticket Size (20%)
+  const ticketScore = calculateTicketSizeScore(project.capital_required, partner.min_ticket_size_zmw, partner.max_ticket_size_zmw);
+  score += ticketScore * NEW_TECHNICAL_MATCH_WEIGHTS.ticket_size;
+
+  // 4. Geography (15%)
+  const geoScore = calculateGeoScore(project.location_country, project.location_region, partner.regions_operated, partner.company?.country);
+  score += geoScore * NEW_TECHNICAL_MATCH_WEIGHTS.geography;
+
+  // 5. Experience (15%)
+  let experienceScore = Math.min(100, (partner.years_of_experience || 0) * 10);
+  if (partner.company?.is_new_company_with_experienced_team) {
+    experienceScore += 10;
+  }
+  if (partner.company?.years_operating && partner.company.years_operating < 2) {
+    const mgmtExp = partner.company.management_team_experience;
+    if (!partner.company.is_new_company_with_experienced_team && (!mgmtExp || mgmtExp.years < 5)) {
+      experienceScore -= 15;
+    }
+  }
+  experienceScore = Math.max(0, Math.min(100, experienceScore));
+  score += experienceScore * NEW_TECHNICAL_MATCH_WEIGHTS.experience;
+
+  const compatibilityScore = Math.round(score);
+
+  return {
+    id: '',
+    project_id: project.id,
+    technical_partner_id: partner.id,
+    compatibility_score: compatibilityScore,
+    score_breakdown: {
+      // PRD-style detailed breakdown with { score, detail } objects
+      sector_tech: {
+        score: Math.round(sectorScore * NEW_TECHNICAL_MATCH_WEIGHTS.sector_tech),
+        detail: techSectorDetail(project.technology_type, partner.sector_experience, sectorScore),
+      },
+      project_size: {
+        score: Math.round(sizeScore * NEW_TECHNICAL_MATCH_WEIGHTS.project_size),
+        detail: sizeDetail(project.project_size_mw, partner.min_mw_capacity, partner.max_mw_capacity, sizeScore),
+      },
+      ticket_size: {
+        score: Math.round(ticketScore * NEW_TECHNICAL_MATCH_WEIGHTS.ticket_size),
+        detail: ticketDetail(project.capital_required, partner.min_ticket_size_zmw, partner.max_ticket_size_zmw, ticketScore),
+      },
+      geography: {
+        score: Math.round(geoScore * NEW_TECHNICAL_MATCH_WEIGHTS.geography),
+        detail: techGeoDetail(project.location_region, project.location_country, partner.regions_operated, geoScore),
+      },
+      experience: {
+        score: Math.round(experienceScore * NEW_TECHNICAL_MATCH_WEIGHTS.experience),
+        detail: experienceDetail(partner.years_of_experience, partner.company?.is_new_company_with_experienced_team, partner.company?.years_operating !== undefined && partner.company.years_operating < 2, experienceScore),
+      },
+      // Legacy flat keys (backward compat) — use `raw_` prefix to avoid
+      // overwriting the PRD §5.4 detailed objects above which use the same keys.
+      raw_sector_tech: Math.round(sectorScore),
+      raw_project_size: Math.round(sizeScore),
+      raw_ticket_size: Math.round(ticketScore),
+      raw_geography: Math.round(geoScore),
+      raw_experience: Math.round(experienceScore),
+    },
+    created_at: new Date().toISOString(),
+  };
+}
+
+function calculateSectorScore(tech: string, experience: string[]): number {
+  if (!experience || experience.length === 0) return 0;
+  // Normalise both sides through TECH_TO_CATEGORY so that project technology_type
+  // (e.g. 'SOLAR_PV', 'ONSHORE_WIND') correctly matches partner sector_experience
+  // (e.g. 'SOLAR', 'WIND') from the onboarding multi-select.
+  const projectCategory = TECH_TO_CATEGORY[tech] ?? tech;
+  const partnerCategories = experience.map(s => TECH_TO_CATEGORY[s] ?? s);
+  if (partnerCategories.includes(projectCategory)) return 100;
+  // Check adjacencies using the normalised project category
+  const adjacencies: Record<string, string[]> = {
+    'SOLAR': ['STORAGE'],
+    'WIND': ['STORAGE'],
+    'STORAGE': ['SOLAR', 'WIND'],
+    'HYDRO': ['GEOTHERMAL', 'BIOMASS'],
+    'GEOTHERMAL': ['HYDRO'],
+    'BIOMASS': ['HYDRO'],
+  };
+  const isAdjacent = adjacencies[projectCategory]?.some(adj => partnerCategories.includes(adj));
+  return isAdjacent ? 50 : 0;
+}
+
+function calculateProjectSizeScore(projectMW: number, minMW: number, maxMW: number): number {
+  if (projectMW >= minMW && projectMW <= maxMW) return 100;
+  if (projectMW < minMW && (minMW - projectMW) / minMW <= 0.2) return 50;
+  if (projectMW > maxMW && (projectMW - maxMW) / maxMW <= 0.2) return 50;
+  return 0;
+}
+
+function calculateTicketSizeScore(required: number, min: number | undefined, max: number | undefined): number {
+  if (!min || !max) return 50;
+  if (required >= min && required <= max) return 100;
+  if (required < min && (min - required) / min <= 0.2) return 50;
+  if (required > max && (required - max) / max <= 0.2) return 50;
+  return 0;
+}
+
+function calculateGeoScore(country: string, region: string | undefined, operated: string[], partnerCountry: string | undefined): number {
+  if (!operated || operated.length === 0) return 0;
+  if (operated.includes(region || '')) return 100;
+  if (operated.includes(country)) return 50;
+  if (partnerCountry === country) return 50;
+  return 0;
+}
+
+// ── Consultant Matching ──────────────────────────────────────────────────
+
+const CONSULTANT_MATCH_WEIGHTS = {
+  sector_tech: 0.25,
+  service_fit: 0.25,
+  project_size: 0.15,
+  geography: 0.15,
+  experience: 0.20,
+};
+
+/** Build human-readable service-fit detail for consultant matching. */
+function consultantServiceDetail(requiredServices: string[] | undefined, categories: string[], rawScore: number): string {
+  const services = (requiredServices ?? []).map(s => s.replace(/_/g, ' ').toLowerCase());
+  const list = categories.map(c => c.replace(/_/g, ' ')).slice(0, 3).join(', ');
+  if (rawScore >= 100) return `Expertise directly covers required services: ${services.join(', ')}`;
+  if (rawScore >= 50) return `Partial service fit (covers: ${list || 'none listed'})`;
+  return `No overlap with required services${list ? ` (offers: ${list})` : ''}`;
+}
+
+/** Build human-readable consultant experience detail. */
+function consultantExperienceDetail(years: number | undefined, projects: number | undefined): string {
+  const yrs = years ?? 0;
+  const completed = projects ?? 0;
+  let d = `${yrs} years of experience · ${completed} projects completed`;
+  if (yrs >= 10) d += ' — deep sector expertise';
+  else if (yrs >= 5) d += ' — established track record';
+  else d += ' — developing track record';
+  return d;
+}
+
+/**
+ * Score a consultant profile against a project. Mirrors the technical scorer
+ * using the consultants table fields. Consultants are eligible at the stages
+ * where the CONSULTANT partner category is allowed (see project-stages.ts).
+ */
+export function calculateConsultantMatchScore(
+  project: Project,
+  partner: ConsultantProfile
+): ConsultantMatchResult {
+  let score = 0;
+
+  // 1. Sector/Technology (25%)
+  const sectorScore = calculateSectorScore(project.technology_type, partner.sector_experience);
+  score += sectorScore * CONSULTANT_MATCH_WEIGHTS.sector_tech;
+
+  // 2. Service Fit (25%) — does the consultant cover the project's required services?
+  const requiredServices = project.tech_requirements?.required_services;
+  const categories = partner.service_categories ?? [];
+  let serviceScore = 50;
+  if (requiredServices && requiredServices.length > 0) {
+    const normalizedRequired = requiredServices.map(s => s.replace(/_/g, ' ').toLowerCase());
+    const normalizedCategories = categories.map(c => c.replace(/_/g, ' ').toLowerCase());
+    const overlap = normalizedRequired.filter(s => normalizedCategories.includes(s));
+    serviceScore = overlap.length === requiredServices.length ? 100
+      : overlap.length > 0 ? 50
+      : 0;
+  }
+  score += serviceScore * CONSULTANT_MATCH_WEIGHTS.service_fit;
+
+  // 3. Project Size (15%) — largest project MW vs project MW
+  const sizeScore = partner.largest_project_mw
+    ? calculateProjectSizeScore(project.project_size_mw, 0, partner.largest_project_mw)
+    : 50;
+  score += sizeScore * CONSULTANT_MATCH_WEIGHTS.project_size;
+
+  // 4. Geography (15%)
+  const geoScore = calculateGeoScore(project.location_country, project.location_region, partner.regions_operated, partner.company?.country);
+  score += geoScore * CONSULTANT_MATCH_WEIGHTS.geography;
+
+  // 5. Experience (20%)
+  const years = partner.years_of_experience ?? 0;
+  let experienceScore = Math.min(100, years * 10);
+  const projectsCompleted = partner.total_projects_completed ?? 0;
+  if (projectsCompleted >= 10) experienceScore += 10;
+  experienceScore = Math.max(0, Math.min(100, experienceScore));
+  score += experienceScore * CONSULTANT_MATCH_WEIGHTS.experience;
+
+  const compatibilityScore = Math.round(score);
+
+  return {
+    id: '',
+    project_id: project.id,
+    consultant_id: partner.id,
+    compatibility_score: compatibilityScore,
+    score_breakdown: {
+      sector_tech: {
+        score: Math.round(sectorScore * CONSULTANT_MATCH_WEIGHTS.sector_tech),
+        detail: techSectorDetail(project.technology_type, partner.sector_experience, sectorScore),
+      },
+      service_fit: {
+        score: Math.round(serviceScore * CONSULTANT_MATCH_WEIGHTS.service_fit),
+        detail: consultantServiceDetail(requiredServices, categories, serviceScore),
+      },
+      project_size: {
+        score: Math.round(sizeScore * CONSULTANT_MATCH_WEIGHTS.project_size),
+        detail: sizeDetail(project.project_size_mw, 0, partner.largest_project_mw ?? 0, sizeScore),
+      },
+      geography: {
+        score: Math.round(geoScore * CONSULTANT_MATCH_WEIGHTS.geography),
+        detail: techGeoDetail(project.location_region, project.location_country, partner.regions_operated, geoScore),
+      },
+      experience: {
+        score: Math.round(experienceScore * CONSULTANT_MATCH_WEIGHTS.experience),
+        detail: consultantExperienceDetail(years, projectsCompleted),
+      },
+      raw_sector_tech: Math.round(sectorScore),
+      raw_service_fit: Math.round(serviceScore),
+      raw_project_size: Math.round(sizeScore),
+      raw_geography: Math.round(geoScore),
+      raw_experience: Math.round(experienceScore),
+    },
+    created_at: new Date().toISOString(),
+  };
+}

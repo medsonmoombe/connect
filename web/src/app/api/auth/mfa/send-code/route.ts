@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
 
     // Generate and store the code FIRST
     const code = generateMfaCode();
+    // TODO(TEMP): log the OTP to server logs for local testing — REMOVE before production.
+    console.log(`[MFA][TEMP] OTP for ${user.email}: ${code} (valid ${MFA_CODE_EXPIRY_MINUTES} min)`);
     const codeHash = hashMfaCode(code);
     const expiresAt = new Date(Date.now() + MFA_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
 
@@ -60,10 +62,7 @@ export async function POST(req: NextRequest) {
       return serverError('Failed to generate verification code.');
     }
 
-    // Log the code for debugging (TEMPORARY — remove in production)
-    console.log(`[MFA] Code for ${user.email}: ${code}`);
-
-    // Try to send via Resend — if it fails, the code is still in DB and logged
+    // Try to send via Resend â€” if it fails, the code is still in DB and logged
     const sendResult = await sendMfaCodeEmail({
       to: user.email!,
       fullName: profile.full_name || user.email!,
@@ -71,10 +70,15 @@ export async function POST(req: NextRequest) {
     });
 
     if (!sendResult.success) {
-      console.error('[MFA] Email send failed (code is still valid):', sendResult.error);
-      // Return success anyway — the code is stored and logged for dev use
-      // In production with a verified Resend domain, this path won't hit
-      return Response.json({ success: true, note: 'Code generated. Check server logs if email not received.' });
+      // Delivery failed (e.g. Resend unconfigured on this environment) but the
+      // code IS stored and usable — in dev it's also printed to the server log.
+      // Don't dead-end the user: report a recoverable delivery problem and let
+      // verification proceed with the stored code.
+      console.error('[MFA] Email send failed:', sendResult.error);
+      return Response.json(
+        { success: false, delivered: false, warning: 'We couldn\u2019t deliver the email right now. The code was generated — check your server logs in development, or try resending.' },
+        { status: 200 }
+      );
     }
 
     // NOW invalidate old codes only after successful send

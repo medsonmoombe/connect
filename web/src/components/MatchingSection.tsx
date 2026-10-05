@@ -24,9 +24,7 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
 
   const engagedPartnerIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const e of engagements) {
-      ids.add(e.counterparty_id);
-    }
+    for (const e of engagements) ids.add(e.counterparty_id);
     return ids;
   }, [engagements]);
 
@@ -45,7 +43,7 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
     setSendingId(partnerId);
     try {
       await engagementService.requestIntroduction(projectId, partnerId, type);
-      setSentIds([...sentIds, partnerId]);
+      setSentIds(prev => [...prev, partnerId]);
     } catch (error) {
       console.error('Error expressing interest:', error);
     } finally {
@@ -54,150 +52,171 @@ export function MatchingSection({ projectId, projectTechnology, capitalMatches, 
   };
 
   return (
-    <div className="mt-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="overflow-hidden rounded-none border border-line bg-white shadow-[0_1px_2px_rgba(22,36,28,0.05)]">
+
+      {/* Dark-green header — matches SectionCard pattern */}
+      <div className="bg-[#0b3b24] px-6 py-4 flex items-center justify-between gap-4">
         <div>
-          <p className="dash-section-label mb-1">AI Matching Engine</p>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Matched Partners</h2>
+          <p className="text-[10px] font-bold text-emerald-200/50 uppercase tracking-widest mb-0.5">AI Matching Engine</p>
+          <h2 className="text-sm font-bold text-white">Matched Partners</h2>
         </div>
-        <div className="flex bg-slate-100 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('CAPITAL')}
-            className={cn(
-              "px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
-              activeTab === 'CAPITAL' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
-            )}
-          >
-            Capital
-          </button>
-          <button
-            onClick={() => setActiveTab('TECHNICAL')}
-            className={cn(
-              "px-5 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
-              activeTab === 'TECHNICAL' ? "bg-white text-primary shadow-sm" : "text-slate-400 hover:text-slate-600"
-            )}
-          >
-            Technical
-          </button>
+
+        {/* Tab switcher */}
+        <div className="flex items-center gap-1 bg-white/10 p-1 rounded-none">
+          {(['CAPITAL', 'TECHNICAL'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                'px-4 py-1.5 rounded-none text-[10px] font-bold uppercase tracking-widest transition-all',
+                activeTab === tab
+                  ? 'bg-white text-green-900 shadow-sm'
+                  : 'text-emerald-200/70 hover:text-white',
+              )}
+            >
+              {tab === 'CAPITAL' ? 'Capital' : 'Technical'}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Match Cards */}
-      {matches.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {matches.map((match) => {
-            const partner = activeTab === 'CAPITAL'
-              ? (match as CapitalMatchResult).capital_partner
-              : (match as TechnicalMatchResult).technical_partner;
-            if (!partner) return null;
+      {/* Body */}
+      <div className="p-6">
+        {matches.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {matches.map((match) => {
+              const partner = activeTab === 'CAPITAL'
+                ? (match as CapitalMatchResult).capital_partner
+                : (match as TechnicalMatchResult).technical_partner;
+              if (!partner) return null;
 
-            const isSent = sentIds.includes(partner.id);
-            const isSending = sendingId === partner.id;
-            const isAlreadyEngaged = engagedPartnerIds.has(partner.id);
-            const existingEngagement = engagedMap[partner.id];
-            const isAnonymized = activeTab === 'CAPITAL';
+              const isSent = sentIds.includes(partner.id);
+              const isSending = sendingId === partner.id;
+              const isAlreadyEngaged = engagedPartnerIds.has(partner.id);
+              const existingEngagement = engagedMap[partner.id];
+              const isAnonymized = activeTab === 'CAPITAL';
 
-            const displayName = isAnonymized
-              ? `${(partner as any).preferred_capital_structure?.[0] || 'Institutional'} Partner`
-              : partner.company?.name;
+              const displayName = isAnonymized
+                ? `${(partner as any).preferred_capital_structure?.[0] || 'Institutional'} Partner`
+                : partner.company?.name;
 
-            const displayDescription = isAnonymized
-              ? `Verified ${(partner as any).risk_tolerance?.toLowerCase() || 'institutional'} scale investor targeting ${projectTechnology || 'renewable'} infrastructure projects.`
-              : partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.';
+              const displayDescription = isAnonymized
+                ? `Verified ${(partner as any).risk_tolerance?.toLowerCase() || 'institutional'} scale investor targeting ${projectTechnology || 'renewable'} infrastructure projects.`
+                : partner.company?.description || 'Institutional partner focused on sustainable infrastructure across Africa.';
 
-            return (
-              <div key={match.id} className="dash-card p-5 flex flex-col hover:shadow-md transition-all group">
-                {/* Top Row: Icon + Score */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="h-11 w-11 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden">
-                    {partner.company?.logo_url && !isAnonymized ? (
-                      <img src={partner.company.logo_url} alt={partner.company.name} className="h-8 w-8 object-contain" />
-                    ) : (
-                      <Icons.building className="size-5 text-primary" />
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xl font-black text-primary leading-none">{match.compatibility_score}%</span>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Match</p>
-                  </div>
-                </div>
+              const score: number = match.compatibility_score;
+              const scoreColor = score >= 70 ? 'text-emerald-600' : score >= 45 ? 'text-amber-600' : 'text-slate-500';
+              const scoreBg   = score >= 70 ? 'bg-emerald-50 border-emerald-200' : score >= 45 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200';
 
-                {/* Name + Description */}
-                <h4 className="text-sm font-bold text-slate-900 mb-1 group-hover:text-primary transition-colors">{displayName}</h4>
-                <p className="text-xs text-slate-500 font-medium mb-4 line-clamp-2 leading-relaxed">{displayDescription}</p>
+              return (
+                <div key={match.id} className="border border-slate-200 bg-white hover:border-green-300 hover:shadow-md transition-all group flex flex-col">
 
-                {/* Specs */}
-                <div className="space-y-2 mb-5 flex-1">
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                    <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><MapPin className="size-3 text-primary" /></div>
-                    {activeTab === 'CAPITAL'
-                      ? (partner as any).geographic_focus?.slice(0, 2).join(', ')
-                      : (partner as any).regions_operated?.slice(0, 2).join(', ')}
-                  </div>
-                  {activeTab === 'CAPITAL' ? (
-                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                      <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><DollarSign className="size-3 text-primary" /></div>
-                      K{((partner as any).min_ticket_size / 1000000).toFixed(0)}M – K{((partner as any).max_ticket_size / 1000000).toFixed(0)}M
+                  {/* Card header */}
+                  <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="size-9 bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden">
+                        {partner.company?.logo_url && !isAnonymized ? (
+                          <img src={partner.company.logo_url} alt={partner.company.name} className="h-6 w-6 object-contain" />
+                        ) : (
+                          <Icons.building className="size-4 text-green-800" />
+                        )}
+                      </div>
+                      <p className="text-xs font-bold text-slate-900 truncate group-hover:text-green-800 transition-colors">
+                        {displayName}
+                      </p>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                      <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><Zap className="size-3 text-primary" /></div>
-                      {(partner as any).min_mw_capacity} – {(partner as any).max_mw_capacity} MW
+                    <div className={cn('shrink-0 px-2 py-1 border text-center ml-2', scoreBg)}>
+                      <span className={cn('text-sm font-black leading-none', scoreColor)}>{score}%</span>
+                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Match</p>
+                    </div>
+                  </div>
+
+                  {/* Card body */}
+                  <div className="px-4 py-3 flex-1 space-y-2">
+                    <p className="text-[11px] text-slate-500 font-medium leading-relaxed line-clamp-2">{displayDescription}</p>
+
+                    <div className="pt-1 space-y-1.5">
+                      <SpecRow icon={<MapPin className="size-3 text-green-800" />}>
+                        {activeTab === 'CAPITAL'
+                          ? (partner as any).geographic_focus?.slice(0, 2).join(', ') || '—'
+                          : (partner as any).regions_operated?.slice(0, 2).join(', ') || '—'}
+                      </SpecRow>
+
+                      {activeTab === 'CAPITAL' ? (
+                        <SpecRow icon={<DollarSign className="size-3 text-green-800" />}>
+                          K{((partner as any).min_ticket_size / 1_000_000).toFixed(0)}M – K{((partner as any).max_ticket_size / 1_000_000).toFixed(0)}M
+                        </SpecRow>
+                      ) : (
+                        <SpecRow icon={<Zap className="size-3 text-green-800" />}>
+                          {(partner as any).min_mw_capacity} – {(partner as any).max_mw_capacity} MW
+                        </SpecRow>
+                      )}
+
+                      <SpecRow icon={<ShieldCheck className="size-3 text-green-800" />}>
+                        {(partner as any).risk_tolerance || 'Track Record'} Verified
+                      </SpecRow>
+                    </div>
+                  </div>
+
+                  {/* Card footer — action */}
+                  {(isOrgAdmin || isAlreadyEngaged || isSent) && (
+                    <div className="px-4 pb-4">
+                      {isOrgAdmin ? (
+                        <Button
+                          onClick={() => !isAlreadyEngaged && !isSent && handleExpressInterest(partner.id, activeTab)}
+                          disabled={isAlreadyEngaged || isSent || isSending}
+                          className={cn(
+                            'w-full h-9 text-[10px] font-bold uppercase tracking-widest transition-all',
+                            isAlreadyEngaged || isSent
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 cursor-default shadow-none'
+                              : 'bg-[#0b3b24] text-white hover:bg-[#0d4a2e]',
+                          )}
+                          title={isAlreadyEngaged ? `Engagement: ${getStateLabel(existingEngagement?.status)}` : undefined}
+                        >
+                          {isSending ? (
+                            <Icons.spinner className="size-3.5 animate-spin" />
+                          ) : isAlreadyEngaged ? (
+                            <><Check className="size-3.5 mr-1.5" /> Engaged</>
+                          ) : isSent ? (
+                            <><Check className="size-3.5 mr-1.5" /> Interest Sent</>
+                          ) : (
+                            <><Send className="size-3.5 mr-1.5" /> Express Interest</>
+                          )}
+                        </Button>
+                      ) : (isAlreadyEngaged || isSent) ? (
+                        <div className="w-full h-9 bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center text-[10px] font-bold uppercase tracking-widest">
+                          <Check className="size-3.5 mr-1.5" /> {isAlreadyEngaged ? 'Engaged' : 'Interest Sent'}
+                        </div>
+                      ) : null}
                     </div>
                   )}
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-                    <div className="h-5 w-5 rounded bg-slate-50 flex items-center justify-center"><ShieldCheck className="size-3 text-primary" /></div>
-                    {(partner as any).risk_tolerance || 'Track Record'} Verified
-                  </div>
                 </div>
-
-                {/* Action */}
-                {isOrgAdmin && (
-                  <Button
-                    onClick={() => !isAlreadyEngaged && handleExpressInterest(partner.id, activeTab)}
-                    disabled={isAlreadyEngaged || isSent || isSending}
-                    className={cn(
-                      "w-full h-10 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
-                      isAlreadyEngaged
-                        ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
-                        : isSent
-                        ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
-                        : "bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10"
-                    )}
-                    title={isAlreadyEngaged ? `Engagement exists (${existingEngagement?.status})` : undefined}
-                  >
-                    {isSending ? (
-                      <Icons.spinner className="size-3.5 animate-spin" />
-                    ) : isAlreadyEngaged ? (
-                      <><Check className="size-3.5 mr-1.5" /> Expressed</>
-                    ) : isSent ? (
-                      <><Check className="size-3.5 mr-1.5" /> Sent</>
-                    ) : (
-                      <><Send className="size-3.5 mr-1.5" /> Express Interest</>
-                    )}
-                  </Button>
-                )}
-                {!isOrgAdmin && (isAlreadyEngaged || isSent) && (
-                  <div className="w-full h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center text-xs font-bold uppercase tracking-widest">
-                    <Check className="size-3.5 mr-1.5" /> {isAlreadyEngaged ? 'Expressed' : 'Interest Sent'}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="dash-card p-10 text-center">
-          <div className="h-12 w-12 bg-slate-50 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <Icons.search className="size-6 text-slate-300" />
+              );
+            })}
           </div>
-          <h4 className="text-sm font-bold text-slate-900 mb-1">No Matches Yet</h4>
-          <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto">
-            Complete your project documentation to help our matching engine find the right partners.
-          </p>
-        </div>
-      )}
+        ) : (
+          <div className="py-12 text-center border border-dashed border-slate-200">
+            <div className="size-12 bg-slate-50 border border-slate-200 flex items-center justify-center mx-auto mb-4">
+              <Icons.search className="size-5 text-slate-300" />
+            </div>
+            <h4 className="text-sm font-bold text-slate-900 mb-1">No Matches Yet</h4>
+            <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto leading-relaxed">
+              Complete your project documentation to help our matching engine find the right partners.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SpecRow({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-700">
+      <div className="size-5 bg-green-50 border border-green-100 flex items-center justify-center shrink-0">
+        {icon}
+      </div>
+      <span className="truncate">{children}</span>
     </div>
   );
 }

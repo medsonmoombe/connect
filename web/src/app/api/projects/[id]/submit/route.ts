@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, forbidden, handleRouteError, badRequest, findProjectCreator } from '@/lib/api-helpers';
+import { getAuthenticatedUser, forbidden, handleRouteError, badRequest, findProjectCreator, getIdempotencyResponse, saveIdempotencyResponse } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { transitionProject } from '@/lib/project-state-machine';
+import { transitionProject, resolveActorRole, STATUS_LABELS, type ProjectStatus } from '@/lib/project-state-machine';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { createNotification, createNotifications, notificationBuilders } from '@/lib/notify';
 import { sendEmail } from '@/lib/email';
@@ -13,290 +13,334 @@ import {
 
 type Params = { params: Promise<{ id: string }> };
 
+const ROUTE = 'POST /api/projects/[id]/submit';
+
 /**
  * POST /api/projects/[id]/submit
  *
- * - direct mode:          draft|returned → submitted  (platform admins notified)
- * - internal_review mode: draft|returned → pending_internal_review  (reviewer notified)
+ * Entry point of the developer-owned project lifecycle.
+ *
+ *   - internal_review mode:  draft → scoring    (internal reviewer notified; AI
+ *                                              scoring also fires from /analyze
+ *                                              which then moves scoring → under_review)
+ *   - direct mode:           draft → under_review  (AI analysis runs from the
+ *                                              submit page; analyze route lands
+ *                                              on under_review)
+ *
+ * `pending_live` and `returned` are no longer used as transitions for the
+ * developer flow. The review queue (`under_review`) is now the explicit
+ * authority / platform-admin review state.
+ *
+ * Idempotent (PRD §14): an `Idempotency-Key` header replays the prior response
+ * for 24h. The actual status move is an atomic CAS in `transitionProject`, so
+ * a double-submit never double-transitions.
  */
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
     const { id } = await params;
 
-    const rl = checkRateLimit(user.id, { prefix: 'project-submit', limit: 5, windowMs: 60 * 60_000 });
-    if (!rl.allowed) {
-      return Response.json({ error: 'Too many submissions. Try again later.' }, { status: 429 });
+    // ── Idempotency replay (before any work) ────────────────────────────────
+    if (user.id) {
+      const replay = await getIdempotencyResponse(req, user.id, ROUTE);
+      if (replay) return replay;
+    }
+
+    // ── Per-user rate limit ─────────────────────────────────────────────────
+    if (user.id) {
+      const rl = await checkRateLimit(user.id, { prefix: 'project-submit', limit: 5, windowMs: 60 * 60_000 });
+      if (!rl.allowed) {
+        return Response.json({ error: 'Too many submissions. Try again later.' }, { status: 429 });
+      }
     }
 
     const supabase = getSupabaseAdmin();
 
+    // ── Load project + owning org ───────────────────────────────────────────
     const { data: project, error: fetchError } = await supabase
       .from('projects')
-      .select('developer_id, status, id, created_by')
+      .select('id, developer_id, status, created_by')
       .eq('id', id)
-      .single();
+      .is('deleted_at', null)
+      .maybeSingle();
 
-    if (fetchError || !project) {
-      return Response.json({ error: 'Project not found' }, { status: 404 });
-    }
+    if (fetchError || !project) return Response.json({ error: 'Project not found' }, { status: 404 });
 
     if (!user.is_platform_admin && project.developer_id !== user.company_id) {
       return forbidden();
     }
 
-    if (project.status !== 'draft' && project.status !== 'returned') {
-      return badRequest(`Project is already ${project.status}. Only draft or returned projects can be submitted.`);
+    // Only draft projects can be submitted (previously `returned` is now `draft`).
+    const from = project.status as ProjectStatus;
+    if (from !== 'draft') {
+      return badRequest(`Project is ${STATUS_LABELS[from]}. Only draft projects can be submitted.`);
     }
 
     const { data: org } = await supabase
       .from('companies')
       .select('project_submission_mode, internal_reviewer_id, name')
       .eq('id', project.developer_id)
-      .single();
+      .maybeSingle();
 
-    const mode = org?.project_submission_mode ?? 'direct';
+    // Treat a missing org row as direct-mode — don't block resubmission
+    const orgName = org?.name || 'Unknown Organisation';
+
+    const mode = (org?.project_submission_mode ?? 'direct') as 'direct' | 'internal_review';
+    const isInternalReview = mode === 'internal_review' && !!org?.internal_reviewer_id;
+
+    // Target status + role for the transition.
+    // Both modes land in `scoring` first; the analyze route drives the
+    // scoring → under_review transition once AI analysis completes.
+    const toStatus: ProjectStatus = 'scoring';
+    const actorRole = resolveActorRole({
+      isPlatformAdmin: user.is_platform_admin,
+      developerId: project.developer_id,
+      userCompanyId: user.company_id,
+    });
+
+    if (!actorRole) return forbidden();
+
+    const creator = await findProjectCreator(supabase, project.developer_id, project.created_by);
 
     const { data: fullProject } = await supabase
       .from('projects')
-      .select('name, technology_type, location_country, project_size_mw, capital_required, capital_structure_type, project_stage')
+      .select('name, rejection_reason')
       .eq('id', id)
       .single();
-
-    const requiredFields = ['name', 'technology_type', 'location_country', 'project_size_mw', 'capital_required', 'capital_structure_type', 'project_stage'];
-    const missingFields = requiredFields.filter(f => {
-      const val = (fullProject as any)?.[f];
-      return val === null || val === undefined || val === '' || val === 0;
-    });
-
-    if (missingFields.length > 0) {
-      return badRequest(`Missing required fields: ${missingFields.join(', ')}`);
-    }
-
-    const { count } = await supabase
-      .from('project_documents')
-      .select('*', { count: 'exact', head: true })
-      .eq('project_id', id);
-
-    if (!count || count < 1) {
-      return badRequest('At least 1 document must be uploaded before submitting.');
-    }
-
     const projectName = fullProject?.name || 'Untitled Project';
-    const creator = await findProjectCreator(supabase, project.developer_id, project.created_by);
+    const isResubmission = !!fullProject?.rejection_reason;
 
-    // Always clear any previous return/rejection reason on resubmit
-    await supabase.from('projects').update({ rejection_reason: null }).eq('id', id);
+    // Clear any prior rejection reason on this resubmit.
+    const patch = { rejection_reason: null };
 
-    // ── Internal review mode ──────────────────────────────────────────────────
-    if (mode === 'internal_review' && org?.internal_reviewer_id) {
-      const result = await transitionProject({
-        projectId: id,
-        toStatus: 'pending_internal_review',
-        actorId: user.id!,
-        req,
-      });
-
-      if (!result.success) {
-        return badRequest(result.error || 'Failed to submit project for internal review');
-      }
-
-      // 1. Notify internal reviewer — in-app + email
-      await createNotification({
-        userId: org.internal_reviewer_id,
-        payload: notificationBuilders.projectPendingInternalReview({
-          projectName,
-          submitterName: creator?.full_name || 'A team member',
-          orgName: org?.name || 'your organization',
-          actionUrl: `/projects/${id}`,
-        }),
-      });
-
-      // Fetch reviewer profile for email
-      const { data: reviewerProfile } = await supabase
-        .from('user_profiles')
-        .select('full_name, email')
-        .eq('id', org.internal_reviewer_id)
-        .single();
-
-      if (reviewerProfile?.email) {
-        const tpl = projectPendingInternalReviewEmail({
-          projectName,
-          submitterName: creator?.full_name || 'A team member',
-          orgName: org?.name || 'your organization',
-          recipientName: reviewerProfile.full_name || 'Reviewer',
-          projectUrl: `/projects/${id}`,
-        });
-        await sendEmail({
-          to: reviewerProfile.email,
-          subject: tpl.subject,
-          html: tpl.html,
-          logType: 'project_pending_internal_review',
-          logEntityId: id,
-        });
-      }
-
-      // 2. Notify creator — in-app + email
-      if (creator?.id) {
-        await createNotification({
-          userId: creator.id,
-          payload: notificationBuilders.projectSubmittedInternalReview({
-            projectName,
-            actionUrl: `/projects/${id}`,
-          }),
-        });
-        if (creator.email) {
-          const tpl = projectSubmittedEmail({
-            projectName,
-            recipientName: creator.full_name || 'there',
-            mode: 'internal_review',
-          });
-          await sendEmail({
-            to: creator.email,
-            subject: tpl.subject,
-            html: tpl.html,
-            logType: 'project_submitted_internal',
-            logEntityId: id,
-          });
-        }
-      }
-
-      // 3. Notify other org admins (excluding creator and internal reviewer) — in-app only
-      const { data: orgAdmins } = await supabase
-        .from('company_members')
-        .select('user_id')
-        .eq('company_id', project.developer_id)
-        .in('role', ['OWNER', 'ADMIN'])
-        .is('deleted_at', null);
-
-      if (orgAdmins && orgAdmins.length > 0) {
-        const excludeIds = new Set([creator?.id, org.internal_reviewer_id].filter(Boolean));
-        const adminIds = orgAdmins.map(m => m.user_id).filter(uid => !excludeIds.has(uid));
-        if (adminIds.length > 0) {
-          await createNotifications({
-            userIds: adminIds,
-            payload: notificationBuilders.projectSubmittedInternalReview({
-              projectName,
-              actionUrl: `/projects/${id}`,
-            }),
-          });
-        }
-      }
-
-      return Response.json({ data: { status: 'pending_internal_review', mode: 'internal_review' } });
-    }
-
-    // ── Direct mode ───────────────────────────────────────────────────────────
+    // ── Atomic transition (CAS + precondition checks live in the machine) ──
     const result = await transitionProject({
       projectId: id,
-      toStatus: 'submitted',
-      actorId: user.id!,
+      toStatus,
+      actorId: user.id,
+      actorRole,
+      patch,
       req,
     });
 
-    if (!result.success) {
-      return badRequest(result.error || 'Failed to submit project');
+    if (!result.ok) {
+      return mapTransitionError(req, user.id, ROUTE, result);
     }
 
-    // 1. Notify creator — in-app + email
-    if (creator?.id) {
-      await createNotification({
-        userId: creator.id,
-        payload: notificationBuilders.projectSubmittedForReview({
-          projectName,
-          actionUrl: `/projects/${id}`,
-        }),
+    // ── Notifications (only the winner reaches here) ───────────────────────
+    if (isInternalReview) {
+      await notifyInternalReviewer({ supabase, org: org!, projectName, creator, projectId: id });
+      await notifyCreatorSubmitted({ creator, projectName, mode: 'internal_review', projectId: id });
+      await notifyOtherOrgAdmins({
+        supabase, developerId: project.developer_id, creatorId: creator?.id,
+        reviewerId: org!.internal_reviewer_id!, projectName, projectId: id,
+        builder: notificationBuilders.projectSubmittedInternalReview,
       });
-      if (creator.email) {
-        const tpl = projectSubmittedEmail({
-          projectName,
-          recipientName: creator.full_name || 'there',
-          mode: 'direct',
-        });
-        await sendEmail({
-          to: creator.email,
-          subject: tpl.subject,
-          html: tpl.html,
-          logType: 'project_submitted',
-          logEntityId: id,
-        });
-      }
+    } else {
+      await notifyCreatorSubmitted({ creator, projectName, mode: 'direct', projectId: id });
+      await notifyPlatformAdmins({ supabase, orgName, projectName, projectId: id });
+      await notifyOtherOrgAdmins({
+        supabase, developerId: project.developer_id, creatorId: creator?.id,
+        reviewerId: null, projectName, projectId: id,
+        builder: notificationBuilders.projectSubmittedForReview,
+      });
     }
 
-    // 2. Notify platform admins — in-app + email
-    const { data: platformOrg } = await supabase
-      .from('companies')
-      .select('id')
-      .eq('is_platform_org', true)
-      .limit(1)
-      .single();
-
-    if (platformOrg?.id) {
-      const { data: platformAdmins } = await supabase
-        .from('company_members')
-        .select('user_id')
-        .eq('company_id', platformOrg.id)
-        .is('deleted_at', null);
-
-      if (platformAdmins && platformAdmins.length > 0) {
-        const adminIds = platformAdmins.map(m => m.user_id);
-
-        await createNotifications({
-          userIds: adminIds,
-          payload: notificationBuilders.projectSubmittedForReview({
-            projectName,
-            actionUrl: '/dashboard/admin/projects',
-          }),
-        });
-
-        // Email each platform admin
-        const { data: adminProfiles } = await supabase
-          .from('user_profiles')
-          .select('id, full_name, email')
-          .in('id', adminIds);
-
-        const orgName = org?.name || 'Unknown Organisation';
-        for (const admin of adminProfiles ?? []) {
-          if (!admin.email) continue;
-          const tpl = adminProjectSubmittedEmail({
-            projectName,
-            orgName,
-            projectUrl: `/dashboard/admin/projects`,
-          });
-          await sendEmail({
-            to: admin.email,
-            subject: tpl.subject,
-            html: tpl.html,
-            logType: 'admin_project_submitted',
-            logEntityId: id,
-          });
-        }
-      }
+    // ── Notify previous reviewers on resubmission ──────────────────────────
+    if (isResubmission) {
+      await notifyPreviousReviewers({ supabase, projectId: id, projectName, submitterId: user.id });
     }
 
-    // 3. Notify other org admins (excluding creator) — in-app only
-    const { data: orgAdmins } = await supabase
-      .from('company_members')
-      .select('user_id')
-      .eq('company_id', project.developer_id)
-      .in('role', ['OWNER', 'ADMIN'])
-      .is('deleted_at', null);
-
-    if (orgAdmins && orgAdmins.length > 0) {
-      const adminIds = orgAdmins.map(m => m.user_id).filter(uid => uid !== creator?.id);
-      if (adminIds.length > 0) {
-        await createNotifications({
-          userIds: adminIds,
-          payload: notificationBuilders.projectSubmittedForReview({
-            projectName,
-            actionUrl: `/projects/${id}`,
-          }),
-        });
-      }
-    }
-
-    return Response.json({ data: { status: 'submitted', mode: 'direct' } });
+    const body = { data: { status: toStatus, mode: isInternalReview ? 'internal_review' : 'direct' } };
+    if (user.id) await saveIdempotencyResponse(req, user.id, ROUTE, body, 200);
+    return Response.json(body);
   } catch (e: any) {
     return handleRouteError(e);
   }
 }
+
+// ── Transition-error → HTTP response (shared shape across project routes) ────
+type TransitionErr = Extract<Awaited<ReturnType<typeof transitionProject>>, { ok: false }>;
+function mapTransitionError(req: NextRequest, userId: string | null, route: string, r: TransitionErr) {
+  const statusByCode: Record<TransitionErr['code'], number> = {
+    NOT_FOUND: 404,
+    INVALID_TRANSITION: 400,
+    FORBIDDEN: 403,
+    PRECONDITION: 412,
+    CONFLICT: 409,
+    UPDATE_FAILED: 500,
+  };
+  const status = statusByCode[r.code];
+  const body = { error: r.error };
+  if (userId) saveIdempotencyResponse(req, userId, route, body, status).catch(() => {});
+  return Response.json(body, { status });
+}
+
+// ── Notification helpers (keep the route body declarative) ───────────────────
+async function notifyInternalReviewer(args: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  org: { internal_reviewer_id: string; name?: string };
+  projectName: string; creator: any; projectId: string;
+}) {
+  const { supabase, org, projectName, creator, projectId } = args;
+  await createNotification({
+    userId: org.internal_reviewer_id,
+    payload: notificationBuilders.projectPendingInternalReview({
+      projectName,
+      submitterName: creator?.full_name || 'A team member',
+      orgName: org.name || 'your organization',
+      actionUrl: `/projects/${projectId}`,
+    }),
+  });
+  const { data: reviewerProfile } = await supabase
+    .from('user_profiles').select('full_name, email').eq('id', org.internal_reviewer_id).maybeSingle();
+  if (reviewerProfile?.email) {
+    const tpl = projectPendingInternalReviewEmail({
+      projectName,
+      submitterName: creator?.full_name || 'A team member',
+      orgName: org.name || 'your organization',
+      recipientName: reviewerProfile.full_name || 'Reviewer',
+      projectUrl: `/projects/${projectId}`,
+    });
+    await sendEmail({ to: reviewerProfile.email, subject: tpl.subject, html: tpl.html, logType: 'project_pending_internal_review', logEntityId: projectId });
+  }
+}
+
+async function notifyCreatorSubmitted(args: { creator: any; projectName: string; mode: 'direct' | 'internal_review'; projectId: string }) {
+  const { creator, projectName, mode, projectId } = args;
+  if (!creator?.id) return;
+  await createNotification({
+    userId: creator.id,
+    payload: mode === 'internal_review'
+      ? notificationBuilders.projectSubmittedInternalReview({ projectName, actionUrl: `/projects/${projectId}` })
+      : notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: `/projects/${projectId}` }),
+  });
+  if (!creator.email) return;
+  const tpl = projectSubmittedEmail({ projectName, recipientName: creator.full_name || 'there', mode });
+  await sendEmail({ to: creator.email, subject: tpl.subject, html: tpl.html, logType: mode === 'internal_review' ? 'project_submitted_internal' : 'project_submitted', logEntityId: projectId });
+}
+
+async function notifyPlatformAdmins(args: { supabase: ReturnType<typeof getSupabaseAdmin>; orgName: string; projectName: string; projectId: string }) {
+  const { supabase, orgName, projectName, projectId } = args;
+  const { data: platformOrg } = await supabase
+    .from('companies').select('id').eq('is_platform_org', true).limit(1).maybeSingle();
+  if (!platformOrg?.id) return;
+  const { data: platformAdmins } = await supabase
+    .from('company_members').select('user_id').eq('company_id', platformOrg.id).is('deleted_at', null);
+  if (!platformAdmins?.length) return;
+  const adminIds = platformAdmins.map(m => m.user_id);
+  await createNotifications({ userIds: adminIds, payload: notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: '/admin/projects' }) });
+  const { data: adminProfiles } = await supabase.from('user_profiles').select('id, email').in('id', adminIds);
+  for (const a of adminProfiles ?? []) {
+    if (!a.email) continue;
+    const tpl = adminProjectSubmittedEmail({ projectName, orgName, projectUrl: '/admin/projects' });
+    await sendEmail({ to: a.email, subject: tpl.subject, html: tpl.html, logType: 'admin_project_submitted', logEntityId: projectId });
+  }
+}
+
+/**
+ * On resubmission of a returned project, notify:
+ *  1. All previous reviewers (from project_reviews table)
+ *  2. All current platform admins + authority users not already covered
+ */
+async function notifyPreviousReviewers(args: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  projectId: string;
+  projectName: string;
+  submitterId: string | null;
+}) {
+  const { supabase, projectId, projectName, submitterId } = args;
+
+  // Collect previous reviewer IDs from review history
+  const { data: reviews } = await supabase
+    .from('project_reviews')
+    .select('reviewer_id')
+    .eq('project_id', projectId)
+    .not('reviewer_id', 'is', null);
+  const previousReviewerIds = [...new Set((reviews ?? []).map(r => r.reviewer_id as string))];
+
+  // Also collect all platform admin IDs
+  const { data: platformOrg } = await supabase
+    .from('companies').select('id').eq('is_platform_org', true).limit(1).maybeSingle();
+  let platformAdminIds: string[] = [];
+  if (platformOrg?.id) {
+    const { data: members } = await supabase
+      .from('company_members').select('user_id').eq('company_id', platformOrg.id).is('deleted_at', null);
+    platformAdminIds = (members ?? []).map(m => m.user_id);
+  }
+
+  // Also collect authority users
+  const { data: authorityMembers } = await supabase
+    .from('user_profiles')
+    .select('id')
+    .eq('is_authority_user', true)
+    .is('deleted_at', null);
+  const authorityIds = (authorityMembers ?? []).map(m => m.id);
+
+  const allReviewerIds = [...new Set([
+    ...previousReviewerIds,
+    ...platformAdminIds,
+    ...authorityIds,
+  ])].filter(uid => uid !== submitterId);
+
+  if (!allReviewerIds.length) return;
+
+  const { data: profiles } = await supabase
+    .from('user_profiles').select('id, email, full_name').in('id', allReviewerIds);
+
+  const payload = {
+    type: 'project_status' as const,
+    title: `Project resubmitted for review`,
+    body: `"${projectName}" has been updated and resubmitted by the developer. It is now awaiting your review.`,
+    entity_type: 'projects' as const,
+    action_url: '/admin/review',
+  };
+
+  // In-app notifications
+  const rows = allReviewerIds.map(uid => ({
+    user_id: uid,
+    type: payload.type,
+    title: payload.title,
+    body: payload.body,
+    entity_type: payload.entity_type,
+    entity_id: projectId,
+    action_url: payload.action_url,
+  }));
+  await supabase.from('notifications').insert(rows);
+
+  // Emails
+  for (const profile of profiles ?? []) {
+    if (!profile.email) continue;
+    const tpl = adminProjectSubmittedEmail({
+      projectName,
+      orgName: 'Developer',
+      projectUrl: `/admin/review/${projectId}`,
+    });
+    await sendEmail({
+      to: profile.email,
+      subject: `[Resubmission] ${projectName} — awaiting review`,
+      html: tpl.html,
+      logType: 'project_resubmitted_reviewer',
+      logEntityId: projectId,
+    });
+  }
+}
+
+async function notifyOtherOrgAdmins(args: {
+  supabase: ReturnType<typeof getSupabaseAdmin>;
+  developerId: string; creatorId?: string; reviewerId?: string | null;
+  projectName: string; projectId: string;
+  builder: typeof notificationBuilders.projectSubmittedForReview;
+}) {
+  const { supabase, developerId, creatorId, reviewerId, projectName, projectId, builder } = args;
+  const { data: orgAdmins } = await supabase
+    .from('company_members').select('user_id').eq('company_id', developerId)
+    .in('role', ['OWNER', 'ADMIN']).is('deleted_at', null);
+  if (!orgAdmins?.length) return;
+  const exclude = new Set([creatorId, reviewerId].filter(Boolean) as string[]);
+  const adminIds = orgAdmins.map(m => m.user_id).filter(uid => !exclude.has(uid));
+  if (adminIds.length) {
+    await createNotifications({ userIds: adminIds, payload: builder({ projectName, actionUrl: `/projects/${projectId}` }) });
+  }
+}
+

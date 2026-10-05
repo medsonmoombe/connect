@@ -1,0 +1,61 @@
+# ── Docker build context excludes ──────────────────────────────
+# Keep context small: only send what the Dockerfile needs.
+
+# Dependencies (rebuilt inside container)
+node_modules/
+web/node_modules/
+
+# Build outputs (rebuilt inside container)
+web/.next/
+web/out/
+build/
+dist/
+
+# Git
+.git/
+.gitignore
+
+# Environment / secrets (injected at runtime via env_file)
+.env
+.env.*
+web/.env
+web/.env.*
+!web/.env.docker
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+output.log
+
+# Design files
+design/
+
+# Documentation
+*.md
+!web/README.md
+
+# Old migrations root (not used by Docker)
+supabase/
+
+# TypeScript build info
+web/tsconfig.tsbuildinfo
+web/next-env.d.ts
+
+# Test coverage
+web/coverage/
+
+# Kilo plans
+.kilo/
+.agents/
+.claude/
+
+# Misc
+open_questions.md
+risk_register.md
+PROGRESS.md
+plans/

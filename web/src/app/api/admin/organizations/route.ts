@@ -1,22 +1,33 @@
 import { NextRequest } from 'next/server';
-import { getAuthenticatedUser, unauthorized, forbidden, serverError, handleRouteError } from '@/lib/api-helpers';
+import { getAuthenticatedUser, forbidden, serverError, handleRouteError } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 
 // GET /api/admin/organizations?status=pending_verification
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can manage organisations. Contact your platform support team if you need to make changes.');
 
-    const status = new URL(req.url).searchParams.get('status') ?? 'pending_verification';
+    const params = new URL(req.url).searchParams;
+    const status = params.get('status') ?? 'pending_verification';
+    const search = params.get('search')?.trim() || null;
     const admin = getSupabaseAdmin();
 
-    // 1. Fetch companies with the requested status
-    const { data: companies, error: companyErr } = await admin
+    // 1. Fetch companies with the requested status (+ optional search)
+    // Never surface the platform's own internal org (is_platform_org) in review queues.
+    // neq(true) rather than eq(false): NULL rows (shouldn't exist) stay visible instead of silently hiding a real applicant.
+    let query = admin
       .from('companies')
       .select('*')
       .is('deleted_at', null)
-      .eq('status', status)
+      .neq('is_platform_org', true)
+      .eq('status', status);
+
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,country.ilike.%${search}%`);
+    }
+
+    const { data: companies, error: companyErr } = await query
       .order('created_at', { ascending: false });
 
     if (companyErr) {
@@ -47,7 +58,7 @@ export async function GET(req: NextRequest) {
 
     // 4. Build lookup maps and merge
     const profileMap = new Map((profiles ?? []).map(p => [p.id, p]));
-    const membersByCompany = new Map<string, any[]>();
+    const membersByCompany = new Map<string, { role: string; user_id: string; user_profiles: unknown }[]>();
 
     for (const m of memberships ?? []) {
       if (!membersByCompany.has(m.company_id)) membersByCompany.set(m.company_id, []);
@@ -64,7 +75,6 @@ export async function GET(req: NextRequest) {
     }));
 
     // 5. Fetch role-specific preferences for all companies
-    const companyIdsForPrefs = companies.map(c => c.id);
     const prefTables = [
       { role: 'CAPITAL_PARTNER', table: 'capital_partners' },
       { role: 'TECHNICAL_PARTNER', table: 'technical_partners' },
@@ -89,7 +99,7 @@ export async function GET(req: NextRequest) {
     }
 
     return Response.json({ data });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return handleRouteError(e);
   }
 }

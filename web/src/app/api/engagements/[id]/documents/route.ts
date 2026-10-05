@@ -36,6 +36,20 @@ export async function GET(req: NextRequest, { params }: Params) {
       req,
     }).catch(() => {});
 
+    // Track dataroom open as interest signal (fire and forget)
+    void (async () => {
+      try {
+        const { data: eng } = await admin.from('engagements').select('project_id').eq('id', engagementId).maybeSingle();
+        if (eng?.project_id) {
+          await admin.from('project_interest_signals').insert({
+            project_id: eng.project_id,
+            user_id: user.id,
+            signal_type: 'dataroom_open',
+          });
+        }
+      } catch (_) { /* fire-and-forget */ }
+    })();
+
     const { data, error } = await admin
       .from('engagement_documents')
       .select('id, engagement_id, project_document_id, document_type, file_name, storage_path, mime_type, size_bytes, uploaded_by, classification, created_at, deleted_at')
@@ -61,8 +75,39 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (!user.id) return badRequest('Session missing user id');
 
+    const admin = getSupabaseAdmin();
+
+    // ── Terminal state guard: dropped/closed engagements are read-only ────────
+    const { data: engStatus, error: engStatusErr } = await admin
+      .from('engagements')
+      .select('status')
+      .eq('id', engagementId)
+      .single();
+
+    if (engStatusErr || !engStatus) return serverError();
+    if (!user.is_platform_admin && ['DROPPED', 'CLOSED'].includes(engStatus.status)) {
+      return badRequest('This engagement is in a terminal state. Documents cannot be uploaded.');
+    }
+
+    // ── Org role guard: MEMBERs can read but not upload documents ─────────────
+    const orgRole = (user as any).org_member_role;
+    if (!user.is_platform_admin && orgRole === 'MEMBER') {
+      return forbidden();
+    }
+
+    // ── Max document count guard: max 5 non-deleted docs per engagement ───────
+    const { count: docCount, error: docCountErr } = await admin
+      .from('engagement_documents')
+      .select('*', { count: 'exact', head: true })
+      .eq('engagement_id', engagementId)
+      .is('deleted_at', null);
+
+    if (!docCountErr && (docCount ?? 0) >= 5) {
+      return badRequest('Maximum of 5 documents allowed per engagement data room.');
+    }
+
     // Per-user upload rate limit (reuse the project upload profile: 20/hr).
-    const rateLimitResult = checkRateLimit(user.id, RATE_LIMIT_UPLOAD);
+    const rateLimitResult = await checkRateLimit(user.id, RATE_LIMIT_UPLOAD);
     if (!rateLimitResult.allowed) {
       return Response.json(
         { error: 'Upload limit reached. Maximum 20 files per hour.' },
@@ -88,7 +133,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       return badRequest('File type not allowed. Accepted: PDF, images, Word, Excel, PowerPoint, CSV.');
     }
     if (file.size > MAX_FILE_SIZE) {
-      return badRequest('File too large. Maximum size is 50MB.');
+      return badRequest(`File too large. Maximum size is ${Math.floor(MAX_FILE_SIZE / 1024 / 1024)}MB.`);
     }
 
     const safeName = sanitizeFilename(file.name);
@@ -106,7 +151,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       return serverError();
     }
 
-    const admin = getSupabaseAdmin();
     const { data, error } = await admin
       .from('engagement_documents')
       .insert({
@@ -137,6 +181,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       entityId: data.id,
       after: { engagement_id: engagementId, document_type: documentType, file_name: safeName, classification },
       req,
+      blocking: true,
     });
 
     return Response.json({ data }, { status: 201 });

@@ -78,14 +78,19 @@ export async function PATCH(req: NextRequest) {
     }
     await writeAuditLog({ userId: user.id, action: 'PARTNER_UPDATED', entityType: table, entityId: id, after: updates, req });
 
-    // Re-run matching engine in background when preferences change
+    // Re-run matching engine in background when preferences change (PRD §5.2)
+    // Scoped to this specific partner using explicit partner_id + service key.
     const preferenceFields = ['min_ticket_size', 'max_ticket_size', 'risk_tolerance', 'governance_preference', 'sector_focus', 'geographic_focus', 'preferred_project_stage', 'preferred_capital_structure'];
     if (preferenceFields.some(f => f in updates)) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       fetch(`${baseUrl}/api/matching/run`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` },
-        body: JSON.stringify({ run_all: true }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(serviceKey ? { 'Authorization': `Bearer ${serviceKey}` } : {}),
+        },
+        body: JSON.stringify({ partner_id: id, partner_type: table }),
       }).catch(() => {});
     }
 

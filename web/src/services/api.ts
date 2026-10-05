@@ -84,9 +84,14 @@ export const technicalPartnersApi = {
 };
 
 export const matchingApi = {
-  getProjectMatches: async (projectId: string): Promise<ApiResponse<{ capital: any[]; technical: any[] }>> => {
-    return apiClient.get<{ capital: any[]; technical: any[] }>(`/projects/${projectId}?resource=matches`)
-      .then(r => ({ data: { capital: r.capital ?? [], technical: r.technical ?? [] } }))
+  getProjectMatches: async (projectId: string): Promise<ApiResponse<{ capital: any[]; technical: any[]; consultant: any[] }>> => {
+    return apiClient.get<{ capital: any[]; technical: any[]; consultant: any[] }>(`/projects/${projectId}?resource=matches`)
+      .then(r => ({ data: { capital: r.capital ?? [], technical: r.technical ?? [], consultant: r.consultant ?? [] } }))
+      .catch(e => ({ error: e.message }));
+  },
+  runForProject: async (projectId: string): Promise<ApiResponse<any>> => {
+    return apiClient.post<{ data: any }>('/matching/run', { project_id: projectId })
+      .then(r => ({ data: r.data }))
       .catch(e => ({ error: e.message }));
   },
   getCapitalMatches: async (projectId: string): Promise<ApiResponse<any[]>> => {
@@ -103,6 +108,22 @@ export const matchingApi = {
   },
   getPartnerMatchStats: async (): Promise<ApiResponse<{ total: number; avgScore: number; highPotential: number }>> => {
     return apiClient.get<{ data: { total: number; avgScore: number; highPotential: number } }>('/matches/capital?stats=true')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
+  },
+  getMatchesForTechnicalPartner: async (): Promise<ApiResponse<any[]>> => {
+    return apiClient.get<{ data: any[] }>('/matches/technical')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
+  },
+  getTechnicalPartnerMatchStats: async (): Promise<ApiResponse<{ total: number; avgScore: number; highPotential: number }>> => {
+    return apiClient.get<{ data: { total: number; avgScore: number; highPotential: number } }>('/matches/technical?stats=true')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
+  },
+  getMatchesForConsultant: async (): Promise<ApiResponse<any[]>> => {
+    return apiClient.get<{ data: any[] }>('/matches/consultant')
+      .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
+  },
+  getConsultantMatchStats: async (): Promise<ApiResponse<{ total: number; avgScore: number; highPotential: number }>> => {
+    return apiClient.get<{ data: { total: number; avgScore: number; highPotential: number } }>('/matches/consultant?stats=true')
       .then(r => ({ data: r.data })).catch(e => ({ error: e.message }));
   },
 };
@@ -196,6 +217,10 @@ export const onboardingApi = {
     wrap<{ company: Company; preferences: Record<string, any> }>(apiClient.post('/onboarding', { action: 'get_edit_data' })),
   completeOnboarding: () =>
     wrap<any>(apiClient.post('/onboarding', { action: 'complete_onboarding' })),
+  saveDraft: (draft: Record<string, unknown>) =>
+    wrap<{ success: boolean; savedAt: string }>(apiClient.post('/onboarding', { action: 'save_draft', draft })),
+  getDraft: () =>
+    wrap<{ draft: Record<string, unknown> | null; onboardingComplete: boolean }>(apiClient.post('/onboarding', { action: 'get_draft' })),
 };
 
 export const auditLogsApi = {
@@ -211,6 +236,7 @@ export interface AdminHealthData {
   totalCompanies: number;
   totalCapital: number;
   totalEngagements: number;
+  monthlyGrowth: { month: string; users: number; projects: number; engagements: number }[];
   trends: {
     users: { pct: number; positive: boolean };
     projects: { pct: number; positive: boolean };

@@ -11,6 +11,20 @@ export async function GET(req: NextRequest, { params }: Params) {
     const user = await getAuthenticatedUser(req);
     const { id } = await params;
     const supabase = getSupabaseAdmin();
+    const resource = new URL(req.url).searchParams.get('resource');
+
+    if (resource === 'consultant-profile') {
+      const { data, error } = await supabase
+        .from('consultants')
+        .select('*')
+        .eq('company_id', id)
+        .maybeSingle();
+      if (error) {
+        console.error('[Companies] Consultant profile query error:', error.message);
+        return serverError();
+      }
+      return Response.json({ data });
+    }
 
     const { data, error } = await supabase.from('companies').select('*').is('deleted_at', null).eq('id', id).single();
     if (error) {

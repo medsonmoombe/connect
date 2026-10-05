@@ -8,10 +8,11 @@ export const TECHNOLOGY_TYPES = [
 ] as const;
 
 export const PROJECT_STAGES = [
-  'CONCEPT', 'FEASIBILITY', 'PERMITTING', 'FINANCIAL_CLOSE', 'CONSTRUCTION', 'OPERATIONS',
+  'CONCEPT', 'PRE_FEASIBILITY', 'FULL_FEASIBILITY', 'REGULATORY_APPROVAL',
+  'PPA_READY', 'FINANCIAL_CLOSE', 'CONSTRUCTION', 'OPERATION',
 ] as const;
 
-export const CAPITAL_STRUCTURE_TYPES = ['EQUITY', 'PROFIT_SHARING', 'LEASING', 'GRANT'] as const;
+export const CAPITAL_STRUCTURE_TYPES = ['DEBT', 'EQUITY', 'PROFIT_SHARING', 'LEASING', 'GRANT'] as const;
 
 export const LAND_TITLE_STATUSES = ['Traditional', 'Titled', 'Not Applicable'] as const;
 
@@ -20,6 +21,44 @@ export const TERRAIN_COMPLEXITY = ['SIMPLE', 'MODERATE', 'COMPLEX'] as const;
 export const GRID_STATUS = ['CONNECTED', 'PENDING', 'OFF_GRID'] as const;
 
 export const BUDGET_PREFERENCE = ['FIXED', 'MILESTONE', 'NEGOTIABLE'] as const;
+
+// ─── Project document types (general submission documents) ──────────────────
+
+export const PROJECT_DOCUMENT_TYPES = [
+  'Pitch Deck',
+  'Financial Model',
+  'Feasibility Study',
+  'Environmental Audit',
+  'Land Title/Lease Agreement',
+  'Regulatory Approval Docs',
+] as const;
+
+// ─── Proof document types (required when a yes/no question is answered Yes) ──
+// Stored in project_documents.document_type — one row per proof.
+
+export const LAND_TITLE_PROOF_TYPE = 'LAND_TITLE_PROOF' as const;
+export const FINANCIAL_CLOSE_PROOF_TYPE = 'FINANCIAL_CLOSE_PROOF' as const;
+
+/** Maps each regulatory approval to the proof document type required when ticked. */
+export const REGULATORY_APPROVALS = [
+  'ZEMA approval letter',
+  'Grid Connection Agreement',
+  'Power Purchase Agreement (PPA)',
+  'Construction Permit',
+] as const;
+
+export const APPROVAL_PROOF_TYPES: Record<string, string> = {
+  'ZEMA approval letter': 'APPROVAL_PROOF_ZEMA',
+  'Grid Connection Agreement': 'APPROVAL_PROOF_GRID',
+  'Power Purchase Agreement (PPA)': 'APPROVAL_PROOF_PPA',
+  'Construction Permit': 'APPROVAL_PROOF_PERMIT',
+};
+
+export const PROOF_DOCUMENT_TYPES = [
+  LAND_TITLE_PROOF_TYPE,
+  FINANCIAL_CLOSE_PROOF_TYPE,
+  ...Object.values(APPROVAL_PROOF_TYPES),
+] as const;
 
 // ─── Step schemas ────────────────────────────────────────────────────────────
 
@@ -34,6 +73,10 @@ export const step2Schema = z.object({
   project_size_mw: z.number().positive('Project size must be greater than 0'),
   capital_required: z.number().positive('Capital required must be greater than 0'),
   capital_structure_type: z.enum(CAPITAL_STRUCTURE_TYPES, { errorMap: () => ({ message: 'Select a capital structure type' }) }),
+  capex: z.number().nonnegative('CAPEX must not be negative').optional(),
+  opex: z.number().nonnegative('OPEX must not be negative').optional(),
+  funding_required: z.number().nonnegative('Funding required must not be negative').optional(),
+  description: z.string().max(5000, 'Description must be at most 5000 characters').optional(),
 });
 
 export const step3Schema = z.object({
@@ -50,11 +93,14 @@ export const step3Schema = z.object({
   { message: 'Financial close date must be before project go-live date', path: ['target_cod'] }
 );
 
+export const PPA_STATUS = ['SECURED', 'IN_PROGRESS', 'NOT_STARTED', 'NOT_APPLICABLE'] as const;
+
 export const step4Schema = z.object({
   terrain_complexity: z.enum(TERRAIN_COMPLEXITY),
   grid_status: z.enum(GRID_STATUS),
   budget_preference: z.enum(BUDGET_PREFERENCE),
   required_services: z.array(z.string()).optional(),
+  ppa_status: z.enum(PPA_STATUS).optional(),
 });
 
 export const step5Schema = z.object({
@@ -79,6 +125,10 @@ export const createProjectSchema = z.object({
   project_size_mw: step2Schema.shape.project_size_mw,
   capital_required: step2Schema.shape.capital_required,
   capital_structure_type: step2Schema.shape.capital_structure_type,
+  capex: step2Schema.shape.capex,
+  opex: step2Schema.shape.opex,
+  funding_required: step2Schema.shape.funding_required,
+  description: step2Schema.shape.description,
   project_stage: step3Base.shape.project_stage,
   target_financial_close_date: step3Base.shape.target_financial_close_date,
   target_cod: step3Base.shape.target_cod,
@@ -89,10 +139,4 @@ export const createProjectSchema = z.object({
   land_title_status: step5Schema.shape.land_title_status,
   has_reached_financial_close: step5Schema.shape.has_reached_financial_close,
   regulatory_approvals: step5Schema.shape.regulatory_approvals,
-});
-
-// ─── Rejection reason schema ─────────────────────────────────────────────────
-
-export const rejectProjectSchema = z.object({
-  reason: z.string().min(10, 'Rejection reason must be at least 10 characters').max(2000),
 });

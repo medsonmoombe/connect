@@ -137,7 +137,7 @@ export function OrgTeamPanel() {
                 placeholder="colleague@company.com"
                 value={inviteEmail}
                 onChange={e => setInviteEmail(e.target.value)}
-                className="pl-10 h-11 rounded-xl border-slate-200"
+                className="pl-10 h-11 rounded-none border-slate-200"
                 required
               />
             </div>
@@ -145,13 +145,13 @@ export function OrgTeamPanel() {
               <select
                 value={inviteRole}
                 onChange={e => setInviteRole(e.target.value as 'MEMBER' | 'ADMIN')}
-                className="h-11 px-3 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-11 px-3 rounded-none border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 <option value="MEMBER">Member</option>
                 <option value="ADMIN">Admin</option>
               </select>
             )}
-            <Button type="submit" disabled={inviting} className="h-11 px-6 rounded-xl shrink-0">
+            <Button type="submit" disabled={inviting} className="h-11 px-6 rounded-none shrink-0">
               {inviting ? <Icons.spinner className="size-4 animate-spin" /> : <><Icons.plus className="size-4 mr-2" />Send Invite</>}
             </Button>
           </form>
@@ -175,7 +175,7 @@ export function OrgTeamPanel() {
           <div className="divide-y divide-slate-50">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="px-5 py-4 flex items-center gap-3 animate-pulse">
-                <div className="size-9 rounded-xl bg-slate-100 shrink-0" />
+                <div className="size-9 rounded-none bg-slate-100 shrink-0" />
                 <div className="flex-1 space-y-1.5">
                   <div className="h-3.5 w-32 bg-slate-100 rounded" />
                   <div className="h-2.5 w-48 bg-slate-100 rounded" />
@@ -193,7 +193,7 @@ export function OrgTeamPanel() {
 
               return (
                 <div key={member.user_id} className="px-5 py-4 flex items-center gap-3">
-                  <div className="size-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-xs font-bold text-slate-500">
+                  <div className="size-9 rounded-none bg-slate-100 flex items-center justify-center shrink-0 text-xs font-bold text-slate-500">
                     {(profile?.full_name || profile?.email || 'U').slice(0, 2).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -212,7 +212,7 @@ export function OrgTeamPanel() {
                       {isOwner && (
                         <Button
                           variant="ghost" size="sm"
-                          className="h-8 px-2 text-xs rounded-lg text-slate-500 hover:text-slate-900"
+                          className="h-8 px-2 text-xs rounded-none text-slate-500 hover:text-slate-900"
                           disabled={actionMemberId === member.user_id}
                           onClick={() => setConfirmRoleChange({
                             member,
@@ -224,7 +224,7 @@ export function OrgTeamPanel() {
                       )}
                       <Button
                         variant="ghost" size="icon"
-                        className="size-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        className="size-8 rounded-none text-slate-400 hover:text-red-600 hover:bg-red-50"
                         disabled={actionMemberId === member.user_id}
                         onClick={() => setConfirmRemove(member)}
                       >
@@ -255,7 +255,7 @@ export function OrgTeamPanel() {
           <div className="divide-y divide-slate-50">
             {pendingInvites.map(invite => (
               <div key={invite.user_id} className="px-5 py-4 flex items-center gap-3">
-                <div className="size-9 rounded-xl bg-yellow-50 border border-yellow-100 flex items-center justify-center shrink-0">
+                <div className="size-9 rounded-none bg-yellow-50 border border-yellow-100 flex items-center justify-center shrink-0">
                   <Icons.mail className="size-4 text-yellow-500" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -267,7 +267,7 @@ export function OrgTeamPanel() {
                   <div className="flex items-center gap-1 shrink-0">
                     <Button
                       variant="ghost" size="sm"
-                      className="h-8 px-2.5 text-xs rounded-lg text-slate-500 hover:text-slate-900"
+                      className="h-8 px-2.5 text-xs rounded-none text-slate-500 hover:text-slate-900"
                       disabled={actionMemberId === invite.user_id}
                       onClick={() => handleResendInvite(invite)}
                     >
@@ -278,7 +278,7 @@ export function OrgTeamPanel() {
                     </Button>
                     <Button
                       variant="ghost" size="icon"
-                      className="size-8 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50"
+                      className="size-8 rounded-none text-slate-400 hover:text-red-600 hover:bg-red-50"
                       disabled={actionMemberId === invite.user_id}
                       onClick={() => handleCancelInvite(invite)}
                     >

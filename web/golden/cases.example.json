@@ -1,0 +1,32 @@
+[
+  {
+    "file": "docs/land-title-deed.pdf",
+    "category": "land_title",
+    "expect": { "document_type": "land_title", "evidence": ["land_secured"], "min_confidence": 0.8 }
+  },
+  {
+    "file": "docs/zema-decision-letter-scan.pdf",
+    "category": "regulatory_permit",
+    "expect": { "document_type": "eia_esia", "evidence": ["eia_approved"], "min_confidence": 0.7 }
+  },
+  {
+    "file": "docs/erb-generation-licence.pdf",
+    "category": "regulatory_permit",
+    "expect": { "document_type": "regulatory_permit", "evidence": ["generation_licence"], "min_confidence": 0.7 }
+  },
+  {
+    "file": "docs/feasibility-study.pdf",
+    "category": "feasibility_study",
+    "expect": { "document_type": "feasibility_study", "evidence": ["full_feasibility"], "min_confidence": 0.7 }
+  },
+  {
+    "file": "docs/ppa-agreement.pdf",
+    "category": "ppa",
+    "expect": { "document_type": "ppa", "evidence": ["ppa_signed"], "min_confidence": 0.8 }
+  },
+  {
+    "file": "docs/financial-model.xlsx",
+    "category": "financial_model",
+    "expect": { "document_type": "financial_model", "evidence": ["financial_model"], "min_confidence": 0.7 }
+  }
+]

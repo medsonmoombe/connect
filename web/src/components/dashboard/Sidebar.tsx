@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/ui/icons';
+import { APP_NAME } from '@/lib/branding';
 import { ReactNode } from 'react';
 
 /* ─── Types ────────────────────────────────────────────────────────────────── */
@@ -46,30 +47,26 @@ function NavLink({ item }: { item: SidebarNavItem }) {
   const isActive = item.active;
 
   const wrapperClass = cn(
-    'w-full flex items-center gap-3 pl-3 pr-3 py-2.5 rounded-xl nav-item-transition group text-left relative',
+    'w-full flex items-center gap-3 pl-3 pr-3 py-2.5 rounded-none nav-item-transition group text-left relative border-l-2',
     isActive
-      ? 'nav-active-bar bg-gradient-to-r shadow-sm shadow-primary/[0.06]'
-      : 'hover:bg-slate-50/80 hover:text-text-main'
+      ? 'bg-[#0b3b24]/[0.06] border-[#0b3b24]'
+      : 'border-transparent hover:bg-slate-50 hover:border-slate-200'
   );
 
   const iconContainerClass = cn(
-    'flex items-center justify-center w-8 h-8 rounded-lg shrink-0 nav-item-transition',
-    isActive
-      ? 'nav-active-icon'
-      : 'nav-hover-icon group-hover:bg-primary/[0.06]'
+    'flex items-center justify-center w-8 h-8 rounded-none shrink-0 nav-item-transition',
+    isActive ? 'bg-[#0b3b24]/10' : 'bg-transparent group-hover:bg-slate-100'
   );
 
   const iconClass = cn(
     'size-[18px] nav-item-transition',
-    isActive
-      ? 'text-primary'
-      : 'text-slate-400 group-hover:text-primary'
+    isActive ? 'text-[#0b3b24]' : 'text-slate-400 group-hover:text-slate-600'
   );
 
   const labelClass = cn(
     'text-[13px] flex-grow nav-item-transition',
     isActive
-      ? 'font-semibold text-slate-900'
+      ? 'font-semibold text-[#0b3b24]'
       : 'font-medium text-slate-500 group-hover:text-slate-800'
   );
 
@@ -80,10 +77,8 @@ function NavLink({ item }: { item: SidebarNavItem }) {
       </span>
       <span className={labelClass}>{item.label}</span>
       {item.badge !== undefined && item.badge > 0 && (
-        <span className="flex items-center gap-1.5">
-          <span className="relative flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-r from-primary to-primary-light px-1.5 text-[10px] font-bold text-white badge-pulse shadow-sm shadow-primary/20">
-            {item.badge}
-          </span>
+        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#0b3b24] px-1.5 text-[10px] font-bold text-white">
+          {item.badge}
         </span>
       )}
     </>
@@ -105,7 +100,7 @@ function SectionLabel({ label }: { label: string }) {
   if (!label) return null;
   return (
     <div className="px-4 pt-5 pb-2">
-      <span className="sidebar-section-label">{label}</span>
+      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</span>
     </div>
   );
 }
@@ -113,7 +108,7 @@ function SectionLabel({ label }: { label: string }) {
 function SectionDivider() {
   return (
     <div className="mx-4 my-1">
-      <div className="h-px bg-gradient-to-r from-transparent via-slate-200/80 to-transparent" />
+      <div className="h-px bg-slate-100" />
     </div>
   );
 }
@@ -150,7 +145,7 @@ export function DashboardSidebar({
 
       <aside
         className={cn(
-          'fixed top-0 left-0 h-full w-[280px] sidebar-bg sidebar-glow flex flex-col z-40',
+          'fixed top-0 left-0 h-full w-[280px] flex flex-col z-40 bg-white border-r border-slate-200',
           'transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
           'lg:static lg:translate-x-0 lg:shadow-none lg:z-auto lg:shrink-0',
           open ? 'translate-x-0' : '-translate-x-full'
@@ -160,21 +155,21 @@ export function DashboardSidebar({
         <div className="px-5 pt-5 pb-4 shrink-0">
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center gap-3 group">
-              <div className="logo-gradient size-10 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-200 group-hover:scale-105">
-                <Icons.logo className="w-5 h-5 text-white" />
-              </div>
+              <img
+                src="/Afri%20Connect%20Logo.png"
+                alt={APP_NAME}
+                className="h-9 w-auto object-contain"
+              />
               <div className="flex flex-col">
                 <span className="text-[15px] font-bold tracking-tight text-slate-900 leading-none">
-                  Afri Connect
+                  {APP_NAME}
                 </span>
-                <span className="mt-1 inline-flex items-center rounded-md bg-primary/[0.08] px-2 py-0.5 text-[9px] font-bold text-primary uppercase tracking-[0.1em] w-fit">
-                  {portalLabel}
-                </span>
+  
               </div>
             </Link>
             <button
               onClick={onClose}
-              className="lg:hidden p-2 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200"
+              className="lg:hidden p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all duration-200"
               aria-label="Close sidebar"
             >
               <Icons.close className="size-4" />
@@ -184,10 +179,8 @@ export function DashboardSidebar({
           {/* Org name row */}
           {orgName && (
             <div className="flex items-center gap-2 mt-3 px-1">
-              <span className="flex items-center justify-center size-6 rounded-md bg-slate-100 shrink-0">
-                <Icons.building className="size-3.5 text-slate-400" />
-              </span>
-              <span className="text-[12px] font-semibold text-slate-600 truncate leading-none">
+              <Icons.building className="size-3.5 text-slate-400 shrink-0" />
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest truncate leading-none">
                 {orgName}
               </span>
             </div>
@@ -196,7 +189,7 @@ export function DashboardSidebar({
 
         {/* ── Separator ─────────────────────────────────────── */}
         <div className="mx-5 mb-1">
-          <div className="h-px bg-gradient-to-r from-slate-200/60 via-slate-200 to-slate-200/60" />
+          <div className="h-px bg-slate-100" />
         </div>
 
         {/* ── Navigation ────────────────────────────────────── */}
@@ -227,25 +220,23 @@ export function DashboardSidebar({
         {/* ── User Profile ──────────────────────────────────── */}
         <div className="shrink-0 border-t border-slate-100">
           <div className="p-3">
-            <div className="flex items-center gap-3 rounded-xl p-2 hover:bg-slate-50/80 transition-all duration-200 cursor-default group/user">
-              {/* Avatar with gradient ring + online dot */}
+            <div className="flex items-center gap-3 p-2 hover:bg-slate-50 transition-all duration-200 cursor-default group/user">
+              {/* Avatar */}
               <div className="relative shrink-0">
-                <div className="avatar-ring rounded-xl overflow-hidden">
-                  {avatarUrl ? (
-                    <img src={avatarUrl} alt="" className="size-9 rounded-[10px] object-cover" />
-                  ) : (
-                    <div className="size-9 rounded-[10px] bg-gradient-to-br from-primary to-primary-light flex items-center justify-center">
-                      <span className="text-xs font-bold text-white tracking-wide">
-                        {(userName || 'User')
-                          .split(' ')
-                          .map((n: string) => n[0])
-                          .slice(0, 2)
-                          .join('')
-                          .toUpperCase()}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="size-9 object-cover" />
+                ) : (
+                  <div className="size-9 bg-[#0b3b24] flex items-center justify-center">
+                    <span className="text-xs font-bold text-white tracking-wide">
+                      {(userName || 'User')
+                        .split(' ')
+                        .map((n: string) => n[0])
+                        .slice(0, 2)
+                        .join('')
+                        .toUpperCase()}
+                    </span>
+                  </div>
+                )}
                 <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 border-2 border-white" />
               </div>
 
@@ -254,7 +245,7 @@ export function DashboardSidebar({
                 <p className="text-[13px] font-semibold text-slate-900 leading-none truncate">
                   {userName || 'User'}
                 </p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.1em] mt-1 truncate">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate">
                   {userRole}
                 </p>
               </div>
@@ -263,15 +254,15 @@ export function DashboardSidebar({
               <div className="flex items-center gap-0.5 opacity-0 group-hover/user:opacity-100 transition-opacity duration-200">
                 <button
                   title="Settings"
-                  onClick={() => router.push('/dashboard/settings')}
-                  className="p-1.5 rounded-lg text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-all duration-200"
+                  onClick={() => router.push('/settings')}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all duration-200"
                 >
                   <Icons.settings className="size-3.5" />
                 </button>
                 <button
                   onClick={onSignOut}
                   title="Sign out"
-                  className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
+                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all duration-200"
                 >
                   <Icons.logOut className="size-3.5" />
                 </button>

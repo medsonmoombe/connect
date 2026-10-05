@@ -12,7 +12,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     const membership = (user.company_members as any[])?.[0];
 
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) return forbidden('Only organisation owners and admins can cancel invites. Contact your organisation admin if you need an invite cancelled.');
 
     const { id } = await params;
     const admin = getSupabaseAdmin();
@@ -26,7 +26,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       .single();
 
     if (fetchErr || !invite) return badRequest('Invite not found');
-    if (invite.company_id !== membership.company_id) return forbidden();
+    if (invite.company_id !== membership.company_id) return forbidden('This invite does not belong to your organisation.');
     if (invite.used_at) return badRequest('Invite has already been used');
 
     const { error } = await admin.from('setup_invites').update({ deleted_at: new Date().toISOString() }).eq('id', id);
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     const membership = (user.company_members as any[])?.[0];
 
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) return forbidden('Only organisation owners and admins can resend invites. Contact your organisation admin if you need an invite resent.');
 
     const { id } = await params;
     const admin = getSupabaseAdmin();
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       .single();
 
     if (fetchErr || !invite) return badRequest('Invite not found');
-    if (invite.company_id !== membership.company_id) return forbidden();
+    if (invite.company_id !== membership.company_id) return forbidden('This invite does not belong to your organisation.');
     if (invite.used_at) return badRequest('Invite has already been used');
 
     const newExpiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString();

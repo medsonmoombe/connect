@@ -1,53 +1,61 @@
-import { getSupabaseAdmin } from './supabase-server';
+﻿import { getSupabaseAdmin } from './supabase-server';
 import { notifyUsers, notificationBuilders } from './notify';
 import * as emailTemplates from './email-templates';
+import { transitionProject } from './project-state-machine';
+import { triggerMatchingRuns } from './matching-trigger';
 
 /**
  * Activate a pending_live project: transition to live, notify matched investors
- * and project owner admins. Idempotent — safe to call multiple times.
+ * and project owner admins. Idempotent â€” safe to call multiple times.
+ *
+ * The status move is routed through `transitionProject` (atomic CAS, system
+ * actor, skipRoleCheck) so it converges exactly once even if the pg_cron job
+ * fires twice or an admin also calls /decision in the same instant. Only the
+ * winning caller performs the activation-side notifications.
  */
 export async function activateAndNotify(projectId: string): Promise<{ activated: boolean }> {
   const supabase = getSupabaseAdmin();
 
-  // 1. Fetch project
+  // 1. Fetch project (for the scores_visible_at gate + notification details)
   const { data: project, error: fetchErr } = await supabase
     .from('projects')
     .select('*')
     .eq('id', projectId)
     .is('deleted_at', null)
-    .single();
+    .maybeSingle();
 
   if (fetchErr || !project) return { activated: false };
   if (project.status !== 'pending_live') return { activated: false };
+  // Honour the go-live delay. The pg_cron job only calls us at/after this time;
+  // an early direct call by the system is a no-op.
   if (!project.scores_visible_at || new Date(project.scores_visible_at) > new Date()) return { activated: false };
 
-  // 2. Transition to live
-  const { error: updateErr } = await supabase
-    .from('projects')
-    .update({ status: 'live', is_visible_to_investors: true })
-    .eq('id', projectId);
+  // 2. Atomic transition pending_live -> live (system actor).
+  const result = await transitionProject({
+    projectId,
+    toStatus: 'live',
+    actorId: null,
+    actorRole: 'system',
+    skipRoleCheck: true,
+    reason: 'Scheduled activation (scores_visible_at reached)',
+  });
 
-  if (updateErr) {
-    console.error('[Activation] Failed to update status:', updateErr.message);
+  if (!result.ok) {
+    // CONFLICT means another caller already moved it â€” treat as already-activated.
+    if (result.code === 'CONFLICT') return { activated: false };
+    console.error('[Activation] transition failed:', result.error);
     return { activated: false };
   }
 
-  // 3. Audit log
-  await supabase.from('audit_logs').insert({
-    user_id: null,
-    action_type: 'PROJECT_ACTIVATED',
-    entity_type: 'projects',
-    entity_id: projectId,
-    after_state: { status: 'live', is_visible_to_investors: true, activated_at: new Date().toISOString() },
-  });
+  // Set visibility flag (best-effort; status is already authoritative).
+  await supabase
+    .from('projects')
+    .update({ is_visible_to_investors: true })
+    .eq('id', projectId)
+    .eq('status', 'live');
 
-  // 4. Fire-and-forget: trigger matching engine
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  fetch(`${baseUrl}/api/matching/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: projectId }),
-  }).catch(() => {});
+  // 4. Fire-and-forget: trigger the matching engine via the central helper.
+  void triggerMatchingRuns({ projectId });
 
   // 5. Find matched investors
   const [capitalMatches, technicalMatches] = await Promise.all([
@@ -108,7 +116,7 @@ export async function activateAndNotify(projectId: string): Promise<{ activated:
           body: `A new ${project.technology_type.replace(/_/g, ' ').toLowerCase()} project in ${project.location_country} is now open for engagement.`,
           entity_type: 'projects',
           entity_id: projectId,
-          action_url: '/dashboard/investor?tab=matches',
+          action_url: '/investor/marketplace?band=high',
         },
         channel: 'both',
         emailMap: investorEmailMap,

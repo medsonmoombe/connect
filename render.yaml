@@ -1,0 +1,65 @@
+services:
+  - type: web
+    name: afri-connect
+    runtime: docker
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: .
+    plan: standard
+    region: oregon
+    branch: main
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: PORT
+        value: "3000"
+      - key: HOSTNAME
+        value: "0.0.0.0"
+      - key: AI_ORCHESTRATOR_ENABLED
+        value: "true"
+      # AI runs inline on Render (no separate worker container)
+      - key: AI_SYNC_WORKER
+        value: "true"
+      # --- Fill these in Render Dashboard → Environment ---
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash-lite
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_NAME
+        value: "Afri Connect"
+      - key: NEXT_PUBLIC_APP_TAGLINE
+        value: "Zambia Energy Market"
+      - key: APP_NAME
+        value: "Afri Connect"
+      - key: SUPPORT_EMAIL
+        sync: false
+      - key: NEXT_PUBLIC_SUPPORT_EMAIL
+        sync: false
+      - key: MFA_COOKIE_SECRET
+        generateValue: true
+      - key: AI_WORKER_SECRET
+        generateValue: true
+      - key: PROJECT_ACTIVATION_DELAY_MINUTES
+        value: "1440"
+      - key: CRON_CHECK_INTERVAL_MINUTES
+        value: "60"

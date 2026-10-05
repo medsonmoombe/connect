@@ -118,14 +118,14 @@ export const EngagementMilestones: React.FC<EngagementMilestonesProps> = ({
       </div>
 
       {isDropped && (
-        <div className="mt-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center text-red-600">
+        <div className="mt-6 p-4 bg-red-50 border border-red-100 rounded-none flex items-center text-red-600">
           <Circle className="w-4 h-4 mr-2 fill-red-500" />
           <span className="text-xs font-bold">Engagement Dropped</span>
         </div>
       )}
 
       {!isDropped && currentStatus !== 'CLOSED' && (
-        <div className="mt-6 flex justify-between items-center bg-primary/5 p-4 rounded-xl border border-primary/10">
+        <div className="mt-6 flex justify-between items-center bg-primary/5 p-4 rounded-none border border-primary/10">
           <div>
             <p className="text-xs font-bold text-slate-900">Current Phase: {getStateLabel(currentStatus)}</p>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Progress: {progress}% to completion</p>

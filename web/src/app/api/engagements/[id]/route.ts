@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { notifyUser, notificationBuilders } from '@/lib/notify';
 import * as emailTemplates from '@/lib/email-templates';
 import { isValidTransition, getTransitionRole } from '@/lib/engagement';
+import { validate, engagementPatchSchema } from '@/lib/validation';
 import type { EngagementStatus } from '@/types';
 
 type Params = { params: Promise<{ id: string }> };
@@ -13,7 +14,11 @@ async function resolveCounterpartyCompanyId(
   counterpartyId: string,
   counterpartyType: string
 ): Promise<string | null> {
-  const table = counterpartyType === 'CAPITAL' ? 'capital_partners' : 'technical_partners';
+  const table =
+    counterpartyType === 'CAPITAL'        ? 'capital_partners' :
+    counterpartyType === 'CONSULTANT'     ? 'consultants' :
+    counterpartyType === 'GRANT_PROVIDER' ? 'grant_providers' :
+    'technical_partners';
   const { data } = await supabase.from(table).select('company_id').eq('id', counterpartyId).maybeSingle();
   return data?.company_id ?? null;
 }
@@ -61,12 +66,13 @@ async function checkTransitionPreconditions(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   engagementId: string,
   fromStatus: EngagementStatus,
-  toStatus: EngagementStatus
+  toStatus: EngagementStatus,
+  requestBody?: Record<string, any>,
+  projectId?: string,
 ): Promise<string | null> {
   // INTRO_ACCEPTED → NDA_SIGNED
   if (fromStatus === 'INTRO_ACCEPTED' && toStatus === 'NDA_SIGNED') {
-    // Look for an NDA engagement document. If the table has none, allow an
-    // offline attestation (handled at the client; no hard block here for MVP).
+    // 1. Check for an uploaded NDA engagement document
     const { data: nda } = await supabase
       .from('engagement_documents')
       .select('id')
@@ -74,27 +80,53 @@ async function checkTransitionPreconditions(
       .eq('document_type', 'NDA')
       .is('deleted_at', null)
       .maybeSingle();
-    // Allow transition regardless (MVP offline NDA). We surface a soft warning
-    // via metadata when no doc is present rather than blocking.
-    if (!nda) {
-      // Not blocking for MVP — NDAs are offline per PRD §10.2.
-      return null;
-    }
-    return null;
+
+    if (nda) return null; // NDA document exists — allow
+
+    // 2. Check for explicit offline attestation via `nda_signed: true` in request body
+    if (requestBody?.nda_signed === true) return null;
+
+    return 'An NDA document must be uploaded to the engagement data room, or an offline NDA attestation (nda_signed: true) must be provided to proceed.';
   }
 
   // DUE_DILIGENCE → TERM_SHEET — require the counterparty to have viewed docs.
   if (fromStatus === 'DUE_DILIGENCE' && toStatus === 'TERM_SHEET') {
     const MIN_DOCS_VIEWED = 1;
-    const { count, error } = await supabase
-      .from('document_access_logs')
+
+    // Check project document downloads (document_access_logs table)
+    // Scope to the engagement's project — not platform-wide downloads
+    let projectDocCount = 0;
+    let projectErr = null;
+    if (projectId) {
+      // First get the document IDs for this project
+      const { data: projectDocs } = await supabase
+        .from('project_documents')
+        .select('id')
+        .eq('project_id', projectId)
+        .is('deleted_at', null);
+      const docIds = (projectDocs ?? []).map(d => d.id);
+      if (docIds.length > 0) {
+        const result = await supabase
+          .from('document_access_logs')
+          .select('id', { count: 'exact', head: true })
+          .eq('action', 'DOWNLOAD')
+          .in('document_id', docIds);
+        projectDocCount = result.count ?? 0;
+        projectErr = result.error;
+      }
+    }
+
+    // Also check engagement document downloads (audit_logs table — engagement
+    // docs can't satisfy the document_access_logs FK, so they're logged there)
+    const { count: engDocCount, error: engErr } = await supabase
+      .from('audit_logs')
       .select('*', { count: 'exact', head: true })
-      // We can't trivially join to "counterparty org users" here cheaply; gate
-      // on at least MIN_DOCS_VIEWED accesses tied to this engagement's project
-      // docs by anyone other than the developer. The stricter per-org check is
-      // handled below; for MVP this enforces "someone reviewed the docs".
-      .eq('action', 'DOWNLOAD');
-    if (!error && (count ?? 0) < MIN_DOCS_VIEWED) {
+      .eq('action_type', 'ENGAGEMENT_DOCUMENT_DOWNLOAD')
+      .eq('entity_type', 'engagement_documents')
+      .eq('entity_id', engagementId);
+
+    const totalViewed = (projectDocCount ?? 0) + (engDocCount ?? 0);
+    if (!projectErr && !engErr && totalViewed < MIN_DOCS_VIEWED) {
       return 'Counter party must review the shared documents (data room) before a term sheet can be issued.';
     }
     return null;
@@ -121,8 +153,10 @@ async function checkTransitionPreconditions(
 export async function GET(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
-    const { id } = await params;
-    if (!await verifyEngagementAccess(id, user.company_id, user.is_platform_admin)) return forbidden();
+    const { id } = await params;    if (!await verifyEngagementAccess(id, user.company_id, user.is_platform_admin)) {
+      return forbidden('You are not a participant in this engagement. Only the developer and the partner organisation can view engagement details.');
+    }
+
     const supabase = getSupabaseAdmin();
 
     const { data, error } = await supabase
@@ -138,7 +172,11 @@ export async function GET(req: NextRequest, { params }: Params) {
 
     // Attach counterparty company info
     if (data?.counterparty_id && data?.counterparty_type) {
-      const table = data.counterparty_type === 'CAPITAL' ? 'capital_partners' : 'technical_partners';
+      const table =
+        data.counterparty_type === 'CAPITAL'        ? 'capital_partners' :
+        data.counterparty_type === 'CONSULTANT'     ? 'consultants' :
+        data.counterparty_type === 'GRANT_PROVIDER' ? 'grant_providers' :
+        'technical_partners';
       const { data: partnerRecord } = await supabase
         .from(table)
         .select('company_id, companies(id, name, logo_url, website)')
@@ -160,16 +198,22 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   try {
     const user = await getAuthenticatedUser(req);
     const { id } = await params;
-    if (!await verifyEngagementAccess(id, user.company_id, user.is_platform_admin)) return forbidden();
+    if (!await verifyEngagementAccess(id, user.company_id, user.is_platform_admin)) {
+      return forbidden('You are not a participant in this engagement. Only engagement participants can update it.');
+    }
     const body = await req.json();
+
+    const parsed = validate(engagementPatchSchema, body);
+    if (!parsed.ok) return badRequest(parsed.error);
+
     const supabase = getSupabaseAdmin();
-    const safeFields = pickFields(body, ['status']);
+    const safeFields = pickFields(parsed.data, ['status']);
     let prevStatus: EngagementStatus | null = null;
 
     if (safeFields.status) {
       const { data: current, error: fetchError } = await supabase
         .from('engagements')
-        .select('status, counterparty_id, counterparty_type, project:projects(id, developer_id)')
+        .select('status, counterparty_id, counterparty_type, intro_origin, project:projects(id, developer_id)')
         .eq('id', id)
         .single();
 
@@ -177,12 +221,25 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
       prevStatus = current.status as EngagementStatus;
 
+      // ── Terminal state guard ────────────────────────────────────────────────
+      // Dropped and closed engagements are read-only for non-admins (PRD §1.7).
+      const TERMINAL = ['DROPPED', 'CLOSED'] as const;
+      if (!user.is_platform_admin && TERMINAL.includes(current.status as any)) {
+        return badRequest('This engagement is closed and cannot be modified. Contact a platform admin if you need to reopen it.');
+      }
+
       if (!isValidTransition(current.status as EngagementStatus, safeFields.status as EngagementStatus)) {
         return badRequest(`Invalid status transition from ${current.status} to ${safeFields.status}`);
       }
 
       // ── Role enforcement ────────────────────────────────────────────────────
-      const requiredRole = getTransitionRole(current.status as EngagementStatus, safeFields.status as EngagementStatus);
+      // intro_origin decides who must accept an introduction: the party that
+      // did NOT initiate the request (see getTransitionRole / migration 073).
+      const requiredRole = getTransitionRole(
+        current.status as EngagementStatus,
+        safeFields.status as EngagementStatus,
+        (current as any).intro_origin ?? null
+      );
       let isDeveloper = false;
       let isCounterparty = false;
       if (requiredRole !== 'either') {
@@ -196,7 +253,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
         const userRole = isDeveloper ? 'developer' : isCounterparty ? 'counterparty' : null;
         if (userRole !== requiredRole) {
-          return badRequest(`Only the ${requiredRole} can move this engagement to ${safeFields.status}`);
+          return badRequest(`Only the ${requiredRole === 'developer' ? 'project developer' : 'partner organisation'} can move this engagement to the next stage.`);
         }
       }
 
@@ -207,7 +264,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           supabase,
           id,
           current.status as EngagementStatus,
-          safeFields.status as EngagementStatus
+          safeFields.status as EngagementStatus,
+          body,
+          (current.project as any)?.id,
         );
         if (preconditionError) {
           return Response.json({ error: preconditionError }, { status: 409 });
@@ -215,10 +274,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
     }
 
-    const { data, error } = await supabase
+    // ── CAS guard: only update if status still matches what we read ───────────
+    let updateQuery = supabase
       .from('engagements')
       .update({ ...safeFields, updated_at: new Date().toISOString() })
-      .eq('id', id)
+      .eq('id', id);
+
+    if (prevStatus) {
+      updateQuery = updateQuery.eq('status', prevStatus);
+    }
+
+    const { data, error, count } = await updateQuery
       .select('*, project:projects(id, name, developer_id)')
       .single();
 
@@ -227,7 +293,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return serverError();
     }
 
-    await writeAuditLog({ userId: user.id, action: 'ENGAGEMENT_UPDATED', entityType: 'engagements', entityId: id, after: safeFields, req });
+    // If status was part of the update and no rows matched the CAS, the
+    // engagement was concurrently modified — reject to prevent lost updates.
+    if (safeFields.status && prevStatus && !data) {
+      return Response.json(
+        { error: 'This engagement was modified by another user. Please refresh and try again.' },
+        { status: 409 }
+      );
+    }
+
+    await writeAuditLog({ userId: user.id, action: 'ENGAGEMENT_UPDATED', entityType: 'engagements', entityId: id, after: safeFields, req, blocking: true });
 
     // ── Structured transition history (PRD §J — engagement_states) ──────────
     if (safeFields.status && prevStatus) {
@@ -262,22 +337,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
         if (otherOrgId) {
           const admins = await getCompanyAdmins(supabase, otherOrgId);
-          for (const u of admins) {
-            if (!u.id) continue;
-            await notifyUser({
-              userId: u.id,
-              payload: notificationBuilders.engagementUpdate({ projectName: proj.name, newStatus: statusStr }),
-              channel: 'both',
-              emailTo: u.email ?? undefined,
-              emailTemplate: emailTemplates.engagementUpdateEmail({
-                projectName: proj.name,
-                newStatus: statusStr,
-                recipientName: u.full_name ?? 'there',
-              }),
-              emailLogType: 'engagement_updates',
-              emailEntityId: id,
-            });
-          }
+          await Promise.all(
+            admins.filter(u => u.id).map(u =>
+              notifyUser({
+                userId: u.id,
+                payload: notificationBuilders.engagementUpdate({ projectName: proj.name, newStatus: statusStr }),
+                channel: 'both',
+                emailTo: u.email ?? undefined,
+                emailTemplate: emailTemplates.engagementUpdateEmail({
+                  projectName: proj.name,
+                  newStatus: statusStr,
+                  recipientName: u.full_name ?? 'there',
+                }),
+                emailLogType: 'engagement_updates',
+                emailEntityId: id,
+              })
+            )
+          );
         }
       } catch (notifyErr: any) {
         console.error('[Engagements] Notify error:', notifyErr.message);

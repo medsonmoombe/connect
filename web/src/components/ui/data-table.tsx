@@ -23,7 +23,7 @@ interface DataTableProps<T> {
 }
 
 function SkeletonCell({ className }: { className?: string }) {
-  return <div className={cn('h-4 rounded-md bg-slate-200 animate-pulse', className)} />;
+  return <div className={cn('h-4 bg-slate-200 animate-pulse', className)} />;
 }
 
 export function DataTable<T>({
@@ -53,7 +53,7 @@ export function DataTable<T>({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-b border-slate-100">
+              <tr className="bg-surface-2 text-ink-3 text-[10.5px] font-extrabold uppercase tracking-[0.1em] border-b border-line">
                 {columns.map(col => (
                   <th key={col.key} className={cn('px-4 py-3', col.className)}>
                     {col.header}
@@ -82,10 +82,10 @@ export function DataTable<T>({
 
   if (data.length === 0) {
     return (
-      <div className="p-12 text-center space-y-2">
-        <Icons.database className="size-10 text-slate-200 mx-auto" />
-        <p className="text-sm font-bold text-slate-400">{emptyTitle}</p>
-        {emptyDescription && <p className="text-xs text-slate-400">{emptyDescription}</p>}
+      <div className="py-8 px-6 text-center space-y-1">
+        <Icons.database className="size-6 text-slate-200 mx-auto" />
+        <p className="text-xs font-bold text-slate-400">{emptyTitle}</p>
+        {emptyDescription && <p className="text-[11px] text-slate-400">{emptyDescription}</p>}
       </div>
     );
   }
@@ -95,7 +95,7 @@ export function DataTable<T>({
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-b border-slate-100">
+            <tr className="bg-surface-2 text-ink-3 text-[10.5px] font-extrabold uppercase tracking-[0.1em] border-b border-line">
               {columns.map(col => (
                 <th key={col.key} className={`px-4 py-3 ${col.className ?? ''}`}>
                   {col.header}
@@ -128,7 +128,7 @@ export function DataTable<T>({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 px-2.5 rounded-lg text-xs font-semibold"
+              className="h-8 px-2.5 rounded-none text-xs font-semibold"
               disabled={page === 0}
               onClick={() => setPage(p => p - 1)}
             >
@@ -139,7 +139,7 @@ export function DataTable<T>({
               <button
                 key={i}
                 onClick={() => setPage(i)}
-                className={`size-8 rounded-lg text-xs font-bold transition-colors ${
+                className={`size-8 rounded-none text-xs font-bold transition-colors ${
                   i === page
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
@@ -151,7 +151,7 @@ export function DataTable<T>({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 px-2.5 rounded-lg text-xs font-semibold"
+              className="h-8 px-2.5 rounded-none text-xs font-semibold"
               disabled={page >= totalPages - 1}
               onClick={() => setPage(p => p + 1)}
             >

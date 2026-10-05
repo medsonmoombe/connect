@@ -4,13 +4,23 @@ import "./globals.css";
 import { AuthProvider } from "@/hooks/useAuth";
 import { QueryProvider } from "@/lib/query-provider";
 import { AuthHashHandler } from "@/components/AuthHashHandler";
+import { PortalLayoutWrapper } from "@/components/dashboard/PortalLayoutWrapper";
 import { Toaster } from "sonner";
+import { APP_NAME } from "@/lib/branding";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Energy Capital Match",
+  title: {
+    default: APP_NAME,
+    template: `%s | ${APP_NAME}`,
+  },
   description: "A structured capital and project intelligence platform for energy infrastructure projects",
+  applicationName: APP_NAME,
+  icons: {
+    icon: [{ url: "/icon.png" }, { url: "/favicon.ico" }],
+    apple: "/apple-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -24,7 +34,9 @@ export default function RootLayout({
         <AuthProvider>
           <QueryProvider>
             <AuthHashHandler />
-            {children}
+            <PortalLayoutWrapper>
+              {children}
+            </PortalLayoutWrapper>
             <Toaster
               position="top-right"
               richColors

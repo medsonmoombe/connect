@@ -4,11 +4,13 @@
   "description": "Seed script — creates Firebase Auth users and populates Supabase with test data",
   "main": "seed.js",
   "scripts": {
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "reset": "node reset.js",
+    "fresh": "node fresh.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
-    "firebase-admin": "^13.10.0",
+    "pg": "^8.13.0",
     "ws": "^8.21.0"
   }
 }

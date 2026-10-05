@@ -42,7 +42,7 @@ const getGenAI = () => {
   return getAiProvider();
 };
 
-const MODEL = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = () => process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 /** Rough token estimator: ~4 chars per token */
 function estimateTokens(text: string): number {
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 1. Per-user AI rate limit (5 analyses/hour)
-      const rl = checkRateLimit(user.id, RATE_LIMIT_AI_ANALYSIS);
+      const rl = await checkRateLimit(user.id, RATE_LIMIT_AI_ANALYSIS);
       if (!rl.allowed) {
         return NextResponse.json(
           {

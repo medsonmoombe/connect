@@ -121,11 +121,12 @@ Only **Developers** can create projects. It's done through a 5-step wizard:
 ### What Happens After Submission
 
 1. Your documents are uploaded securely.
-2. An **AI scoring engine** reads your documents and scores your project (see next section).
-3. A loading screen shows you progress messages like "Reading your project documents..." and "Evaluating capital structure..."
-4. Once scored, your project enters a **24-hour review period** before going live on the marketplace.
-5. An admin can approve or reject your project during this window.
-6. Once approved, your project appears in the marketplace and the matching engine starts finding partners for you.
+2. Your project moves into the **submitted** state and the review team is notified.
+3. An **AI scoring engine** reads your documents and scores your project (see next section).
+4. Once scored, your project enters the **review queue** ("Under Regulator Review") and the platform team / regulators make the approval decision.
+5. On approval your project goes **live** on the marketplace and the matching engine starts finding partners for you. If it is returned, you get the reviewer's comments on a draft and can resubmit.
+
+Nothing before that final **Submit** click puts your project into review — a draft you are still working on (and any document you upload while filling the form) stays a draft until you submit.
 
 ### Saving Drafts
 

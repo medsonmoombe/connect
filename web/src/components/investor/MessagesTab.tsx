@@ -20,7 +20,7 @@ export function MessagesTab({ engagements, loading, unreadByEngagement }: Messag
   );
 
   return (
-    <div className="bg-white border border-gray-100 rounded-[32px] shadow-soft overflow-hidden">
+    <div className="bg-white border border-gray-100 rounded-none shadow-soft overflow-hidden">
       <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-slate-50/50">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{engagements.length} Active Conversations</span>
       </div>
@@ -34,9 +34,9 @@ export function MessagesTab({ engagements, loading, unreadByEngagement }: Messag
             const lastMessage = eng.messages?.length ? eng.messages[eng.messages.length - 1] : null;
             const unread = unreadByEngagement?.[eng.id] ?? 0;
             return (
-              <Link key={eng.id} href={`/dashboard/engagements/${eng.id}`}>
+              <Link key={eng.id} href={`/engagements/${eng.id}`}>
                 <div className="p-6 hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-6">
-                  <div className="size-10 rounded-xl bg-gray-50 flex items-center justify-center text-slate-400 shrink-0 border border-gray-100">
+                  <div className="size-10 rounded-none bg-gray-50 flex items-center justify-center text-slate-400 shrink-0 border border-gray-100">
                     <Icons.messageSquare className="size-5" />
                   </div>
                   <div className="flex-grow min-w-0">
@@ -65,7 +65,7 @@ export function MessagesTab({ engagements, loading, unreadByEngagement }: Messag
             );
           })
         ) : (
-          <div className="p-12 text-center text-sm text-slate-400 italic">No active conversations.</div>
+          <div className="py-6 text-center text-[11px] text-slate-400 italic">No active conversations.</div>
         )}
       </div>
     </div>

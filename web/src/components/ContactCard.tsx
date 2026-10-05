@@ -18,9 +18,9 @@ export const ContactCard: React.FC<ContactCardProps> = ({
 }) => {
   if (!isVisible) {
     return (
-      <div className={cn("p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center", className)}>
+      <div className={cn("p-6 bg-slate-50 border border-dashed border-slate-200 rounded-none text-center", className)}>
         <div className="flex justify-center mb-3">
-          <div className="p-3 bg-slate-100 rounded-xl text-slate-400">
+          <div className="p-3 bg-slate-100 rounded-none text-slate-400">
             <Lock className="w-5 h-5" />
           </div>
         </div>
@@ -33,7 +33,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
   }
 
   return (
-    <div className={cn("bg-white border border-slate-100 rounded-xl overflow-hidden shadow-sm", className)}>
+    <div className={cn("bg-white border border-slate-100 rounded-none overflow-hidden shadow-sm", className)}>
       <div className="bg-primary px-5 py-3 flex items-center justify-between">
         <h3 className="text-white font-bold text-sm">{company.name}</h3>
         <span className="bg-white/20 text-white text-[9px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider">Verified</span>
@@ -75,11 +75,11 @@ export const ContactCard: React.FC<ContactCardProps> = ({
         </div>
 
         <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-3">
-          <div className="text-center p-2 bg-slate-50 rounded-lg">
+          <div className="text-center p-2 bg-slate-50 rounded-none">
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Team Size</p>
             <p className="text-xs font-bold text-slate-900">{company.team_size}+</p>
           </div>
-          <div className="text-center p-2 bg-slate-50 rounded-lg">
+          <div className="text-center p-2 bg-slate-50 rounded-none">
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Since</p>
             <p className="text-xs font-bold text-slate-900">{new Date().getFullYear() - company.years_operating}</p>
           </div>

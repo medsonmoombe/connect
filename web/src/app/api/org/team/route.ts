@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const user = await getAuthenticatedUser(req);
     const membership = (user.company_members as any[])?.[0];
 
-    if (!membership?.company_id) return forbidden();
+    if (!membership?.company_id) return forbidden('You need to belong to an organisation to view team members. Contact your admin if you believe this is an error.');
     const admin = getSupabaseAdmin();
 
     // Active members
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     const membership = (user.company_members as any[])?.[0];
 
     const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
-    if (!isOrgAdmin || !membership?.company_id) return forbidden();
+    if (!isOrgAdmin || !membership?.company_id) return forbidden('Only organisation owners and admins can send invitations. Contact your organisation admin if you need to invite someone.');
 
     const { email, membershipRole = 'MEMBER', expiresInDays = 7 } = await req.json();
     if (!email) return badRequest('email is required');

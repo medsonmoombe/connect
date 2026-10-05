@@ -59,6 +59,28 @@ import {
   Camera,
   Clock,
   Target,
+  Upload,
+  CheckCircle,
+  Wrench,
+  Landmark,
+  FileSearch,
+  Activity,
+  TrendingUp,
+  Lightbulb,
+  FileWarning,
+  BarChart3,
+  Bell,
+  File,
+  ClipboardCheck,
+  History as HistoryIcon,
+  Headphones,
+  Pause,
+  Play,
+  Gauge,
+  ExternalLink,
+  ChevronLeft,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 export const Icons = {
@@ -136,13 +158,43 @@ export const Icons = {
   eyeOff: EyeOff,
   users: Users,
   refreshCw: RefreshCw,
+  refresh: RefreshCw,
   x: X,
   target: Target,
-  logo: (props: any) => (
-    <Leaf
-      {...props}
-    />
-  ),
+  upload: Upload,
+  checkCircle: CheckCircle,
+  wrench: Wrench,
+  landmark: Landmark,
+  fileSearch: FileSearch,
+  activity: Activity,
+  trendingUp: TrendingUp,
+  lightbulb: Lightbulb,
+  fileWarning: FileWarning,
+  barChart3: BarChart3,
+  bell: Bell,
+  file: File,
+  clipboardCheck: ClipboardCheck,
+  history: HistoryIcon,
+  headphones: Headphones,
+  pause: Pause,
+  play: Play,
+  gauge: Gauge,
+  externalLink: ExternalLink,
+  chevronLeft: ChevronLeft,
+  zoomIn: ZoomIn,
+  zoomOut: ZoomOut,
+  logo: (props: any) => {
+    const { className, style, ...rest } = props || {};
+    return (
+      <img
+        src="/Afri%20Connect%20Logo.png"
+        alt={process.env.NEXT_PUBLIC_APP_NAME || 'Afri Connect'}
+        className={className}
+        style={{ objectFit: 'contain', ...(style || {}) }}
+        {...rest}
+      />
+    );
+  },
   google: (props: any) => (
     <svg
       role="img"
@@ -212,4 +264,9 @@ export {
   Eye,
   EyeOff,
   RefreshCw,
+  Wrench,
+  Landmark,
+  FileSearch,
+  Activity,
+  TrendingUp,
 };

@@ -69,6 +69,9 @@ export interface AdminHealth {
   totalCompanies: number;
   totalCapital: number;
   totalEngagements: number;
+  roleBreakdown: Record<string, number>;
+  activeUsers: { dau: number; wau: number };
+  monthlyGrowth: { month: string; users: number; projects: number; engagements: number }[];
   trends: {
     users: { pct: number; positive: boolean };
     projects: { pct: number; positive: boolean };
@@ -229,7 +232,9 @@ export function useAdminSuspendUser() {
 // ── Platform Admin — engagement override ────────────────────────────────────
 export function useAdminOverrideEngagement() {
   const [isPending, setIsPending] = useState(false);
-  const mutateAsync = useCallback(async (engagementId: string, status: 'CLOSED' | 'DROPPED', reason: string) => {
+  const mutateAsync = useCallback(async (engagementId: string, status: 'CLOSED' | 'DROPPED' | string, reason: string) => {
+    // status may also be any pipeline state — the API treats non-terminal
+    // statuses as a revive of a DROPPED engagement and validates them server-side.
     setIsPending(true);
     try {
       const res = await fetch(`/api/admin/engagements/${engagementId}`, {

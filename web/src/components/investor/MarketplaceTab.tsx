@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { cn } from '@/lib/utils';
 import { engagementService } from '@/lib/engagement';
 import { Project, Engagement } from '@/types';
+import { MatchBreakdownPanel } from '@/components/ui/MatchBreakdownPanel';
 
 interface MatchMap {
   [projectId: string]: number; // project_id -> compatibility_score
@@ -19,6 +20,7 @@ interface MatchMap {
 interface MarketplaceTabProps {
   projects: Project[];
   matchScores: MatchMap;
+  matches?: any[];  // raw match rows with score_breakdown
   engagements: Engagement[];
   loading: boolean;
   onRefresh: () => void;
@@ -27,7 +29,7 @@ interface MarketplaceTabProps {
   onBookmarkToggle?: (projectId: string, bookmarked: boolean) => void;
 }
 
-export function MarketplaceTab({ projects, matchScores, engagements, loading, onRefresh, capitalPartnerId, bookmarkedIds = new Set(), onBookmarkToggle }: MarketplaceTabProps) {
+export function MarketplaceTab({ projects, matchScores, matches = [], engagements, loading, onRefresh, capitalPartnerId, bookmarkedIds = new Set(), onBookmarkToggle }: MarketplaceTabProps) {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [sectorFilter, setSectorFilter] = useState('ALL');
@@ -35,6 +37,7 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [bookmarkingId, setBookmarkingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const engagedProjectIds = useMemo(
     () => new Set(engagements.map(e => e.project_id)),
@@ -87,7 +90,7 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
     try {
       const eng = await engagementService.requestIntroduction(project.id, capitalPartnerId, 'CAPITAL');
       setSentIds(prev => new Set(prev).add(project.id));
-      if (eng?.id) router.push(`/dashboard/engagements/${eng.id}`);
+      if (eng?.id) router.push(`/engagements/${eng.id}`);
     } catch (err) {
       console.error('Express interest failed:', err);
     } finally {
@@ -123,20 +126,20 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
             placeholder="Search by name, location, or technology..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-11 pl-11 pr-4 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            className="w-full h-11 pl-11 pr-4 rounded-none border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           />
         </div>
         <select
           value={sectorFilter}
           onChange={(e) => setSectorFilter(e.target.value)}
-          className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-11 px-4 rounded-none border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
         >
           {sectors.map(s => <option key={s} value={s}>{s === 'ALL' ? 'All Sectors' : s}</option>)}
         </select>
         <select
           value={stageFilter}
           onChange={(e) => setStageFilter(e.target.value)}
-          className="h-11 px-4 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          className="h-11 px-4 rounded-none border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
         >
           {stages.map(s => <option key={s} value={s}>{s === 'ALL' ? 'All Stages' : s.replace('_', ' ')}</option>)}
         </select>
@@ -153,6 +156,9 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
   <div className="grid md:grid-cols-2 gap-4">
   {filtered.map(project => {
     const score = matchScores[project.id];
+    const matchRow = matches?.find?.((m: any) => m.project_id === project.id);
+    const breakdown = matchRow?.score_breakdown;
+    const isExpanded = expandedId === project.id;
     const isSent = sentIds.has(project.id);
     const isSending = sendingId === project.id;
     const isAlreadyEngaged = engagedProjectIds.has(project.id);
@@ -162,7 +168,7 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
     return (
       <div
         key={project.id}
-        className="p-5 rounded-3xl bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group min-w-0"
+        className="p-4 rounded-none bg-surface border border-gray-100 shadow-soft hover:shadow-xl transition-all group min-w-0"
       >
         {/* Header */}
         <div className="flex justify-between items-start gap-3 mb-4">
@@ -225,20 +231,38 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
 
         {/* Tags */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          <span className="px-2 py-1 rounded-lg bg-background text-[9px] font-bold text-slate-500 uppercase tracking-wider truncate max-w-full">
+          <span className="px-2 py-1 rounded-none bg-background text-[9px] font-bold text-slate-500 uppercase tracking-wider truncate max-w-full">
             {project.technology_type}
           </span>
-          <span className="px-2 py-1 rounded-lg bg-background text-[9px] font-bold text-slate-500 uppercase tracking-wider truncate max-w-full">
+          <span className="px-2 py-1 rounded-none bg-background text-[9px] font-bold text-slate-500 uppercase tracking-wider truncate max-w-full">
             {project.project_stage?.replace('_', ' ')}
           </span>
         </div>
+
+        {/* Breakdown toggle + panel */}
+        {breakdown && (
+          <>
+            <button
+              onClick={() => setExpandedId(isExpanded ? null : project.id)}
+              className="w-full flex items-center justify-between px-4 py-2 border-t border-slate-100 bg-slate-50/50 hover:bg-slate-100 transition-colors text-[10px] font-bold text-slate-400 uppercase tracking-widest"
+            >
+              <span>Match Breakdown</span>
+              <Icons.chevronDown className={cn('size-3.5 transition-transform', isExpanded && 'rotate-180')} />
+            </button>
+            {isExpanded && (
+              <div className="px-4 pb-4 pt-3">
+                <MatchBreakdownPanel breakdown={breakdown} totalScore={score ?? 0} variant="full" />
+              </div>
+            )}
+          </>
+        )}
 
         {/* Actions */}
         <div className="flex items-center gap-1.5">
           <Button
             variant="outline"
             size="sm"
-            className="size-8 rounded-lg p-0 border-slate-200 shrink-0"
+            className="size-8 rounded-none p-0 border-slate-200 shrink-0"
             onClick={() => handleBookmark(project.id)}
             disabled={bookmarkingId === project.id}
             title={bookmarkedIds.has(project.id) ? 'Remove bookmark' : 'Bookmark'}
@@ -256,7 +280,7 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
           </Button>
 
           <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
-            <Button variant="outline" className="w-full h-8 rounded-lg text-[11px] font-bold">
+            <Button variant="outline" className="w-full h-8 rounded-none text-[11px] font-bold">
               Details
             </Button>
           </Link>
@@ -265,7 +289,7 @@ export function MarketplaceTab({ projects, matchScores, engagements, loading, on
             onClick={() => !isAlreadyEngaged && handleExpressInterest(project)}
             disabled={isAlreadyEngaged || isSent || isSending}
             className={cn(
-              "flex-1 min-w-0 h-8 px-2 rounded-lg text-[11px] font-bold transition-all",
+              "flex-1 min-w-0 h-8 px-2 rounded-none text-[11px] font-bold transition-all",
               isAlreadyEngaged
                 ? "bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-50 cursor-default"
                 : isSent

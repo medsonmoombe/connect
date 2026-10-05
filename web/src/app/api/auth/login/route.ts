@@ -1,16 +1,18 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getSupabaseAdmin, fetchProfileWithMemberships } from '@/lib/supabase-server';
 import { badRequest, serverError, writeAuditLog } from '@/lib/api-helpers';
 import { checkLockout, recordLoginAttempt } from '@/lib/lockout';
 import { sendAccountLockedEmail } from '@/lib/email';
 import { cookies } from 'next/headers';
+import { isNetworkError, serviceUnavailable } from '@/lib/network-errors';
 
 export async function POST(req: NextRequest) {
   try {
     const { email, password } = await req.json();
     if (!email || !password) return badRequest('email and password are required');
 
+ 
     const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null;
     const userAgent = req.headers.get('user-agent') ?? null;
 
@@ -18,13 +20,7 @@ export async function POST(req: NextRequest) {
     const lockout = await checkLockout(email);
     if (lockout.locked) {
       return Response.json(
-        {
-          error: {
-            code: 'ACCOUNT_LOCKED',
-            message: 'Your account has been temporarily locked due to too many failed login attempts.',
-            lockedUntil: lockout.lockedUntil,
-          }
-        },
+        { error: 'Your account has been temporarily locked due to too many failed login attempts.', code: 'ACCOUNT_LOCKED', lockedUntil: lockout.lockedUntil },
         { status: 403 }
       );
     }
@@ -46,7 +42,20 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    let data: any, error: any;
+    try {
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      data = result.data;
+      error = result.error;
+    } catch (e) {
+      // DNS/fetch failures from the Supabase call — a service outage, not bad
+      // credentials. Never count against the user's failed-attempt lockout.
+      if (isNetworkError(e)) {
+        console.error('[Login] Supabase network failure:', (e as any)?.cause?.code ?? (e as Error).message);
+        return serviceUnavailable();
+      }
+      throw e;
+    }
     if (error || !data.user) {
       // Record failed attempt
       const admin = getSupabaseAdmin();
@@ -74,29 +83,16 @@ export async function POST(req: NextRequest) {
           lockedUntil: attemptResult.lockedUntil!,
         });
 
-        await writeAuditLog({ userId: profile?.id ?? null, action: 'ACCOUNT_LOCKED', entityType: 'user', entityId: profile?.id ?? email, req });
+        await writeAuditLog({ userId: profile?.id ?? null, action: 'ACCOUNT_LOCKED', entityType: 'user', entityId: profile?.id ?? email, req, blocking: true });
 
         return Response.json(
-          {
-            error: {
-              code: 'ACCOUNT_LOCKED',
-              message: 'Your account has been temporarily locked due to too many failed login attempts.',
-              lockedUntil: attemptResult.lockedUntil,
-              attemptsRemaining: 0,
-            }
-          },
+          { error: 'Your account has been temporarily locked due to too many failed login attempts.', code: 'ACCOUNT_LOCKED', lockedUntil: attemptResult.lockedUntil },
           { status: 403 }
         );
       }
 
       return Response.json(
-        {
-          error: {
-            code: 'INVALID_CREDENTIALS',
-            message: 'Invalid email or password',
-            attemptsRemaining: attemptResult.attemptsRemaining,
-          }
-        },
+        { error: 'Invalid email or password', code: 'INVALID_CREDENTIALS', attemptsRemaining: attemptResult.attemptsRemaining },
         { status: 401 }
       );
     }
@@ -106,13 +102,13 @@ export async function POST(req: NextRequest) {
 
     if (profile?.suspended_at) {
       await supabase.auth.signOut();
-      return Response.json({ error: 'This account has been deactivated. Please contact support.' }, { status: 403 });
+      return Response.json({ error: 'This account has been deactivated. Please contact support.', code: 'ACCOUNT_SUSPENDED' }, { status: 403 });
     }
 
     const membership = (profile as any)?.company_members?.[0];
     if (membership?.companies?.status === 'deactivated') {
       await supabase.auth.signOut();
-      return Response.json({ error: 'Your organisation has been deactivated. Please contact your administrator.' }, { status: 403 });
+      return Response.json({ error: 'Your organisation has been deactivated. Please contact your administrator.', code: 'ORG_DEACTIVATED' }, { status: 403 });
     }
 
     // Check password expiry
@@ -142,7 +138,17 @@ export async function POST(req: NextRequest) {
 
     await writeAuditLog({ userId: data.user.id, action: 'USER_LOGGED_IN', entityType: 'auth', entityId: data.user.id, req });
 
-    return Response.json({ profile });
+    // Set session started cookie for absolute session timeout
+    const loginResponse = NextResponse.json({ profile });
+    loginResponse.cookies.set('session_started_at', String(Date.now()), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 7, // 7 days (safety net — middleware enforces 24h)
+    });
+
+    return loginResponse;
   } catch (e: any) {
     console.error('[Login] Error:', e.message);
     return serverError();

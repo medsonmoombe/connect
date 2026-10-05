@@ -30,6 +30,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
     if (action === 'toggle_mfa') {
       const { mfa_enabled } = body;
+
+      // Fetch current state for audit before update
+      const { data: currentProfile } = await admin
+        .from('user_profiles')
+        .select('mfa_enabled')
+        .eq('id', id)
+        .single();
+
       const { error } = await admin
         .from('user_profiles')
         .update({ mfa_enabled: !!mfa_enabled })
@@ -45,8 +53,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         action: mfa_enabled ? 'USER_MFA_ENABLED' : 'USER_MFA_DISABLED',
         entityType: 'user_profiles',
         entityId: id,
+        before: { mfa_enabled: currentProfile?.mfa_enabled ?? null },
         after: { mfa_enabled: !!mfa_enabled },
         req,
+        blocking: true,
       });
 
       return Response.json({ success: true, action: 'toggle_mfa', mfa_enabled: !!mfa_enabled });
@@ -61,6 +71,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         entityType: 'user_profiles',
         entityId: id,
         req,
+        blocking: true,
       });
 
       await createNotification({
@@ -79,6 +90,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         ? { suspended_at: new Date().toISOString(), suspended_by: user.id, suspension_reason: reason ?? null }
         : { suspended_at: null, suspended_by: null, suspension_reason: null };
 
+    // Fetch current state for audit before update
+    const { data: currentProfile } = await admin
+      .from('user_profiles')
+      .select('suspended_at')
+      .eq('id', id)
+      .single();
+
     const { error } = await admin
       .from('user_profiles')
       .update(update)
@@ -94,8 +112,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       action: action === 'suspend' ? 'USER_SUSPENDED' : 'USER_REACTIVATED',
       entityType: 'user_profiles',
       entityId: id,
+      before: { suspended_at: currentProfile?.suspended_at ?? null },
       after: update,
       req,
+      blocking: true,
     });
 
     if (action === 'suspend') {

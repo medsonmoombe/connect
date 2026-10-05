@@ -14,12 +14,14 @@ const ATTEMPT_WINDOW_MINUTES = 15;
  */
 export function isMfaRequired(user: {
   is_platform_admin?: boolean;
+  is_authority_user?: boolean;
   org_member_role?: string | null;
   role?: string;
   mfa_enabled?: boolean;
   org_mfa_enforced?: boolean;
 }): boolean {
   if (user.is_platform_admin) return true;
+  if (user.is_authority_user) return true;
   if (user.org_member_role === 'OWNER') return true;
   if (user.org_member_role === 'ADMIN') return true;
   if (user.role === 'ADMIN') return true;

@@ -18,12 +18,12 @@ export function StatCard({
   trend,
 }: StatCardProps) {
   return (
-    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start justify-between gap-3">
+    <div className="bg-white p-4 rounded-none border border-slate-200 shadow-sm flex items-start justify-between gap-3">
       <div className="min-w-0">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
           {label}
         </span>
-        <span className={`text-2xl font-black block mt-0.5 ${valueClassName}`}>
+        <span className={`text-lg font-extrabold block mt-0.5 ${valueClassName}`}>
           {value}
         </span>
         {trend && (
@@ -36,7 +36,7 @@ export function StatCard({
         )}
       </div>
       {Icon && (
-        <div className="shrink-0 p-2 bg-slate-50 rounded-xl">
+        <div className="shrink-0 p-2 bg-slate-50 rounded-none">
           <Icon className={`size-4 ${iconClassName}`} />
         </div>
       )}

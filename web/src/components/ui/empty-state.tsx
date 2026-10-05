@@ -17,24 +17,24 @@ export function EmptyState({ icon, title, description, actionLabel, actionHref, 
   const Icon = Icons[icon];
 
   return (
-    <div className="p-16 text-center bg-surface rounded-[40px] border border-dashed border-slate-200 animate-in fade-in zoom-in-95 duration-500">
-      <div className="size-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8 text-slate-300 shadow-inner">
-        <Icon className="size-10" />
+    <div className="py-8 px-6 text-center bg-white rounded-none border border-dashed border-slate-200">
+      <div className="size-10 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-300 border border-slate-100">
+        <Icon className="size-5" />
       </div>
-      <h3 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">{title}</h3>
-      <p className="text-slate-500 mb-10 max-w-sm mx-auto leading-relaxed font-medium">{description}</p>
-      
+      <h3 className="text-sm font-bold text-slate-700 mb-1">{title}</h3>
+      <p className="text-xs text-slate-400 mb-5 max-w-xs mx-auto leading-relaxed">{description}</p>
+
       {actionLabel && (
         actionHref ? (
           <Link href={actionHref}>
-             <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />}>
-                      {actionLabel}
-                      </Button>
+            <Button className="h-8 px-3 text-xs" icon={<Icons.plus className="size-3" />}>
+              {actionLabel}
+            </Button>
           </Link>
         ) : (
-                    <Button className="h-9 px-4 rounded-xl" icon={<Icons.plus />} onClick={onAction}>
-                      {actionLabel}
-                      </Button>
+          <Button className="h-8 px-3 text-xs" icon={<Icons.plus className="size-3" />} onClick={onAction}>
+            {actionLabel}
+          </Button>
         )
       )}
     </div>

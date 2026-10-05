@@ -6,24 +6,17 @@ import { getSupabaseAdmin } from '@/lib/supabase-server';
 export async function GET(req: NextRequest) {
   try {
     const user = await getAuthenticatedUser(req);
-    if (!user.is_platform_admin) return forbidden();
+    if (!user.is_platform_admin) return forbidden('Only platform administrators can view platform settings. Contact your platform support team if you need access.');
 
     const admin = getSupabaseAdmin();
 
-    const { count: totalUsers } = await admin
-      .from('user_profiles').select('*', { count: 'exact', head: true });
-
-    const { count: mfaEnabled } = await admin
-      .from('user_profiles').select('*', { count: 'exact', head: true }).eq('mfa_enabled', true);
-
-    const { count: totalOrgs } = await admin
-      .from('companies').select('*', { count: 'exact', head: true }).is('deleted_at', null);
-
-    const { count: verifiedOrgs } = await admin
-      .from('companies').select('*', { count: 'exact', head: true }).eq('status', 'verified').is('deleted_at', null);
-
-    const { count: pendingVerifications } = await admin
-      .from('companies').select('*', { count: 'exact', head: true }).eq('status', 'pending_verification').is('deleted_at', null);
+    const [totalUsers, mfaEnabled, totalOrgs, verifiedOrgs, pendingVerifications] = await Promise.all([
+      admin.from('user_profiles').select('id', { count: 'exact', head: true }),
+      admin.from('user_profiles').select('id', { count: 'exact', head: true }).eq('mfa_enabled', true),
+      admin.from('companies').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      admin.from('companies').select('id', { count: 'exact', head: true }).eq('status', 'verified').is('deleted_at', null),
+      admin.from('companies').select('id', { count: 'exact', head: true }).eq('status', 'pending_verification').is('deleted_at', null),
+    ]);
 
     // Fetch AI analysis settings
     const { data: aiSettings } = await admin
@@ -34,11 +27,11 @@ export async function GET(req: NextRequest) {
 
     return Response.json({
       stats: {
-        totalUsers: totalUsers ?? 0,
-        mfaEnabled: mfaEnabled ?? 0,
-        totalOrgs: totalOrgs ?? 0,
-        verifiedOrgs: verifiedOrgs ?? 0,
-        pendingVerifications: pendingVerifications ?? 0,
+        totalUsers: totalUsers.count ?? 0,
+        mfaEnabled: mfaEnabled.count ?? 0,
+        totalOrgs: totalOrgs.count ?? 0,
+        verifiedOrgs: verifiedOrgs.count ?? 0,
+        pendingVerifications: pendingVerifications.count ?? 0,
       },
       aiSettings: aiSettings?.value ?? { auto_trigger: false, weights: { regulatory: 40, financial: 35, developer: 25 } },
     });
@@ -104,6 +97,7 @@ export async function POST(req: NextRequest) {
       entityId: 'ai_analysis',
       after: updatedValue,
       req,
+      blocking: true,
     });
 
     return Response.json({ success: true, aiSettings: updatedValue });

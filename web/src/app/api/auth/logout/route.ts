@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     await supabase.auth.signOut();
 
     cookieStore.delete('mfa_verified');
+    cookieStore.delete('session_started_at');
 
     await writeAuditLog({ userId, action: 'USER_LOGGED_OUT', entityType: 'auth', entityId: userId ?? 'unknown', req });
 

@@ -33,6 +33,9 @@ yarn-error.log*
 # env files
 .env*
 .env.local
+# .env.docker is a real environment file (holds live API keys) — never commit it.
+# Track .env.example instead and copy it locally.
+!.env.example
 
 # Firebase service account — NEVER commit this
 supabase/serviceAccountKey.json

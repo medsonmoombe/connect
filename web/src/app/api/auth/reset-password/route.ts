@@ -1,13 +1,14 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { badRequest, serverError, writeAuditLog } from '@/lib/api-helpers';
+import { badRequest, serverError, writeAuditLog, validatePasswordComplexity } from '@/lib/api-helpers';
 import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
     const { token, password } = await req.json();
     if (!token) return badRequest('token is required');
-    if (!password || password.length < 8) return badRequest('Password must be at least 8 characters');
+    const pwError = validatePasswordComplexity(password);
+    if (pwError) return badRequest(pwError);
 
     const admin = getSupabaseAdmin();
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
       .eq('user_id', resetRow.user_id)
       .is('used_at', null);
 
-    await writeAuditLog({ userId: resetRow.user_id, action: 'PASSWORD_RESET', entityType: 'auth', entityId: resetRow.user_id, req });
+    await writeAuditLog({ userId: resetRow.user_id, action: 'PASSWORD_RESET', entityType: 'auth', entityId: resetRow.user_id, req, blocking: true });
 
     return Response.json({ message: 'Password updated successfully.' });
   } catch (e: any) {

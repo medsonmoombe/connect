@@ -4,7 +4,6 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, ty
 import { messagesApi } from '@/services/api';
 import { createClient } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
-
 type UnreadMessagesValue = {
   totalUnread: number;
   unreadByEngagement: Record<string, number>;
@@ -13,16 +12,81 @@ type UnreadMessagesValue = {
 };
 
 const UnreadMessagesContext = createContext<UnreadMessagesValue | null>(null);
+const EMPTY_UNREAD_MESSAGES: UnreadMessagesValue = {
+  totalUnread: 0,
+  unreadByEngagement: {},
+  refresh: async () => {},
+  markRead: async () => {},
+};
+
+// Maximum engagement IDs per Realtime filter (Supabase filter string limit).
+const MAX_IDS_PER_FILTER = 50;
+
+async function fetchUserEngagementIds(supabase: ReturnType<typeof createClient>): Promise<string[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Fetch engagements where the user is the developer (via project developer_id)
+  // or the counterparty (via capital_partners/technical_partners).
+  // We do this in two passes and merge the IDs.
+  const { data: memberships } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .is('deleted_at', null);
+
+  const companyIds = (memberships ?? []).map((m: any) => m.company_id).filter(Boolean);
+  if (!companyIds.length) return [];
+
+  const engagementIds = new Set<string>();
+
+  // Developer side
+  const { data: devProjects } = await supabase
+    .from('projects')
+    .select('id')
+    .in('developer_id', companyIds);
+  const projectIds = (devProjects ?? []).map((p: any) => p.id);
+  if (projectIds.length) {
+    const { data: devEngagements } = await supabase
+      .from('engagements')
+      .select('id')
+      .in('project_id', projectIds);
+    (devEngagements ?? []).forEach((e: any) => engagementIds.add(e.id));
+  }
+
+  // Counterparty side — look up capital/technical partner IDs for user's companies
+  const { data: capitalPartners } = await supabase
+    .from('capital_partners')
+    .select('id')
+    .in('company_id', companyIds);
+  const { data: techPartners } = await supabase
+    .from('technical_partners')
+    .select('id')
+    .in('company_id', companyIds);
+
+  const partnerIds = [
+    ...(capitalPartners ?? []).map((p: any) => ({ id: p.id, type: 'CAPITAL' })),
+    ...(techPartners ?? []).map((p: any) => ({ id: p.id, type: 'TECHNICAL' })),
+  ];
+
+  for (const { id: partnerId, type: partnerType } of partnerIds) {
+    const { data: cpEngagements } = await supabase
+      .from('engagements')
+      .select('id')
+      .eq('counterparty_id', partnerId)
+      .eq('counterparty_type', partnerType);
+    (cpEngagements ?? []).forEach((e: any) => engagementIds.add(e.id));
+  }
+
+  return Array.from(engagementIds);
+}
 
 /**
  * useUnreadMessagesImpl — inbox unread counts + live updates.
  *
  * Fetches the authenticated user's unread message counts per engagement on
- * mount, then keeps them live by subscribing to a realtime channel on the
- * `messages` table. Because Supabase Realtime cannot filter a single
- * subscription across an arbitrary list of engagement ids efficiently in the
- * browser, we subscribe to ALL new inserts on `messages` and ignore own
- * payloads. A server recompute (refresh) keeps counts authoritative.
+ * mount, then subscribes to Realtime scoped to the user's engagements only
+ * (not all messages globally — privacy fix).
  */
 function useUnreadMessagesImpl(): UnreadMessagesValue {
   const { user } = useAuth();
@@ -47,36 +111,68 @@ function useUnreadMessagesImpl(): UnreadMessagesValue {
   useEffect(() => {
     if (!user) return;
     const supabase = createClient();
-    const channel = supabase
-      .channel('unread-inbox', { config: { broadcast: { self: false } } })
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const row = payload.new as any;
-          // Ignore own messages — they never count as unread.
-          if (row?.sender_id === user.id) return;
-          setUnreadByEngagement(prev => {
-            const next = { ...prev };
-            next[row.engagement_id] = (next[row.engagement_id] ?? 0) + 1;
-            setTotalUnread(Object.values(next).reduce((a, b) => a + b, 0));
-            return next;
-          });
-        }
-      )
-      // When a message is soft-deleted over realtime, recompute counts from
-      // the server so a deleted unread message is removed from the badge.
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
-        (payload) => {
-          const row = payload.new as any;
-          if (row?.deleted_at) refresh().catch(() => {});
-        }
-      )
-      .subscribe();
+    const channels: ReturnType<typeof supabase.channel>[] = [];
 
-    return () => { supabase.removeChannel(channel); };
+    // If a stale `unread-inbox` channel is still cached from a previous mount,
+    // unsubscribe it before creating a fresh one. Without this, Turbopack
+    // dev/HMR can hand back an already-subscribed channel and `.on()` throws:
+    // "cannot add postgres_changes callbacks ... after subscribe()".
+    const cached = (supabase as any).getChannels?.() ?? [];
+    const stale = cached.find((ch: any) => {
+      const label = ch.topic || ch.channel || ch.name || '';
+      return label.includes('unread-inbox') && ch.state !== 'closed';
+    });
+    if (stale) {
+      try { stale.unsubscribe?.(); } catch { /* silent */ }
+      supabase.removeChannel(stale).catch(() => {});
+    }
+
+    // Fetch user's engagement IDs and create scoped subscriptions
+    fetchUserEngagementIds(supabase).then((engagementIds) => {
+      if (!engagementIds.length) return;
+
+      // Split into batches to respect Supabase filter string length limits
+      const batches: string[][] = [];
+      for (let i = 0; i < engagementIds.length; i += MAX_IDS_PER_FILTER) {
+        batches.push(engagementIds.slice(i, i + MAX_IDS_PER_FILTER));
+      }
+
+      batches.forEach((batch, idx) => {
+        const channel = supabase
+          .channel(`unread-inbox-${idx}`, { config: { broadcast: { self: false } } })
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'messages', filter: `engagement_id=in.(${batch.join(',')})` },
+            (payload) => {
+              const row = payload.new as any;
+              if (row?.sender_id === user.id) return;
+              setUnreadByEngagement(prev => {
+                const next = { ...prev };
+                next[row.engagement_id] = (next[row.engagement_id] ?? 0) + 1;
+                setTotalUnread(Object.values(next).reduce((a, b) => a + b, 0));
+                return next;
+              });
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'messages', filter: `engagement_id=in.(${batch.join(',')})` },
+            (payload) => {
+              const row = payload.new as any;
+              if (row?.deleted_at) refresh().catch(() => {});
+            }
+          )
+          .subscribe();
+        channels.push(channel);
+      });
+    }).catch(() => {});
+
+    return () => {
+      channels.forEach(ch => {
+        try { ch.unsubscribe?.(); } catch { /* silent */ }
+        supabase.removeChannel(ch).catch(() => {});
+      });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -114,11 +210,10 @@ export function UnreadMessagesProvider({ children }: { children: ReactNode }) {
 
 /**
  * useUnreadMessages — read the shared unread-messages state. Inside the
- * provider it returns the single shared instance; outside (standalone page) it
- * falls back to a local subscription so callers still work.
+ * provider it returns the single shared instance. Outside the provider it
+ * returns a safe empty value instead of opening duplicate realtime channels.
  */
 export function useUnreadMessages(): UnreadMessagesValue {
   const ctx = useContext(UnreadMessagesContext);
-  if (ctx) return ctx;
-  return useUnreadMessagesImpl();
+  return ctx ?? EMPTY_UNREAD_MESSAGES;
 }

@@ -35,8 +35,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (reactivate) {
       if (project.status !== 'deactivated') return badRequest('Project is not deactivated.');
-      const result = await transitionProject({ projectId: id, toStatus: 'live', actorId: user.id!, req });
-      if (!result.success) return badRequest(result.error || 'Failed to reactivate project');
+      const result = await transitionProject({ projectId: id, toStatus: 'live', actorId: user.id!, actorRole: user.is_platform_admin ? 'platform_admin' : 'developer', skipRoleCheck: true, req });
+      if (!result.ok) return badRequest(result.error);
       await notifyOrgAdmins({
         companyId: project.developer_id,
         payload: notificationBuilders.projectStatusChanged({ projectName: project.name, newStatus: 'live' }),
@@ -50,8 +50,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (project.status !== 'live' && project.status !== 'pending_live') return badRequest('Only live or pending_live projects can be deactivated.');
 
-    const result = await transitionProject({ projectId: id, toStatus: 'deactivated', actorId: user.id!, req });
-    if (!result.success) return badRequest(result.error || 'Failed to deactivate project');
+    const result = await transitionProject({ projectId: id, toStatus: 'deactivated', actorId: user.id!, actorRole: user.is_platform_admin ? 'platform_admin' : 'developer', skipRoleCheck: true, req });
+    if (!result.ok) return badRequest(result.error);
 
     await notifyOrgAdmins({
       companyId: project.developer_id,

@@ -3,7 +3,22 @@ import { getAuthenticatedUser, unauthorized, serverError, writeAuditLog, handleR
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { sendAdminNewOrgNotification, sendAdminOrgResubmittedNotification } from '@/lib/email';
 import { createNotifications, notificationBuilders } from '@/lib/notify';
+import { bumpFamily } from '@/lib/api-cache';
 import { z } from 'zod';
+
+/**
+ * The in-progress onboarding draft. Written by the client on every step so a
+ * user can close the tab (or lose the session) and resume later with their
+ * earlier inputs populated. Only the owner can read/write their own draft.
+ */
+const draftSchema = z.object({
+  step: z.string().max(20).optional(),
+  fullName: z.string().max(200).nullish(),
+  companyType: z.string().max(40).nullish(),
+  company: z.record(z.unknown()).nullish(),
+  preferences: z.record(z.unknown()).nullish(),
+  savedAt: z.string().max(40).nullish(),
+}).passthrough();
 
 const capitalPreferencesSchema = z.object({
   min_ticket_size: z.number().min(0, 'Min ticket size must be positive'),
@@ -91,6 +106,8 @@ export async function POST(req: NextRequest) {
         CAPITAL: 'CAPITAL_PARTNER',
         TECHNICAL: 'TECHNICAL_PARTNER',
         POWER_TRADER: 'POWER_TRADER',
+        CONSULTANT: 'CONSULTANT',
+        GRANT_PROVIDER: 'GRANT_PROVIDER',
       };
 
       const primaryRole = typeToRole[company.type] || 'DEVELOPER';
@@ -107,6 +124,12 @@ export async function POST(req: NextRequest) {
         team_size: company.team_size || 0,
         is_new_company_with_experienced_team: company.is_new_company_with_experienced_team || false,
         management_team_experience: company.management_team_experience || {},
+        registration_number: company.registration_number || null,
+        ownership_structure: company.ownership_structure || null,
+        ownership_details: company.ownership_details || null,
+        contact_email: company.contact_email || null,
+        contact_phone: company.contact_phone || null,
+        management_experience_summary: company.management_experience_summary || null,
         status: 'pending_verification',
       };
 
@@ -189,6 +212,8 @@ export async function POST(req: NextRequest) {
         CAPITAL_PARTNER: 'capital_partners',
         TECHNICAL_PARTNER: 'technical_partners',
         POWER_TRADER: 'power_traders',
+        CONSULTANT: 'consultants',
+        GRANT_PROVIDER: 'grant_providers',
       };
 
       const table = tableMap[role];
@@ -245,6 +270,8 @@ export async function POST(req: NextRequest) {
         CAPITAL: 'capital_partners',
         TECHNICAL: 'technical_partners',
         POWER_TRADER: 'power_traders',
+        CONSULTANT: 'consultants',
+        GRANT_PROVIDER: 'grant_providers',
       };
       const table = tableMap[company.type];
       if (table) {
@@ -274,10 +301,18 @@ export async function POST(req: NextRequest) {
         team_size: company.team_size || 0,
         is_new_company_with_experienced_team: company.is_new_company_with_experienced_team || false,
         management_team_experience: company.management_team_experience || {},
+        registration_number: company.registration_number || null,
+        ownership_structure: company.ownership_structure || null,
+        ownership_details: company.ownership_details || null,
+        contact_email: company.contact_email || null,
+        contact_phone: company.contact_phone || null,
+        management_experience_summary: company.management_experience_summary || null,
       };
 
       const { data: updatedCompany, error: updateErr } = await supabase
         .from('companies').update(updatePayload).eq('id', user.company_id).select().single();
+      // Org profile data (country, name) feeds cached marketplace lists
+      await bumpFamily('projects');
       if (updateErr) {
         console.error('[Onboarding] Company update error:', updateErr.message);
         return serverError();
@@ -346,7 +381,7 @@ export async function POST(req: NextRequest) {
     if (action === 'complete_onboarding') {
       const { error } = await supabase
         .from('user_profiles')
-        .update({ onboarding_complete: true })
+        .update({ onboarding_complete: true, onboarding_draft: {} })
         .eq('id', user.id);
       if (error) {
         console.error('[Onboarding] Complete error:', error.message);
@@ -354,6 +389,41 @@ export async function POST(req: NextRequest) {
       }
       await writeAuditLog({ userId: user.id, action: 'ONBOARDING_COMPLETED', entityType: 'user_profiles', entityId: user.id, req });
       return Response.json({ data: { success: true } });
+    }
+
+    // ── Step-wise draft persistence ─────────────────────────────────────────
+    // The wizard saves its state here as the user advances instead of only on
+    // final submit, so the application can be completed later.
+    if (action === 'save_draft') {
+      const parsed = draftSchema.safeParse(body.draft);
+      if (!parsed.success) {
+        return Response.json({ error: 'Invalid draft payload' }, { status: 400 });
+      }
+      const draft = { ...parsed.data, savedAt: new Date().toISOString() };
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ onboarding_draft: draft })
+        .eq('id', user.id);
+      if (error) {
+        console.error('[Onboarding] Draft save error:', error.message);
+        return serverError();
+      }
+      return Response.json({ data: { success: true, savedAt: draft.savedAt } });
+    }
+
+    if (action === 'get_draft') {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('onboarding_draft, onboarding_complete')
+        .eq('id', user.id)
+        .single();
+      const draft = (profile?.onboarding_draft ?? {}) as Record<string, unknown>;
+      return Response.json({
+        data: {
+          draft: Object.keys(draft).length > 0 ? draft : null,
+          onboardingComplete: profile?.onboarding_complete ?? false,
+        },
+      });
     }
 
     return Response.json({ error: 'Unknown action' }, { status: 400 });

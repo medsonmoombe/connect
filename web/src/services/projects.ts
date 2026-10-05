@@ -1,6 +1,8 @@
 import { apiClient } from '@/lib/api-client';
-import { Project, ProjectTechRequirements, ProjectDocument, CapitalMatchResult, TechnicalMatchResult } from '@/types';
+import { Project, ProjectTechRequirements, ProjectDocument, CapitalMatchResult, TechnicalMatchResult, ConsultantMatchResult } from '@/types';
 import { storageService } from '@/lib/storage';
+
+type ProjectScores = Record<string, unknown> & { project_id: string };
 
 export const projectService = {
   async createProject(projectData: Partial<Project>): Promise<Project> {
@@ -16,11 +18,15 @@ export const projectService = {
     }
   },
 
-  async getProjectMatches(projectId: string) {
-    const { capital, technical } = await apiClient.get<{ capital: CapitalMatchResult[]; technical: TechnicalMatchResult[] }>(
-      `/projects/${projectId}?resource=matches`
-    );
-    return { capital, technical };
+  async getProjectMatches(projectId: string, engagementId?: string) {
+    const qs = new URLSearchParams({ resource: 'matches' });
+    if (engagementId) qs.set('engagement_id', engagementId);
+    const { capital, technical, consultant } = await apiClient.get<{
+      capital: CapitalMatchResult[];
+      technical: TechnicalMatchResult[];
+      consultant: ConsultantMatchResult[];
+    }>(`/projects/${projectId}?${qs.toString()}`);
+    return { capital, technical, consultant: consultant ?? [] };
   },
 
   async getProjectDetails(projectId: string): Promise<Project> {
@@ -29,6 +35,7 @@ export const projectService = {
   },
 
   async getDeveloperProjects(developerId: string): Promise<Project[]> {
+    void developerId;
     const { data } = await apiClient.get<{ data: Project[] }>('/projects?view=dashboard');
     return data;
   },
@@ -39,15 +46,15 @@ export const projectService = {
   },
 
   async updateTechRequirements(requirements: ProjectTechRequirements) {
-    const { data } = await apiClient.patch<{ data: any }>(
+    const { data } = await apiClient.patch<{ data: ProjectTechRequirements }>(
       `/projects/${requirements.project_id}`,
       { _resource: 'tech_requirements', ...requirements }
     );
     return data;
   },
 
-  async saveProjectScores(scores: any) {
-    const { data } = await apiClient.patch<{ data: any }>(
+  async saveProjectScores(scores: ProjectScores) {
+    const { data } = await apiClient.patch<{ data: Record<string, unknown> }>(
       `/projects/${scores.project_id}`,
       { _resource: 'scores', ...scores }
     );
@@ -55,7 +62,7 @@ export const projectService = {
   },
 
   async getProjectScores(projectId: string) {
-    const { data } = await apiClient.get<{ data: any }>(`/projects/${projectId}?resource=scores`);
+    const { data } = await apiClient.get<{ data: Record<string, unknown> | null }>(`/projects/${projectId}?resource=scores`);
     return data;
   },
 
@@ -87,7 +94,7 @@ export const projectService = {
 
   async getRecommendedProjects(partnerId: string, type: 'CAPITAL' | 'TECHNICAL') {
     const table = type === 'CAPITAL' ? 'capital' : 'technical';
-    const { data } = await apiClient.get<{ data: any[] }>(`/projects?matches_for=${partnerId}&type=${table}`);
+    const { data } = await apiClient.get<{ data: Project[] }>(`/projects?matches_for=${partnerId}&type=${table}`);
     return data;
   },
 

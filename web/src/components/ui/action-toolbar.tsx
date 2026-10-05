@@ -19,7 +19,7 @@ export function ActionToolbar({ actions }: ActionToolbarProps) {
   if (visible.length === 0) return null;
 
   return (
-    <div className="flex items-center divide-x divide-slate-200 border border-slate-200 rounded-xl bg-white shadow-sm overflow-hidden">
+    <div className="flex items-center divide-x divide-slate-200 border border-slate-200 rounded-none bg-white shadow-sm overflow-hidden">
       {visible.map(({ key, label, icon: Icon, onClick, disabled, loading }) => (
         <button
           key={key}

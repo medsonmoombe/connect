@@ -30,36 +30,36 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     /* ─── Variants ──────────────────────────────────────────── */
     const variants: Record<string, string> = {
       default:
-        'bg-primary text-white hover:bg-primary/90 shadow-sm shadow-primary/20',
+        'bg-[#0b3b24] text-white hover:bg-[#0d4a2e] shadow-none',
       premium:
-        'bg-gradient-to-br from-primary to-primary/90 text-white hover:from-primary/90 hover:to-primary/80 shadow-md shadow-primary/25 border border-primary/10',
+        'bg-gradient-to-br from-[#0b3b24] to-[#052e1a] text-white hover:from-[#0d4a2e] hover:to-[#041f12] shadow-none',
       outline:
         'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900',
       ghost:
         'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
       link:
-        'text-primary underline-offset-4 hover:underline px-0',
+        'text-[#0b3b24] underline-offset-4 hover:underline px-0',
       danger:
-        'bg-red-600 text-white hover:bg-red-700 shadow-sm shadow-red-600/20',
+        'bg-red-600 text-white hover:bg-red-700 shadow-none',
       white:
-        'bg-white text-slate-900 hover:bg-slate-50 shadow-sm',
+        'bg-white text-slate-900 hover:bg-slate-50 shadow-none',
     };
 
     /* ─── Sizes ─────────────────────────────────────────────── */
     const sizes: Record<string, string> = {
-      xs: 'h-7 px-2.5 text-[11px] font-semibold rounded-lg gap-1.5',
-      sm: 'h-8 px-3.5 text-xs font-semibold rounded-lg gap-2',
-      default: 'h-10 px-5 text-[13px] font-semibold rounded-xl gap-2',
-      lg: 'h-12 px-7 text-sm font-bold rounded-xl gap-2.5',
-      icon: 'size-10 rounded-xl',
+      xs: 'h-7 px-2.5 text-[11px] font-semibold rounded-none gap-1.5',
+      sm: 'h-8 px-3.5 text-xs font-semibold rounded-none gap-2',
+      default: 'h-10 px-5 text-[13px] font-semibold rounded-none gap-2',
+      lg: 'h-12 px-7 text-sm font-bold rounded-none gap-2.5',
+      icon: 'size-10 rounded-none',
     };
 
     /* ─── Icon sizing for icon-only buttons ──────────────────── */
     const iconOnlySizes: Record<string, string> = {
-      xs: 'size-7 rounded-lg',
-      sm: 'size-8 rounded-lg',
-      default: 'size-10 rounded-xl',
-      lg: 'size-12 rounded-xl',
+      xs: 'size-7 rounded-none',
+      sm: 'size-8 rounded-none',
+      default: 'size-10 rounded-none',
+      lg: 'size-12 rounded-none',
       icon: '',
     };
 

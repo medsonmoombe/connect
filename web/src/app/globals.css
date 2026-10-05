@@ -1,8 +1,54 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-primary: #166534;
-  --color-primary-light: #22c55e;
+  /* ── AfriConnect design tokens (from the canonical UI mock) ──
+     Change these values to re-theme the entire application:
+     brand (actions/links), copper (secondary accents), ink (text
+     scale), line (borders), surface-2 (subtle fills). */
+  --color-brand: #1f9d55;
+  --color-brand-hover: #178a48;
+  --color-brand-text: #166b3b;
+  --color-brand-soft: #e9f6ee;
+
+  --color-copper: #9a4b0e;
+  --color-copper-soft: #faf0e2;
+
+  --color-ink: #16241c;
+  --color-ink-2: #4a5c52;
+  --color-ink-3: #7c8b82;
+
+  --color-line: #e3e9e5;
+  --color-line-strong: #cfdad3;
+
+  --color-surface-2: #f0f4f1;
+
+  /* ── Form wizard palette (legacy wireframe: project submission) ── */
+  --color-g-950: #0c2e1d;
+  --color-g-900: #123b26;
+  --color-g-800: #175032;
+  --color-g-700: #1b5e3a;
+  --color-g-600: #22794c;
+  --color-g-soft: #edf5ef;
+  --color-g-softer: #f4faf5;
+  --color-g-line: #cfe3d6;
+
+  --color-field: #f7faf7;
+  --color-page: #f2f5f2;
+
+  --color-verm: #c63a2b;
+  --color-verm-line: #d26a57;
+  --color-verm-soft: #fefbfa;
+
+  --color-amber-ink: #8a5a0b;
+  --color-amber-ic: #c98a1b;
+  --color-amber-line: #e7ce8c;
+  --color-amber-soft: #fffbee;
+
+  --color-ok-g: #2e7d4f;
+
+  /* Legacy palette (still referenced by older pages — do not remove yet) */
+  --color-primary: #0b3b24;
+  --color-primary-light: #10B981;
   --color-accent: #b45309;
   
   --color-background: #f8fafc;
@@ -18,7 +64,7 @@
 
   --color-sidebar-bg: #ffffff;
   --color-sidebar-border: #e2e8f0;
-  --color-sidebar-active: #166534;
+  --color-sidebar-active: #0b3b24;
 
   --font-display: "Inter", sans-serif;
   --font-sans: "Inter", sans-serif;
@@ -31,7 +77,17 @@
 }
 
 @layer base {
+  html {
+    height: 100%;
+  }
+  /* NOTE: this must stay `height: 100%` — `AuthSplitShell` and the app shells
+     resolve `h-full` against it. But do NOT reintroduce `overflow: hidden`
+     here: on `body` it propagates to the viewport, which makes every page
+     that isn't a self-scrolling app shell (the landing page, legal pages,
+     etc.) impossible to scroll. Full-height shells already lock themselves
+     with `h-screen overflow-hidden`. */
   body {
+    height: 100%;
     @apply bg-background text-text-main antialiased selection:bg-green-100 selection:text-primary;
   }
 
@@ -103,7 +159,7 @@
     width: 3px;
     height: 60%;
     min-height: 20px;
-    background: linear-gradient(180deg, #22c55e, #166534);
+    background: linear-gradient(180deg, #22c55e, #0b3b24);
     border-radius: 0 4px 4px 0;
   }
 
@@ -134,13 +190,13 @@
 
   /* Logo gradient container */
   .logo-gradient {
-    background: linear-gradient(135deg, #166534 0%, #22c55e 100%);
+    background: linear-gradient(135deg, #0b3b24 0%, #22c55e 100%);
     box-shadow: 0 2px 8px -2px rgba(22, 101, 52, 0.3);
   }
 
   /* User avatar gradient ring */
   .avatar-ring {
-    background: linear-gradient(135deg, #22c55e, #166534);
+    background: linear-gradient(135deg, #22c55e, #0b3b24);
     padding: 2px;
   }
 
@@ -228,7 +284,7 @@
 
   /* Navbar profile gradient avatar */
   .navbar-avatar {
-    background: linear-gradient(135deg, #22c55e 0%, #166534 100%);
+    background: linear-gradient(135deg, #22c55e 0%, #0b3b24 100%);
   }
 
   /* Navbar notification badge */
@@ -256,6 +312,11 @@
   .navbar-menu-item:hover {
     background-color: #f8fafc;
     color: #0f172a;
+  }
+
+  /* Safe area for mobile bottom nav */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
   /* Keyboard shortcut badge */
@@ -293,7 +354,7 @@
     height: 40px;
     border-radius: 12px;
     background: linear-gradient(135deg, rgba(22, 101, 52, 0.1), rgba(34, 197, 94, 0.06));
-    color: #166534;
+    color: #0b3b24;
     flex-shrink: 0;
   }
 
@@ -309,7 +370,7 @@
   }
   .dash-stat-change.positive {
     background: rgba(22, 101, 52, 0.08);
-    color: #166534;
+    color: #0b3b24;
   }
   .dash-stat-change.negative {
     background: rgba(239, 68, 68, 0.08);
@@ -378,13 +439,49 @@
 
 /* AI Scoring progress bar animation */
 @keyframes progress {
-  from { width: 0%; }
-  to { width: 92%; }
+  0%   { width: 0%; }
+  100% { width: 100%; }
 }
 
-/* Custom Progress Ring for Scoring */
-.progress-ring__circle {
-  transition: stroke-dashoffset 0.35s;
-  transform: rotate(-90deg);
-  transform-origin: 50% 50%;
+@keyframes dash {
+  0%   { stroke-dashoffset: 264; }
+  100% { stroke-dashoffset: 20; }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-6deg) scale(1.05); }
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+
+/* ── AI working overlay animations ─────────────────────────────────── */
+@keyframes ai-spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes ai-spin-reverse {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+
+@keyframes ai-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+
+@keyframes ai-scan {
+  0%   { transform: translateY(-44px); opacity: 0.5; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(56px); opacity: 0.5; }
+}
+
+/* ── Skeleton shimmer animation ───────────────────────────── */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
 }

@@ -1,8 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  reactCompiler: true, // Re-enabled after clearing cache
+  output: "standalone",
+  poweredByHeader: false,
+  turbopack: {},
+  serverExternalPackages: [
+    'ioredis',
+    '@upstash/ratelimit',
+    '@upstash/redis',
+  ],
 };
 
 export default nextConfig;

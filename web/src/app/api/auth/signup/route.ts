@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
-import { badRequest, serverError, writeAuditLog } from '@/lib/api-helpers';
+import { badRequest, serverError, writeAuditLog, validatePasswordComplexity } from '@/lib/api-helpers';
 import { sendInviteWelcomeEmail } from '@/lib/email';
 
 export async function POST(req: NextRequest) {
@@ -11,8 +11,9 @@ export async function POST(req: NextRequest) {
       return badRequest('email, password, fullName, and inviteToken are required');
     }
 
-    if (password.length < 8) {
-      return badRequest('Password must be at least 8 characters');
+    const pwError = validatePasswordComplexity(password);
+    if (pwError) {
+      return badRequest(pwError);
     }
 
     const admin = getSupabaseAdmin();
@@ -48,17 +49,18 @@ export async function POST(req: NextRequest) {
       if (authErr?.message?.toLowerCase().includes('already')) {
         return badRequest('An account with this email already exists.');
       }
-      return badRequest(authErr?.message || 'Failed to create account.');
+      return badRequest('Failed to create account. Please try again or contact support.');
     }
 
     const userId = authData.user.id;
 
     // 4. Create user profile
+    // Invited users already belong to a company — skip onboarding
     const { error: profileErr } = await admin.from('user_profiles').insert({
       id: userId,
       email,
       full_name: fullName,
-      onboarding_complete: false,
+      onboarding_complete: !!invite.company_id,
     });
 
     if (profileErr) {

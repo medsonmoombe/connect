@@ -48,6 +48,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       return serverError();
     }
 
+    // Track bookmark as interest signal
+    try {
+      await supabase.from('project_interest_signals').upsert({
+        project_id: projectId,
+        user_id: user.auth_id,
+        signal_type: 'bookmark',
+      }, { onConflict: 'project_id,user_id,signal_type', ignoreDuplicates: true });
+    } catch { /* non-blocking */ }
+
     return Response.json({ bookmarked: true }, { status: 201 });
   } catch (e: any) {
     return handleRouteError(e);

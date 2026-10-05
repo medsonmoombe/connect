@@ -9,7 +9,12 @@ export interface AppUser {
   avatar_url?: string;
   role: string;
   is_platform_admin: boolean;
-  /** Raw membership role: 'OWNER' | 'ADMIN' | 'MEMBER' — null for platform admins */
+  is_authority_org?: boolean;
+  is_authority_user?: boolean;
+  is_authority_admin?: boolean;
+  is_authority_reviewer?: boolean;
+  is_management_user?: boolean;
+  /** Raw membership role: 'OWNER' | 'ADMIN' | 'MEMBER' Ã¢â‚¬â€ null for platform admins */
   org_member_role: 'OWNER' | 'ADMIN' | 'MEMBER' | null;
   /** True if membership.role is OWNER or ADMIN on a non-platform org */
   is_org_admin: boolean;
@@ -22,6 +27,8 @@ export interface AppUser {
   mfa_enabled: boolean;
   org_mfa_enforced: boolean;
   onboarding_complete: boolean;
+  registration_type?: string;
+  accepted_terms_at?: string | null;
   company_members?: { role: string; company_id: string; companies: any }[];
   created_at?: string;
 }
@@ -44,15 +51,26 @@ function buildUser(profile: any): AppUser {
   const company = membership?.companies;
 
   const isPlatformAdmin = membership?.role === 'ADMIN' && company?.is_platform_org === true;
-  const isOrgAdmin = !isPlatformAdmin && (membership?.role === 'OWNER' || membership?.role === 'ADMIN');
+  const isAuthorityOrg = company?.is_authority_org === true || company?.primary_role === 'AUTHORITY';
+  const isAuthorityAdmin = !isPlatformAdmin && isAuthorityOrg && (membership?.role === 'OWNER' || membership?.role === 'ADMIN');
+  const isAuthorityReviewer = !isPlatformAdmin && isAuthorityOrg && membership?.role === 'MEMBER';
+  const isAuthorityUser = isAuthorityAdmin || isAuthorityReviewer;
+  // Administering your OWN organisation (invite/manage team, edit profile).
+  // True for authority admins too — managing the regulator office's team is an
+  // org-level right, distinct from platform-only powers (is_platform_admin).
+  const isOrgAdmin = membership?.role === 'OWNER' || membership?.role === 'ADMIN';
 
   const role = isPlatformAdmin
     ? 'ADMIN'
-    : isOrgAdmin
-      ? (company?.primary_role ?? 'DEVELOPER')
-      : membership?.role === 'ADMIN'
-        ? 'ADMIN'
-        : company?.primary_role ?? 'DEVELOPER';
+    : isAuthorityAdmin
+      ? 'AUTHORITY_ADMIN'
+      : isAuthorityReviewer
+        ? 'AUTHORITY_REVIEWER'
+        : isOrgAdmin
+          ? (company?.primary_role ?? 'DEVELOPER')
+          : membership?.role === 'ADMIN'
+            ? 'ADMIN'
+            : company?.primary_role ?? 'DEVELOPER';
 
   return {
     id: profile.id,
@@ -63,6 +81,11 @@ function buildUser(profile: any): AppUser {
     job_title: profile.job_title ?? undefined,
     role,
     is_platform_admin: isPlatformAdmin,
+    is_authority_org: isAuthorityOrg,
+    is_authority_user: isAuthorityUser,
+    is_authority_admin: isAuthorityAdmin,
+    is_authority_reviewer: isAuthorityReviewer,
+    is_management_user: isPlatformAdmin || isAuthorityUser,
     org_member_role: isPlatformAdmin ? null : (membership?.role ?? null),
     is_org_admin: isOrgAdmin,
     company_id: membership?.company_id,
@@ -72,6 +95,8 @@ function buildUser(profile: any): AppUser {
     mfa_enabled: !!profile.mfa_enabled,
     org_mfa_enforced: !!company?.mfa_enforced,
     onboarding_complete: profile.onboarding_complete,
+    registration_type: profile.registration_type ?? undefined,
+    accepted_terms_at: profile.accepted_terms_at ?? null,
     company_members: profile.company_members,
     created_at: profile.created_at,
   };
@@ -81,7 +106,23 @@ const SESSION_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 async function forceLogout() {
   await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/login';
+  // Carry the reason so the login page can explain why the session ended
+  window.location.href = '/login?notice=session_expired';
+}
+
+/**
+ * Parse a fetch response as JSON, returning null instead of throwing when the
+ * server answers with non-JSON (HTML error page, dev-server hiccup, 502, …).
+ * Prevents cryptic "Unexpected token '<'" crashes in the auth flows.
+ */
+async function readJsonSafely(res: Response): Promise<any | null> {
+  try {
+    const type = res.headers.get('content-type') || '';
+    if (!type.includes('application/json')) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -99,7 +140,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await forceLogout();
         return;
       }
-      const { user: profile, suspended, org_deactivated, locked, locked_until, mfa_verified, password_expired, password_expired_days } = await res.json();
+      const json = await readJsonSafely(res);
+      if (!json) {
+        // Non-JSON response (server error page / dev server restarting) —
+        // treat the session as unavailable rather than crashing.
+        console.error('[Auth] /api/auth/session returned non-JSON response (status', res.status, ')');
+        setUser(null);
+        setMfaVerified(false);
+        setLoading(false);
+        return;
+      }
+      const { user: profile, suspended, org_deactivated, locked, locked_until, mfa_verified, password_expired, password_expired_days } = json;
       if (suspended) {
         setUser(null);
         setMfaVerified(false);
@@ -126,18 +177,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(buildUser(profile));
           setMfaVerified(!!mfa_verified);
         }
-        window.location.href = '/dashboard/settings?notice=password_expired';
+        window.location.href = '/settings?notice=password_expired';
         return;
       }
       if (profile) {
-        setUser(buildUser(profile));
+        const built = buildUser(profile);
+        setUser(built);
         setMfaVerified(!!mfa_verified);
+        // T&C gate: redirect users who haven't accepted terms yet
+        // Skip for admin/authority users and for the accept-terms page itself
+        const onAcceptPage = window.location.pathname === '/accept-terms';
+        const isManagement = built.is_platform_admin || built.is_authority_user;
+        if (!onAcceptPage && !isManagement && !built.accepted_terms_at) {
+          window.location.href = '/accept-terms';
+          return;
+        }
       } else {
         setUser(null);
         setMfaVerified(false);
       }
     } catch {
-      // Network error — don't clear user, just keep current state
+      // Network error Ã¢â‚¬â€ don't clear user, just keep current state
     }
   }, []);
 
@@ -167,7 +227,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
+    const data = await readJsonSafely(res);
+    if (!data) {
+      // HTML error page or empty body — server-side trouble, not bad credentials.
+      throw new Error(
+        res.status >= 500 || res.status === 404
+          ? 'The server is temporarily unavailable. Please try again in a moment.'
+          : 'Login is temporarily unavailable. Please try again.'
+      );
+    }
     if (!res.ok) {
       const err = data.error;
       if (typeof err === 'object' && err !== null) {
@@ -185,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(built);
       setMfaVerified(false);
       if (data.password_expired) {
-        window.location.href = '/dashboard/settings?notice=password_expired';
+        window.location.href = '/settings?notice=password_expired';
       }
       return built;
     }
@@ -198,7 +266,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, fullName, inviteToken }),
     });
-    const data = await res.json();
+    const data = await readJsonSafely(res);
+    if (!data) throw new Error('Signup is temporarily unavailable. Please try again.');
     if (!res.ok) throw new Error(data.error || 'Signup failed');
   };
 

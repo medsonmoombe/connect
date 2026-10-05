@@ -1,10 +1,11 @@
-import { NextRequest } from 'next/server';
+﻿import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, serverError, forbidden, badRequest, writeAuditLog, handleRouteError, pickFields, verifyProjectCreator } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { invalidateProjectAnalysis, markProjectAnalysisDirty } from '@/lib/analysis-trigger';
 
 type Params = { params: Promise<{ id: string }> };
 
-const DOCUMENT_FIELDS = ['document_type', 'file_url', 'storage_path', 'file_hash', 'classification'];
+const DOCUMENT_FIELDS = ['document_type', 'file_url', 'storage_path', 'file_hash', 'classification', 'mime_type'];
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
@@ -31,9 +32,33 @@ export async function POST(req: NextRequest, { params }: Params) {
       }
     }
 
+    // â”€â”€ Document versioning: find latest version of this type and increment â”€â”€
+    let nextVersion = 1;
+    let previousDocId: string | null = null;
+    if (safeFields.document_type) {
+      const { data: latestDoc } = await supabase
+        .from('project_documents')
+        .select('id, version')
+        .eq('project_id', id)
+        .eq('document_type', safeFields.document_type)
+        .is('deleted_at', null)
+        .order('version', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestDoc) {
+        nextVersion = (latestDoc.version ?? 0) + 1;
+        previousDocId = latestDoc.id;
+      }
+    }
+
     const { data, error } = await supabase
       .from('project_documents')
-      .insert({ ...safeFields, project_id: id })
+      .insert({
+        ...safeFields,
+        project_id: id,
+        version: nextVersion,
+      })
       .select()
       .single();
 
@@ -41,7 +66,19 @@ export async function POST(req: NextRequest, { params }: Params) {
       console.error('[Documents] Insert error:', error.message);
       return serverError();
     }
-    await writeAuditLog({ userId: user.id, action: 'DOCUMENT_ADDED', entityType: 'project_documents', entityId: data.id, after: body, req });
+
+    // Mark the previous version as replaced
+    if (previousDocId) {
+      await supabase
+        .from('project_documents')
+        .update({ replaced_by: data.id, replaced_at: new Date().toISOString() })
+        .eq('id', previousDocId);
+    }
+
+    // Documents changed: invalidate the stored analysis and queue a fresh (throttled) run.
+    await invalidateProjectAnalysis(supabase, id, user.id);
+
+    await writeAuditLog({ userId: user.id, action: 'DOCUMENT_ADDED', entityType: 'project_documents', entityId: data.id, after: { ...body, version: nextVersion }, req });
 
     return Response.json({ data }, { status: 201 });
   } catch (e) {
@@ -109,7 +146,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
           from_status: project.status,
           to_status: 'draft',
           actor_id: user.id,
-          reason: 'Document deleted — AI scores invalidated',
+          reason: 'Document deleted â€” AI scores invalidated',
         });
       }
 
@@ -121,12 +158,16 @@ export async function DELETE(req: NextRequest, { params }: Params) {
         before: { status: project?.status },
         after: { status: 'draft', reason: 'Document deleted' },
         req,
+        blocking: true,
       });
 
       scoresInvalidated = true;
     }
 
-    await writeAuditLog({ userId: user.id, action: 'DOCUMENT_DELETED', entityType: 'project_documents', entityId: documentId, req });
+    // Documents changed: the stored analysis is no longer current.
+    await markProjectAnalysisDirty(supabase, id);
+
+    await writeAuditLog({ userId: user.id, action: 'DOCUMENT_DELETED', entityType: 'project_documents', entityId: documentId, req, blocking: true });
 
     return Response.json({ success: true, scores_invalidated: scoresInvalidated });
   } catch (e) {

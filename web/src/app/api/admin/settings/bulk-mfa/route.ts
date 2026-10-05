@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
         entityId: org_id,
         after: { mfa_enforced: enabled, affected_members: affected },
         req,
+        blocking: true,
       });
 
       return Response.json({ success: true, affected, scope: 'org', org_id });
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
       entityId: user.id,
       after: { mfa_enabled: enabled, affected_count: beforeCount ?? 0 },
       req,
+      blocking: true,
     });
 
     return Response.json({ success: true, affected: beforeCount ?? 0, scope: 'platform' });
