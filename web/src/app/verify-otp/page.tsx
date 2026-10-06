@@ -18,6 +18,7 @@ interface MfaUser {
 
 function checkMfaRequired(user: MfaUser | null | undefined): boolean {
   if (!user) return false;
+  if (process.env.NEXT_PUBLIC_DISABLE_MFA === 'true') return false;
   if (user.is_platform_admin) return true;
   if (user.is_authority_user) return true;
   if (user.org_member_role === 'OWNER') return true;

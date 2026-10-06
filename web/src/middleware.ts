@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { checkRateLimit, RATE_LIMIT_API, RATE_LIMIT_API_READ, RATE_LIMIT_AUTH } from '@/lib/rate-limit';
 import { verifyMfaCookie, signMfaCookie } from '@/lib/mfa-cookie';
 
-const PROTECTED_ROUTES = ['/developer', '/admin', '/authority', '/investor', '/consultant', '/trader', '/grant', '/technical', '/engagements', '/inbound', '/profile', '/settings', '/audit-logs', '/verification', '/onboarding', '/verify-otp'];
+const PROTECTED_ROUTES = ['/developer', '/admin', '/authority', '/investor', '/consultant', '/trader', '/grant', '/technical', '/engagements', '/inbound', '/profile', '/settings', '/audit-logs', '/verification', '/onboarding'];
 const AUTH_ROUTES = ['/login', '/signup', '/register', '/forgot-password', '/reset-password'];
 
 // Platform Admin-only routes (internal staff only)
@@ -136,7 +136,8 @@ export async function middleware(req: NextRequest) {
       }
 
       // Admin API routes require MFA verification (cookie must be set)
-      if (pathname.startsWith('/api/admin')) {
+      // Skip when MFA is globally disabled
+      if (pathname.startsWith('/api/admin') && process.env.DISABLE_MFA !== 'true') {
         const mfaCookie = req.cookies.get('mfa_verified')?.value;
         if (!mfaCookie || !await verifyMfaCookie(mfaCookie, user.id)) {
           return NextResponse.json(
