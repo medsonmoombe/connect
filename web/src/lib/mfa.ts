@@ -20,6 +20,8 @@ export function isMfaRequired(user: {
   mfa_enabled?: boolean;
   org_mfa_enforced?: boolean;
 }): boolean {
+  // When DISABLE_MFA=true all users bypass OTP and go straight to the dashboard.
+  if (process.env.DISABLE_MFA === 'true') return false;
   if (user.is_platform_admin) return true;
   if (user.is_authority_user) return true;
   if (user.org_member_role === 'OWNER') return true;
