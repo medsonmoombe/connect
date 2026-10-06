@@ -16,6 +16,7 @@ services:
       - NEXT_PUBLIC_APP_NAME
       - NEXT_PUBLIC_APP_TAGLINE
       - NEXT_PUBLIC_DISABLE_MFA
+      - MFA_COOKIE_SECRET
     envVars:
       - key: NODE_ENV
         value: production
