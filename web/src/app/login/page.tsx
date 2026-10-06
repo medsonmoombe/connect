@@ -40,7 +40,8 @@ function LoginForm() {
     setError(null);
     try {
       const builtUser = await signIn(email, password);
-      window.location.href = builtUser && checkMfaRequired(builtUser) ? '/verify-otp' : '/dashboard';
+      const disableMfa = process.env.NEXT_PUBLIC_DISABLE_MFA === 'true';
+      window.location.href = builtUser && !disableMfa && checkMfaRequired(builtUser) ? '/verify-otp' : '/dashboard';
     } catch (err: unknown) {
       const authErr = err as { code?: string; lockedUntil?: string; attemptsRemaining?: number; message?: string };
       if (authErr.code === 'ACCOUNT_LOCKED') {

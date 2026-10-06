@@ -117,11 +117,13 @@ export async function middleware(req: NextRequest) {
   // â”€â”€ verify-otp: redirect away if already authenticated without MFA requirement â”€
   // The MFA cookie being set means they already completed verification this session
   if (pathname.startsWith('/verify-otp') && user) {
+    const next = req.nextUrl.searchParams.get('next');
+    const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/developer';
+    if (process.env.DISABLE_MFA === 'true') {
+      return NextResponse.redirect(new URL(target, req.url));
+    }
     const mfaCookie = req.cookies.get(MFA_COOKIE_NAME)?.value;
     if (mfaCookie && await verifyMfaCookie(mfaCookie, user.id)) {
-      // Honor the ?next= return path when it points somewhere internal
-      const next = req.nextUrl.searchParams.get('next');
-      const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/developer';
       return NextResponse.redirect(new URL(target, req.url));
     }
   }

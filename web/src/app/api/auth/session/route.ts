@@ -32,7 +32,10 @@ export async function GET() {
 
     const cookieStore = await cookies();
     const mfaCookie = cookieStore.get('mfa_verified')?.value;
-    const mfaVerified = mfaCookie ? await verifyMfaCookie(mfaCookie, user.id) : false;
+    // When MFA is disabled globally, treat every session as MFA-verified
+    const mfaVerified = process.env.DISABLE_MFA === 'true'
+      ? true
+      : mfaCookie ? await verifyMfaCookie(mfaCookie, user.id) : false;
 
     let password_expired = false;
     let password_expired_days = 0;
