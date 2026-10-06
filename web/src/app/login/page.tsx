@@ -11,6 +11,7 @@ import { AuthSplitShell } from '@/components/auth/AuthSplitShell';
 
 function checkMfaRequired(user: { is_platform_admin?: boolean; is_authority_user?: boolean; org_member_role?: 'OWNER' | 'ADMIN' | 'MEMBER' | null; role?: string; org_mfa_enforced?: boolean; mfa_enabled?: boolean } | null | undefined): boolean {
   if (!user) return false;
+  if (process.env.NEXT_PUBLIC_DISABLE_MFA === 'true') return false;
   if (user.is_platform_admin) return true;
   if (user.is_authority_user) return true;
   if (user.org_member_role === 'OWNER') return true;
