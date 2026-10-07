@@ -914,6 +914,28 @@ export async function runProjectAnalysis(jobId: string): Promise<void> {
       throw new AIProviderError('PROVIDER_ERROR', `Failed to persist scores: ${scoreWriteError.message}`);
     }
 
+    // The AI-determined stage is the project's stage EVERYWHERE it is displayed —
+    // the details-page stepper, spec rows, marketplaces and the matching engine
+    // all read `projects.project_stage`, while the AI panel reads the score row's
+    // `determined_stage`. Writing only the score row left the project column at
+    // its creation-time value (e.g. CONCEPT) while the panel showed the stage the
+    // AI actually determined (e.g. Regulatory Approval). `project_stage` is an
+    // AI-owned system field (lib/project-edit-policy.ts SYSTEM_FIELDS), so the
+    // determined stage is authoritative — persist it on every run, regardless of
+    // status, so a project can never display a stage the AI did not determine.
+    if (scored.stageValue) {
+      const { error: stageWriteError } = await sb
+        .from('projects')
+        .update({ project_stage: scored.stageValue })
+        .eq('id', project.id);
+      if (stageWriteError) {
+        // Best-effort: the score is the authoritative artifact. A failure here
+        // only leaves the project column lagging the score row, which the review
+        // UI already reconciles, so log rather than failing the whole run.
+        console.error('[Orchestrator] Failed to persist determined stage:', stageWriteError.message, { projectId: project.id });
+      }
+    }
+
     // Close the analysis loop: stamp the run time and clear the dirty flag set
     // by invalidateProjectAnalysis. Without this the cooldown in
     // evaluateAnalysisGuard had no anchor (always "proceed") and the exact-revert

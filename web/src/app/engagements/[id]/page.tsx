@@ -1063,13 +1063,14 @@ export default function EngagementRoomPage() {
   const isAdmin              = user?.role === 'ADMIN';
   const counterpartyCompanyId = (engagement as any).counterparty_company_id as string | undefined;
   const isCounterparty       = !isDeveloper && !!counterpartyCompanyId && user?.company_id === counterpartyCompanyId;
-  // Direction of the intro request.
-  // NULL on legacy rows: infer from role — if the current user is the developer
-  // they almost certainly initiated it via the "Contact" button on the submit
-  // form, so default to 'developer'. Only fall back to 'partner' for counterparty viewers.
-  const introOrigin: 'developer' | 'partner' = (
-    (engagement as any).intro_origin as 'developer' | 'partner' | null
-  ) ?? (isDeveloper ? 'developer' : 'partner');
+  // Direction of the intro request — drives both the copy and who may accept.
+  // NULL on legacy rows is treated as PARTNER-INITIATED, matching migration 073
+  // and lib/engagement.ts getTransitionRole: pre-073 engagements defaulted to
+  // inbound partner interest, so the DEVELOPER is the one who accepts. Inferring
+  // 'developer' from the viewer's role (the previous behaviour) mislabelled an
+  // inbound partner request and hid the Accept action from the developer.
+  const introOrigin: 'developer' | 'partner' =
+    ((engagement as any).intro_origin as 'developer' | 'partner' | null) ?? 'partner';
   const userRole: TransitionRole | null = isDeveloper ? 'developer' : isCounterparty ? 'counterparty' : null;
   const nextStates           = getTransitionsForRole(engagement.status, userRole, introOrigin);
   const isTerminal           = engagement.status === 'DROPPED' || engagement.status === 'CLOSED';
