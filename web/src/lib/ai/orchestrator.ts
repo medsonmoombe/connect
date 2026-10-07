@@ -329,6 +329,81 @@ export function collectRisks(
   return risks;
 }
 
+type RiskFlag = { severity: 'low' | 'medium' | 'high'; flag: string; detail: string };
+
+const SEVERITY_RANK: Record<RiskFlag['severity'], number> = { high: 3, medium: 2, low: 1 };
+
+function detailTokens(detail: string): Set<string> {
+  return new Set(
+    detail.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 3 && !STOPWORDS.has(t)),
+  );
+}
+
+const STOPWORDS = new Set(['that', 'this', 'with', 'from', 'have', 'been', 'were', 'will', 'they', 'their', 'which', 'into', 'also', 'than', 'when', 'over', 'such', 'only', 'some', 'more', 'most', 'other', 'same', 'very', 'still', 'must', 'each']);
+
+/** True when two details are restatements of one finding rather than new evidence. */
+function sameStatement(a: string, b: string): boolean {
+  const la = a.toLowerCase();
+  const lb = b.toLowerCase();
+  if (la.includes(lb) || lb.includes(la)) return true;
+
+  const ta = detailTokens(a);
+  const tb = detailTokens(b);
+  if (ta.size === 0 || tb.size === 0) return false;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  return shared / (ta.size + tb.size - shared) >= 0.6;
+}
+
+/**
+ * Collapse repeated risk flags into one row per finding.
+ *
+ * Risk flags arrive per document, so two documents covering the same open
+ * milestone (a financial model and an offtake letter both noting the PPA is
+ * unsigned) produce the same finding twice. The stored `project_scores.risk_flags`
+ * is a flat list of rendered strings, so the reviewer used to see "MEDIUM:
+ * Unexecuted PPA" verbatim twice in a row — which reads as a bug and erodes trust
+ * in the report.
+ *
+ * Merging is deliberately conservative: two flags are the same finding only when
+ * their normalised `flag` labels match. Flags with different labels are kept even
+ * if their prose overlaps, because merging those risks silently discarding a real
+ * finding. The survivor carries the highest severity and the most specific detail.
+ */
+export function dedupeRiskFlags(flags: RiskFlag[]): RiskFlag[] {
+  const byKey = new Map<string, RiskFlag>();
+
+  for (const f of flags) {
+    const key = f.flag.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!key) continue;
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...f });
+      continue;
+    }
+
+    const keepNew =
+      SEVERITY_RANK[f.severity] > SEVERITY_RANK[existing.severity] ||
+      (SEVERITY_RANK[f.severity] === SEVERITY_RANK[existing.severity] &&
+        f.detail.length > existing.detail.length);
+
+    const winner = keepNew ? { ...f } : existing;
+    const loser = keepNew ? existing : f;
+    // Fold the loser's detail in only when it actually adds information: it has
+    // to be longer than the winner's and not merely a rephrasing of it. Appending
+    // a shorter or restated variant just produces "… (also reported: same thing)".
+    if (loser.detail && loser.detail.length > winner.detail.length && !sameStatement(loser.detail, winner.detail)) {
+      winner.detail = `${winner.detail} (also reported: ${loser.detail})`;
+    }
+    byKey.set(key, winner);
+  }
+
+  return [...byKey.values()].sort(
+    (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.flag.localeCompare(b.flag),
+  );
+}
+
 // ── One-retry wrapper ─────────────────────────────────────────────────────────
 
 async function withOneRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -602,10 +677,12 @@ export async function runProjectAnalysis(jobId: string): Promise<void> {
       ? withheldScoreResult(reconciliation)
       : scoreProject(merged, SCORING_V2, scoreOptions);
 
-    const riskFlags = [
-      collectRisks(evidenceByDoc, skipped, merged),
-      reconciliationRiskFlags(reconciliation),
-    ].flat();
+    const riskFlags = dedupeRiskFlags(
+      [
+        collectRisks(evidenceByDoc, skipped, merged),
+        reconciliationRiskFlags(reconciliation),
+      ].flat(),
+    );
 
     // ── Rating explanations ────────────────────────────────────────────────
     // One extra call that turns the computed score into a sentence per rating.

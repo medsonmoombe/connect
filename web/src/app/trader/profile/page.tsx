@@ -8,31 +8,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { DashboardSkeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import PageTitle from '@/components/PageTitle';
 import { PageHero } from '@/components/ui/PageHero';
 import { useTraderData, TraderProfileData } from '@/hooks/useTraderData';
+import { LICENSE_TYPES, SECTORS as TECHNOLOGY_TYPES, ZAMBIAN_PROVINCES as REGIONS } from '@/lib/profile-options';
 
 // ── Option sets ──────────────────────────────────────────────────────────────
-const LICENSE_TYPES = [
-  { value: 'TRADING', label: 'Trading' },
-  { value: 'BROKERAGE', label: 'Brokerage' },
-  { value: 'MARKET_MAKER', label: 'Market Maker' },
-];
-const TECHNOLOGY_TYPES = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-];
-const REGIONS = [
-  'Zambia', 'Kenya', 'Nigeria', 'Ghana', 'Tanzania', 'Uganda', 'Rwanda',
-  'Mozambique', 'Zimbabwe', 'Botswana', 'Namibia', 'Malawi', 'Southern Africa', 'East Africa', 'West Africa',
-];
 const CREDIT_RATINGS = ['AAA', 'AA+', 'AA', 'AA-', 'A+', 'A', 'A-', 'BBB+', 'BBB', 'BBB-', 'BB+', 'BB', 'B', 'Not rated'];
 
 const inputClass =
@@ -133,26 +115,19 @@ export default function TraderProfilePage() {
     if (!user?.company_id) return;
     setSaving(true);
     try {
-      if (!data.traderId) {
-        const { data: created, error } = await supabase
-          .from('power_traders')
-          .insert({ company_id: user.company_id, ...profileData })
-          .select()
-          .single();
-        if (error) throw error;
-        if (created) toast.success('Trading profile created — matching will now use it.');
-      } else {
-        const { error } = await supabase
-          .from('power_traders')
-          .update(profileData)
-          .eq('id', data.traderId);
-        if (error) throw error;
-        toast.success('Trading profile saved — matching will use your new settings.');
-      }
+      // Validated server-side; the table is derived from the company role.
+      const res = await fetch('/api/profile/partner-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileData),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to save profile');
+      toast.success('Trading profile saved — matching will use your new settings.');
       setDirty(false);
       await data.fetchEngagements();
-    } catch {
-      toast.error('Failed to save profile. Please try again.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save profile. Please try again.');
     } finally {
       setSaving(false);
     }

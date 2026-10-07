@@ -15,7 +15,28 @@ export async function POST(req: NextRequest) {
       return badRequest('current_password and new_password are required');
     }
 
-    const pwError = validatePasswordComplexity(new_password);
+    // Enforce the user's organisation password policy. The org-level
+    // `min_password_length` setting was previously stored but never applied.
+    const admin = getSupabaseAdmin();
+    const { data: membership } = await admin
+      .from('company_members')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    let orgMinLength = 8;
+    if (membership?.company_id) {
+      const { data: org } = await admin
+        .from('companies')
+        .select('min_password_length')
+        .eq('id', membership.company_id)
+        .maybeSingle();
+      if (typeof org?.min_password_length === 'number' && org.min_password_length > 8) {
+        orgMinLength = org.min_password_length;
+      }
+    }
+
+    const pwError = validatePasswordComplexity(new_password, orgMinLength);
     if (pwError) {
       return badRequest(pwError);
     }
@@ -30,7 +51,6 @@ export async function POST(req: NextRequest) {
       return badRequest('Current password is incorrect');
     }
 
-    const admin = getSupabaseAdmin();
     const { error: pwErr } = await admin.auth.admin.updateUserById(user.id, { password: new_password });
 
     if (pwErr) {

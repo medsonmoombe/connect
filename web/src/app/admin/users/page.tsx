@@ -943,7 +943,7 @@ export default function AdminUsersPage() {
               <h3 className="text-[15px] font-bold text-ink mt-0.5">Regulators</h3>
             </div>
             <Button
-              className="h-8 px-3  bg-white/10 hover:bg-white/20 border border-white/15 text-white text-xs font-semibold transition-colors"
+              className="h-8 px-3 bg-brand hover:bg-brand-hover text-white text-xs font-semibold transition-colors"
               onClick={() => { setAuthorityOrgDrawerOpen(true); fetchAuthorityOrgs(); }}
             >
               <Icons.plus className="size-3.5 mr-1.5" />

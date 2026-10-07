@@ -3,8 +3,7 @@ import { getAuthenticatedUser, forbidden, handleRouteError, badRequest, findProj
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { transitionProject, resolveActorRole, STATUS_LABELS, type ProjectStatus } from '@/lib/project-state-machine';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { createNotification, createNotifications, notificationBuilders } from '@/lib/notify';
-import { sendEmail } from '@/lib/email';
+import { createNotifications, notificationBuilders, notifyUser, notifyUsers } from '@/lib/notify';
 import {
   projectSubmittedEmail,
   projectPendingInternalReviewEmail,
@@ -183,7 +182,17 @@ async function notifyInternalReviewer(args: {
   projectName: string; creator: any; projectId: string;
 }) {
   const { supabase, org, projectName, creator, projectId } = args;
-  await createNotification({
+  const { data: reviewerProfile } = await supabase
+    .from('user_profiles').select('full_name, email').eq('id', org.internal_reviewer_id).maybeSingle();
+  const tpl = projectPendingInternalReviewEmail({
+    projectName,
+    submitterName: creator?.full_name || 'A team member',
+    orgName: org.name || 'your organization',
+    recipientName: reviewerProfile?.full_name || 'Reviewer',
+    projectUrl: `/projects/${projectId}`,
+  });
+  // notifyUser respects the reviewer's notification_preferences for both channels.
+  await notifyUser({
     userId: org.internal_reviewer_id,
     payload: notificationBuilders.projectPendingInternalReview({
       projectName,
@@ -191,33 +200,29 @@ async function notifyInternalReviewer(args: {
       orgName: org.name || 'your organization',
       actionUrl: `/projects/${projectId}`,
     }),
+    channel: 'both',
+    emailTo: reviewerProfile?.email,
+    emailTemplate: tpl,
+    emailLogType: 'project_pending_internal_review',
+    emailEntityId: projectId,
   });
-  const { data: reviewerProfile } = await supabase
-    .from('user_profiles').select('full_name, email').eq('id', org.internal_reviewer_id).maybeSingle();
-  if (reviewerProfile?.email) {
-    const tpl = projectPendingInternalReviewEmail({
-      projectName,
-      submitterName: creator?.full_name || 'A team member',
-      orgName: org.name || 'your organization',
-      recipientName: reviewerProfile.full_name || 'Reviewer',
-      projectUrl: `/projects/${projectId}`,
-    });
-    await sendEmail({ to: reviewerProfile.email, subject: tpl.subject, html: tpl.html, logType: 'project_pending_internal_review', logEntityId: projectId });
-  }
 }
 
 async function notifyCreatorSubmitted(args: { creator: any; projectName: string; mode: 'direct' | 'internal_review'; projectId: string }) {
   const { creator, projectName, mode, projectId } = args;
   if (!creator?.id) return;
-  await createNotification({
+  const tpl = projectSubmittedEmail({ projectName, recipientName: creator.full_name || 'there', mode });
+  await notifyUser({
     userId: creator.id,
     payload: mode === 'internal_review'
       ? notificationBuilders.projectSubmittedInternalReview({ projectName, actionUrl: `/projects/${projectId}` })
       : notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: `/projects/${projectId}` }),
+    channel: 'both',
+    emailTo: creator.email,
+    emailTemplate: tpl,
+    emailLogType: mode === 'internal_review' ? 'project_submitted_internal' : 'project_submitted',
+    emailEntityId: projectId,
   });
-  if (!creator.email) return;
-  const tpl = projectSubmittedEmail({ projectName, recipientName: creator.full_name || 'there', mode });
-  await sendEmail({ to: creator.email, subject: tpl.subject, html: tpl.html, logType: mode === 'internal_review' ? 'project_submitted_internal' : 'project_submitted', logEntityId: projectId });
 }
 
 async function notifyPlatformAdmins(args: { supabase: ReturnType<typeof getSupabaseAdmin>; orgName: string; projectName: string; projectId: string }) {
@@ -229,13 +234,21 @@ async function notifyPlatformAdmins(args: { supabase: ReturnType<typeof getSupab
     .from('company_members').select('user_id').eq('company_id', platformOrg.id).is('deleted_at', null);
   if (!platformAdmins?.length) return;
   const adminIds = platformAdmins.map(m => m.user_id);
-  await createNotifications({ userIds: adminIds, payload: notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: '/admin/projects' }) });
   const { data: adminProfiles } = await supabase.from('user_profiles').select('id, email').in('id', adminIds);
+  const emailMap: Record<string, string> = {};
   for (const a of adminProfiles ?? []) {
-    if (!a.email) continue;
-    const tpl = adminProjectSubmittedEmail({ projectName, orgName, projectUrl: '/admin/projects' });
-    await sendEmail({ to: a.email, subject: tpl.subject, html: tpl.html, logType: 'admin_project_submitted', logEntityId: projectId });
+    if (a.email) emailMap[a.id] = a.email;
   }
+  const tpl = adminProjectSubmittedEmail({ projectName, orgName, projectUrl: '/admin/projects' });
+  await notifyUsers({
+    userIds: adminIds,
+    payload: notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: '/admin/projects' }),
+    channel: 'both',
+    emailMap,
+    emailTemplate: tpl,
+    emailLogType: 'admin_project_submitted',
+    emailEntityId: projectId,
+  });
 }
 
 /**
@@ -296,34 +309,25 @@ async function notifyPreviousReviewers(args: {
     action_url: '/admin/review',
   };
 
-  // In-app notifications
-  const rows = allReviewerIds.map(uid => ({
-    user_id: uid,
-    type: payload.type,
-    title: payload.title,
-    body: payload.body,
-    entity_type: payload.entity_type,
-    entity_id: projectId,
-    action_url: payload.action_url,
-  }));
-  await supabase.from('notifications').insert(rows);
-
-  // Emails
+  // Preference-aware in-app + email delivery
+  const emailMap: Record<string, string> = {};
   for (const profile of profiles ?? []) {
-    if (!profile.email) continue;
-    const tpl = adminProjectSubmittedEmail({
-      projectName,
-      orgName: 'Developer',
-      projectUrl: `/admin/review/${projectId}`,
-    });
-    await sendEmail({
-      to: profile.email,
-      subject: `[Resubmission] ${projectName} — awaiting review`,
-      html: tpl.html,
-      logType: 'project_resubmitted_reviewer',
-      logEntityId: projectId,
-    });
+    if (profile.email) emailMap[profile.id] = profile.email;
   }
+  const tpl = adminProjectSubmittedEmail({
+    projectName,
+    orgName: 'Developer',
+    projectUrl: `/admin/review/${projectId}`,
+  });
+  await notifyUsers({
+    userIds: allReviewerIds,
+    payload,
+    channel: 'both',
+    emailMap,
+    emailTemplate: { subject: `[Resubmission] ${projectName} — awaiting review`, html: tpl.html },
+    emailLogType: 'project_resubmitted_reviewer',
+    emailEntityId: projectId,
+  });
 }
 
 async function notifyOtherOrgAdmins(args: {

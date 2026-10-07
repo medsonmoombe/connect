@@ -112,7 +112,7 @@ export default function ElectricLoader({ size = 280, className = '', dark = fals
 
         {/* Center logo (no card) */}
         <div
-          className={`${id}-tile absolute top-1/2 left-1/2 flex items-center justify-center`}
+          className={`${id}-tile absolute top-1/2 left-1/2 flex items-center border-0  justify-center`}
           style={{
             width: tilePx,
             height: tilePx,

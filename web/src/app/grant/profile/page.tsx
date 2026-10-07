@@ -8,37 +8,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { DashboardSkeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import PageTitle from '@/components/PageTitle';
 import { PageHero } from '@/components/ui/PageHero';
 import { useGrantData, GrantProfileData } from '@/hooks/useGrantData';
-
-// ── Option sets ──────────────────────────────────────────────────────────────
-const GRANT_TYPES = [
-  { value: 'TECHNICAL_ASSISTANCE', label: 'Technical Assistance' },
-  { value: 'FEASIBILITY_STUDY', label: 'Feasibility Study' },
-  { value: 'CAPITAL_GRANT', label: 'Capital Grant' },
-  { value: 'VIABILITY_GAP_FUNDING', label: 'Viability Gap Funding' },
-  { value: 'RESULT_BASED_FINANCING', label: 'Result-Based Financing' },
-  { value: 'RESEARCH_DEVELOPMENT', label: 'Research & Development' },
-  { value: 'INCUBATION_ACCELERATION', label: 'Incubation / Acceleration' },
-];
-const SECTORS = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-  { value: 'CLEAN_COOKING', label: 'Clean Cooking' },
-  { value: 'ENERGY_EFFICIENCY', label: 'Energy Efficiency' },
-];
-const GEOGRAPHIES = [
-  'Zambia', 'Kenya', 'Nigeria', 'Ghana', 'Tanzania', 'Uganda', 'Rwanda',
-  'Mozambique', 'Zimbabwe', 'Botswana', 'Namibia', 'Malawi', 'Sub-Saharan Africa',
-];
+import { GRANT_TYPES, SECTORS, ZAMBIAN_PROVINCES as GEOGRAPHIES } from '@/lib/profile-options';
 
 const inputClass =
   'w-full h-11 px-3.5 rounded-none border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:border-[#1f9d55] focus:ring-2 focus:ring-[#1f9d55]/20';
@@ -138,26 +112,19 @@ export default function GrantProfilePage() {
     if (!user?.company_id) return;
     setSaving(true);
     try {
-      if (!data.grantProviderId) {
-        const { data: created, error } = await supabase
-          .from('grant_providers')
-          .insert({ company_id: user.company_id, ...profileData })
-          .select()
-          .single();
-        if (error) throw error;
-        if (created) toast.success('Funding profile created — matching will now use it.');
-      } else {
-        const { error } = await supabase
-          .from('grant_providers')
-          .update(profileData)
-          .eq('id', data.grantProviderId);
-        if (error) throw error;
-        toast.success('Funding profile saved — matching will use your new settings.');
-      }
+      // Validated server-side; the table is derived from the company role.
+      const res = await fetch('/api/profile/partner-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileData),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to save profile');
+      toast.success('Funding profile saved — matching will use your new settings.');
       setDirty(false);
       await data.fetchEngagements();
-    } catch {
-      toast.error('Failed to save profile. Please try again.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save profile. Please try again.');
     } finally {
       setSaving(false);
     }

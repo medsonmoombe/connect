@@ -71,8 +71,18 @@ export async function shouldNotify(userId: string, type: NotificationType, chann
 export async function createNotification(params: {
   userId: string;
   payload: NotificationPayload;
+  /** Set false only for system-critical messages that must bypass preferences. */
+  respectPreferences?: boolean;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
+    // Respect the recipient's notification_preferences (previously only
+    // notifyUser/notifyUsers did this, so direct callers bypassed the toggles).
+    // Types absent from DEFAULT_NOTIFICATION_PREFS (e.g. system_announcement,
+    // org_status_change) resolve to "on", preserving admin/system alerts.
+    if (params.respectPreferences !== false) {
+      const allowed = await shouldNotify(params.userId, params.payload.type, 'inApp');
+      if (!allowed) return { success: true };
+    }
     const admin = getSupabaseAdmin();
     const { data, error } = await admin
       .from('notifications')
@@ -105,10 +115,21 @@ export async function createNotification(params: {
 export async function createNotifications(params: {
   userIds: string[];
   payload: NotificationPayload;
+  /** Set false only for system-critical messages that must bypass preferences. */
+  respectPreferences?: boolean;
 }): Promise<{ success: boolean; count: number; error?: string }> {
   try {
+    let userIds = params.userIds;
+    if (params.respectPreferences !== false) {
+      const allowed = await Promise.all(
+        userIds.map(uid => shouldNotify(uid, params.payload.type, 'inApp'))
+      );
+      userIds = userIds.filter((_, i) => allowed[i]);
+      if (userIds.length === 0) return { success: true, count: 0 };
+    }
+
     const admin = getSupabaseAdmin();
-    const rows = params.userIds.map(userId => ({
+    const rows = userIds.map(userId => ({
       user_id: userId,
       type: params.payload.type,
       title: params.payload.title,

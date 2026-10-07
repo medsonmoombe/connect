@@ -5,8 +5,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { Icons } from '@/components/ui/icons';
 import { ReactNode, useEffect, useState } from 'react';
-import { DashboardSidebar, SidebarNavItem, NavSection } from '@/components/dashboard/Sidebar';
+import { DashboardSidebar, NavSection } from '@/components/dashboard/Sidebar';
 import { DashboardNavbar } from '@/components/dashboard/Navbar';
+import { buildAdminSections } from '@/components/dashboard/admin-nav';
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -66,35 +67,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const sections: NavSection[] = [
-    {
-      label: 'Overview',
-      items: [
-        { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Overview', href: '/admin', active: pathname === '/admin' },
-        // { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Portfolio Oversight', href: '/admin/ai-overview', active: pathname === '/admin/ai-overview' },
-        { icon: <Icons.barChart2 className="size-[18px]" />, label: 'Platform Analytics', href: '/admin/analytics', active: pathname === '/admin/analytics' },
-      ],
-    },
-    {
-      label: 'Management',
-      items: [
-        { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Verification Queue', href: '/admin/verification', active: pathname === '/admin/verification' },
-        { icon: <Icons.mail className="size-[18px]" />, label: 'Invite Users', href: '/admin/users', active: pathname === '/admin/users' },
-        { icon: <Icons.eye className="size-[18px]" />, label: 'Review Queue', href: '/admin/review', active: pathname === '/admin/review' },
-        { icon: <Icons.folder className="size-[18px]" />, label: 'All Projects', href: '/admin/projects', active: pathname === '/admin/projects' },
-        { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Milestone Pipelines', href: '/admin/engagements', active: pathname === '/admin/engagements' },
-        { icon: <Icons.building className="size-[18px]" />, label: 'Companies', href: '/admin/companies', active: pathname === '/admin/companies' },
-        { icon: <Icons.users className="size-[18px]" />, label: 'Consultations', href: '/admin/consultation', active: pathname === '/admin/consultation' },
-      ],
-    },
-    {
-      label: 'System',
-      items: [
-        { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Provider', href: '/admin/ai', active: pathname === '/admin/ai' },
-        { icon: <Icons.settings className="size-[18px]" />, label: 'System Settings', href: '/admin/settings', active: pathname === '/admin/settings' },
-      ],
-    },
-  ];
+  const sections: NavSection[] = buildAdminSections(pathname);
 
   const footerWidget = (
     <div className="sidebar-widget rounded-none p-3.5">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
 
@@ -26,7 +26,9 @@ type Props = {
 export function ReviewHistory({ projectId, embedded, className }: Props) {
   const [reviews, setReviews] = useState<ProjectReview[]>([]);
   const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
+  // Review history is expanded by default — reviewers should not have to click
+  // an accordion to see prior decisions on the review page.
+  const [open, setOpen] = useState(true);
 
   const load = useCallback(async () => {
     if (reviews.length > 0) return; // already loaded
@@ -42,6 +44,9 @@ export function ReviewHistory({ projectId, embedded, className }: Props) {
       setLoading(false);
     }
   }, [projectId, reviews.length]);
+
+  // Populate as soon as the (open-by-default) section mounts.
+  useEffect(() => { load(); }, [load]);
 
   const handleToggle = () => {
     const next = !open;

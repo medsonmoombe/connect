@@ -48,6 +48,8 @@ const DEVELOPER_PROFILES = [
       ownership_details: '60% James Mwanza (Founder/CEO), 25% Mwape Investments Ltd, 15% Employee Option Pool',
       contact_email: 'info@solargen.co.zm',
       contact_phone: '+260 977 123 456',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'CEO has 12 years in power sector including 5 years at ZESCO in grid planning. CTO has 8 years designing solar farms across East Africa.',
     },
     step3_preferences: null, // Developers don't fill preferences
@@ -75,6 +77,8 @@ const DEVELOPER_PROFILES = [
       ownership_details: '50% Banda Family Trust, 30% GreenField Capital (Pty) Ltd, 20% Co-founders',
       contact_email: 'projects@zamhydro.energy',
       contact_phone: '+260 966 789 012',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Founder has 15 years in hydropower development across Zambia and Mozambique. Engineering Director previously led EPC delivery for a 10 MW hydro project in Malawi.',
     },
     step3_preferences: null,
@@ -102,6 +106,8 @@ const DEVELOPER_PROFILES = [
       ownership_details: '55% WindForce Holdings (Pty) Ltd South Africa, 30% Chanda Kabwe (Founder), 15% Zambia Angel Fund',
       contact_email: 'chanda.k@windforce.co.zm',
       contact_phone: '+260 955 345 678',
+      is_new_company_with_experienced_team: true,
+      management_team_experience: { years: 17, description: 'Founder 10 years energy finance; lead engineer 7 years EPC.' },
       management_experience_summary: 'Founder has 10 years in energy finance at Standard Chartered Zambia. Lead engineer has 7 years EPC experience in South African wind farms. New company but seasoned leadership team.',
     },
     step3_preferences: null,
@@ -135,6 +141,8 @@ const CAPITAL_PROFILES = [
       ownership_details: '40% Global Climate Fund LP, 30% Management Team, 20% Development Finance Institution, 10% Local Pension Fund',
       contact_email: 'investments@africangreenco.com',
       contact_phone: '+260 971 234 567',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Managing Partner has 18 years in infrastructure finance including roles at IFC and CDC Group. Investment Director previously led renewable energy deals at Actis.',
     },
     step3_preferences: {
@@ -172,6 +180,8 @@ const CAPITAL_PROFILES = [
       ownership_details: '70% Daniel Nkosi (Founder), 20% Zambian Diaspora Investment Fund, 10% Employee shares',
       contact_email: 'daniel@zanacapital.co.zm',
       contact_phone: '+260 968 876 543',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Founder spent 10 years at Standard Bank CIB in infrastructure debt. Previously structured $150M+ in power sector financing across the region.',
     },
     step3_preferences: {
@@ -209,6 +219,8 @@ const CAPITAL_PROFILES = [
       ownership_details: '45% European Development Finance Institution, 30% Zambian Pension Consortium, 25% Management Company',
       contact_email: 'grace@luminafund.co.zm',
       contact_phone: '+260 954 321 098',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Fund Manager has 14 years in blended finance across Africa. Previously structured the first green bond in Zambia. New fund with experienced leadership.',
     },
     step3_preferences: {
@@ -252,6 +264,8 @@ const TECHNICAL_PROFILES = [
       ownership_details: '55% Michael Tembo (Managing Director), 30% Tembo Family Holdings, 15% Employee Trust',
       contact_email: 'contracts@sunridgesepc.com',
       contact_phone: '+260 977 456 789',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Managing Director is a chartered electrical engineer with 18 years in power systems. Operations Manager has 10 years solar EPC experience in Zambia and Zimbabwe.',
     },
     step3_preferences: {
@@ -265,6 +279,13 @@ const TECHNICAL_PROFILES = [
       regions_operated: ['Lusaka', 'Copperbelt', 'Southern', 'Central', 'North-Western'],
       delivery_models: ['FIXED_PRICE', 'BOOT'],
       payment_terms: '30% mobilization, 40% at equipment delivery, 20% at commissioning, 10% at COD',
+      annual_delivery_capacity_mw: 60,
+      total_mw_delivered: 120,
+      largest_project_mw: 50,
+      average_delivery_time_months: 9,
+      bonding_capacity: 5000000,
+      project_type_experience: ['Utility-scale', 'Commercial & Industrial'],
+      company_experience_doc_url: 'https://sunridgesepc.com/track-record',
     },
   },
 
@@ -290,6 +311,8 @@ const TECHNICAL_PROFILES = [
       ownership_details: '45% Anita Chilufya (CEO), 35% Dr. Peter Mwamba (CTO), 20% Strategic investor (EIB Ventures)',
       contact_email: 'anita@nexusengineering.co.zm',
       contact_phone: '+260 966 543 210',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'CEO is a licensed Professional Engineer with 20 years across power sector consulting. CTO holds a PhD in Renewable Energy from Imperial College London.',
     },
     step3_preferences: {
@@ -303,6 +326,13 @@ const TECHNICAL_PROFILES = [
       regions_operated: ['Lusaka', 'Copperbelt', 'Northern', 'Luapula', 'Muchinga', 'Western'],
       delivery_models: ['FIXED_PRICE', 'TIME_MATERIALS'],
       payment_terms: 'Milestone-based billing: 20% on mobilization, remainder in monthly progress payments',
+      annual_delivery_capacity_mw: 40,
+      total_mw_delivered: 210,
+      largest_project_mw: 100,
+      average_delivery_time_months: 6,
+      bonding_capacity: 2000000,
+      project_type_experience: ['Utility-scale', 'Transmission', 'Distribution'],
+      company_experience_doc_url: 'https://nexusengineering.co.zm/portfolio',
     },
   },
 
@@ -328,6 +358,8 @@ const TECHNICAL_PROFILES = [
       ownership_details: '50% Mwila Family Trust, 30% China-Zambia Infrastructure JV (strategic partner), 20% Management shares',
       contact_email: 'blessing@afrogridconstruct.co.zm',
       contact_phone: '+260 955 678 901',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Founder has 22 years in heavy civil and electrical infrastructure. Company has delivered 500+ km of transmission line and 15 substations across Zambia and DRC.',
     },
     step3_preferences: {
@@ -341,6 +373,13 @@ const TECHNICAL_PROFILES = [
       regions_operated: ['Lusaka', 'Copperbelt', 'Central', 'North-Western', 'Northern', 'Muchinga'],
       delivery_models: ['FIXED_PRICE', 'COST_PLUS', 'BOOT'],
       payment_terms: '20% upfront, 60% on milestone completion, 20% upon handover and defect liability period',
+      annual_delivery_capacity_mw: 150,
+      total_mw_delivered: 520,
+      largest_project_mw: 200,
+      average_delivery_time_months: 14,
+      bonding_capacity: 12000000,
+      project_type_experience: ['Transmission', 'Distribution', 'Utility-scale'],
+      company_experience_doc_url: 'https://afrogridconstruct.co.zm/projects',
     },
   },
 ];
@@ -372,6 +411,8 @@ const CONSULTANT_PROFILES = [
       ownership_details: '50% Elias Phiri (Managing Partner), 30% Dr. Nyambwe Mwanza (Senior Partner), 20% Associate Partner Pool',
       contact_email: 'elias@greenvista.co.zm',
       contact_phone: '+260 977 321 654',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Managing Partner is a certified Environmental Impact Assessment specialist with 14 years in Zambian energy sector. Senior Partner holds a PhD in Environmental Science from UNZA.',
     },
     step3_preferences: {
@@ -385,6 +426,9 @@ const CONSULTANT_PROFILES = [
       certifications: ['ENVIRONMENTAL'],
       hourly_rate_range: '$100–$180 / hr',
       project_rate_range: '$15k–$60k per ESIA',
+      specializations: ['Environmental & Social Impact Assessment', 'Regulatory Compliance'],
+      company_experience_doc_url: 'https://greenvista.co.zm/track-record',
+      portfolio_doc_url: 'https://greenvista.co.zm/portfolio',
     },
   },
 
@@ -393,7 +437,7 @@ const CONSULTANT_PROFILES = [
     auth: {
       email: 'rachel.kapoma@zamfinance.co.zm',
       password: 'Admin1234!',
-    },/
+    },
     step1_profile: {
       full_name: 'Rachel Kapoma',
     },
@@ -410,6 +454,8 @@ const CONSULTANT_PROFILES = [
       ownership_details: '65% Rachel Kapoma (Founder/CEO), 25% Cloud Nine Investments, 10% Employee shares',
       contact_email: 'rachel@zamfinance.co.zm',
       contact_phone: '+260 968 789 012',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'CEO is a CFA charterholder with 12 years in infrastructure finance. Previously led deal origination for a $500M African energy fund.',
     },
     step3_preferences: {
@@ -423,6 +469,9 @@ const CONSULTANT_PROFILES = [
       certifications: ['CFA'],
       hourly_rate_range: '$120–$220 / hr',
       project_rate_range: '$25k–$100k per engagement',
+      specializations: ['Financial Modelling', 'Capital Structuring', 'Transaction Advisory'],
+      company_experience_doc_url: 'https://zamfinance.co.zm/track-record',
+      portfolio_doc_url: 'https://zamfinance.co.zm/portfolio',
     },
   },
 
@@ -448,6 +497,8 @@ const CONSULTANT_PROFILES = [
       ownership_details: '35% Senior Partner Samuel Mwale, 30% Partner Grace Tembo, 20% Partner David Lungu, 15% Associate Partner Pool',
       contact_email: 'samuel@patriotlegal.co.zm',
       contact_phone: '+260 955 432 109',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Senior Partner is a member of the Zambia Institute of Legal Practice with 18 years specializing in energy law. Firm has advised on $500M+ in cumulative energy deal value.',
     },
     step3_preferences: {
@@ -461,6 +512,9 @@ const CONSULTANT_PROFILES = [
       certifications: ['LEGAL'],
       hourly_rate_range: '$150–$300 / hr',
       project_rate_range: '$20k–$150k per transaction',
+      specializations: ['Power Purchase Agreements', 'Concession Agreements', 'Land Acquisition'],
+      company_experience_doc_url: 'https://patriotlegal.co.zm/track-record',
+      portfolio_doc_url: 'https://patriotlegal.co.zm/portfolio',
     },
   },
 ];
@@ -492,6 +546,8 @@ const POWER_TRADER_PROFILES = [
       ownership_details: '55% Silwamba Investments, 25% PowerGrid Holdings (SA), 20% Employee shares',
       contact_email: 'david@zampowertrading.co.zm',
       contact_phone: '+260 977 876 543',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'CEO has 11 years in power trading and utility management. Previously headed commercial operations at a Zambian independent power producer.',
     },
     step3_preferences: {
@@ -525,6 +581,8 @@ const POWER_TRADER_PROFILES = [
       ownership_details: 'Listed on LuSE (Lusaka Securities Exchange). 40% institutional investors, 30% founding family, 20% public float, 10% employee shares',
       contact_email: 'mary.ngandu@kabweindustrial.co.zm',
       contact_phone: '+260 966 234 567',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Group Energy Director has 16 years in industrial energy procurement. Previously negotiated $200M+ in power supply contracts for Zambian mining operations.',
     },
     step3_preferences: {
@@ -558,6 +616,8 @@ const POWER_TRADER_PROFILES = [
       ownership_details: '50% Halwindi Family Trust, 30% SAPP Trading Partner (Namibia), 20% Management equity',
       contact_email: 'patrick@sacbp.co.zm',
       contact_phone: '+260 954 654 321',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Founder has 9 years in SAPP market operations and cross-border power trade. Previously managed wheeling contracts for a ZESCO subsidiary.',
     },
     step3_preferences: {
@@ -597,6 +657,8 @@ const GRANT_PROVIDER_PROFILES = [
       ownership_details: 'Board-governed non-profit. No ownership stakes. Board of 7 directors from development finance, academia, and civil society.',
       contact_email: 'grants@energy4all.org',
       contact_phone: '+260 977 567 890',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Executive Director has 16 years in development finance. Grants Manager previously administered $30M+ in clean energy grants at GIZ.',
     },
     step3_preferences: {
@@ -633,6 +695,8 @@ const GRANT_PROVIDER_PROFILES = [
       ownership_details: 'Government of Zambia (50%), World Bank IDA (40%), Private Sector Advisory Board (10% non-equity governance role)',
       contact_email: 'james.mutati@greenstartup.co.zm',
       contact_phone: '+260 968 345 678',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Facility Director has 12 years in green finance at the World Bank. Deputy Director previously managed innovation grants at ZCIC (Zambia Climate Innovation Centre).',
     },
     step3_preferences: {
@@ -669,6 +733,8 @@ const GRANT_PROVIDER_PROFILES = [
       ownership_details: 'Multi-donor trust fund governed by a Steering Committee of contributing DFIs and the Zambian Ministry of Energy. Independent Secretariat manages day-to-day operations.',
       contact_email: 'patricia@dfi-zm.org',
       contact_phone: '+260 955 789 012',
+      is_new_company_with_experienced_team: false,
+      management_team_experience: { years: 0, description: '' },
       management_experience_summary: 'Chief Investment Officer has 18 years in blended finance across Africa. Previously led the energy access facility at FMO (Dutch Development Bank).',
     },
     step3_preferences: {
@@ -713,6 +779,8 @@ function printProfile(type, profile, index) {
   console.log(`   Ownership Details:        ${c.ownership_details}`);
   console.log(`   Contact Email:            ${c.contact_email}`);
   console.log(`   Contact Phone:            ${c.contact_phone}`);
+  console.log(`   New Co (Exp. Team):       ${c.is_new_company_with_experienced_team}`);
+  console.log(`   Mgmt Team Experience:     ${c.management_team_experience?.years ?? 0} yrs — ${c.management_team_experience?.description || '—'}`);
   console.log(`   Management Experience:    ${c.management_experience_summary}`);
 
   if (profile.step3_preferences) {

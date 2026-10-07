@@ -8,44 +8,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { DashboardSkeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/ui/icons';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
-import { technicalPartnersApi } from '@/services/api';
 import PageTitle from '@/components/PageTitle';
 import { PageHero } from '@/components/ui/PageHero';
 import { useTechnicalData } from '@/hooks/useTechnicalData';
 import { TechnicalProfileCard } from '@/components/partners/TechnicalProfileCard';
 import { toast } from 'sonner';
 import { TechnicalPartner } from '@/types';
+import { SERVICE_CATEGORIES, SECTORS, ZAMBIAN_PROVINCES, DELIVERY_MODELS } from '@/lib/profile-options';
 
-// ── Option sets (mirroring onboarding constants) ─────────────────────────────
-const SERVICE_CATEGORIES = [
-  { value: 'EPC', label: 'EPC (Engineering, Procurement, Construction)' },
-  { value: 'O_M', label: 'O&M (Operations & Maintenance)' },
-  { value: 'FEASIBILITY_STUDY', label: 'Feasibility Study' },
-  { value: 'ENVIRONMENTAL_IMPACT', label: 'Environmental Impact Assessment' },
-  { value: 'LEGAL_ADVISORY', label: 'Legal Advisory' },
-  { value: 'FINANCIAL_ADVISORY', label: 'Financial Advisory' },
-];
-const SECTORS = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-];
-const ZAMBIAN_PROVINCES = [
-  'Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka',
-  'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western',
-];
-const DELIVERY_MODELS = [
-  { value: 'EPC_TURNKEY', label: 'EPC Turnkey' },
-  { value: 'BOOT', label: 'BOOT' },
-  { value: 'PPP', label: 'Public-Private Partnership' },
-  { value: 'OEM', label: 'OEM Partnership' },
-  { value: 'SUBCONTRACT', label: 'Subcontract' },
-];
+// ── Option sets ──────────────────────────────────────────────────────────────
 const PROJECT_TYPES = [
   'Utility-scale', 'Commercial & Industrial', 'Mini-grid', 'Off-grid', 'Transmission', 'Distribution',
 ];
@@ -162,21 +133,19 @@ export default function TechnicalProfilePage() {
     if (!user?.company_id) return;
     setSaving(true);
     try {
-      if (!data.technicalPartnerId) {
-        const { data: created } = await supabase
-          .from('technical_partners')
-          .insert({ company_id: user.company_id, ...profileData })
-          .select()
-          .single();
-        data.handleProfileSaved(created as TechnicalPartner, created?.id ?? null);
-      } else {
-        const res = await technicalPartnersApi.update(data.technicalPartnerId, profileData);
-        if (res.data) data.handleProfileSaved(res.data, data.technicalPartnerId);
-      }
+      // Validated server-side; the table is derived from the company role.
+      const res = await fetch('/api/profile/partner-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileData),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to update profile');
+      if (json.data) data.handleProfileSaved(json.data as TechnicalPartner, json.data.id ?? null);
       setDirty(false);
       toast.success('Capability profile saved — matching will use your new settings.');
-    } catch {
-      toast.error('Failed to update profile. Please try again.');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to update profile. Please try again.');
     } finally {
       setSaving(false);
     }

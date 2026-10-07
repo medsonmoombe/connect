@@ -5,6 +5,7 @@ import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSidebar, SidebarNavItem, NavSection } from './Sidebar';
 import { DashboardNavbar } from './Navbar';
+import { buildAdminSections } from './admin-nav';
 import { Icons } from '@/components/ui/icons';
 import { getRoleLabel } from '@/lib/role-labels';
 import { cn } from '@/lib/utils';
@@ -220,32 +221,7 @@ function consultantNav(pathname: string, _searchParams: string): NavConfig {
 function adminNav(pathname: string): NavConfig {
   return {
     portalLabel: 'Admin Command',
-    sections: [
-      {
-        label: 'Overview',
-        items: [
-          { icon: <Icons.layoutDashboard className="size-[18px]" />, label: 'Overview', active: pathname === '/admin', href: '/admin' },
-          { icon: <Icons.cpu className="size-[18px]" />, label: 'AI Portfolio Oversight', active: pathname === '/admin/ai-overview', href: '/admin/ai-overview' },
-        ],
-      },
-      {
-        label: 'Management',
-        items: [
-          { icon: <Icons.shieldCheck className="size-[18px]" />, label: 'Verification Queue', active: pathname.startsWith('/admin/verification'), href: '/admin/verification' },
-          { icon: <Icons.mail className="size-[18px]" />, label: 'User Provisioning', active: pathname.startsWith('/admin/users'), href: '/admin/users' },
-          { icon: <Icons.folder className="size-[18px]" />, label: 'All Projects', active: pathname.startsWith('/admin/projects') || pathname.startsWith('/admin/review'), href: '/admin/projects' },
-          { icon: <Icons.messageSquare className="size-[18px]" />, label: 'Milestone Pipelines', active: pathname.startsWith('/admin/engagements'), href: '/admin/engagements' },
-          { icon: <Icons.building className="size-[18px]" />, label: 'All Companies', active: pathname.startsWith('/admin/companies'), href: '/admin/companies' },
-          { icon: <Icons.headphones className="size-[18px]" />, label: 'Consultation', active: pathname.startsWith('/admin/consultation'), href: '/admin/consultation' },
-        ],
-      },
-      {
-        label: 'System',
-        items: [
-          { icon: <Icons.settings className="size-[18px]" />, label: 'System Settings', active: pathname === '/admin/settings', href: '/admin/settings' },
-        ],
-      },
-    ],
+    sections: buildAdminSections(pathname),
     footerWidget: (
       <div className="sidebar-widget rounded-none p-3.5">
         <div className="flex items-center justify-between mb-2">

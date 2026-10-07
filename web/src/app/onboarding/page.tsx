@@ -12,6 +12,23 @@ import { Company, CompanyType } from '@/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { SearchableCountrySelect } from '@/components/ui/SearchableCountrySelect';
+import {
+  SECTORS,
+  SERVICE_CATEGORIES,
+  CAPITAL_STRUCTURES,
+  PROJECT_STAGES,
+  RISK_LEVELS,
+  GOVERNANCE_PREFERENCES,
+  DELIVERY_MODELS,
+  OWNERSHIP_STRUCTURES,
+  ZAMBIAN_PROVINCES,
+  CERTIFICATIONS,
+} from '@/lib/profile-options';
+
+/** Market segments an EPC / technical partner has delivered. */
+const PROJECT_TYPES = [
+  'Utility-scale', 'Commercial & Industrial', 'Mini-grid', 'Off-grid', 'Transmission', 'Distribution',
+];
 
 type OnboardingStep = 'profile' | 'company' | 'preferences' | 'complete';
 
@@ -72,79 +89,7 @@ const FIRM_TYPE_DETAILS: Record<CompanyType, { summary: string; captures: string
   },
 };
 
-const ZAMBIAN_PROVINCES = [
-  'Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka',
-  'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western',
-];
 
-const SECTORS = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-];
-
-const SERVICE_CATEGORIES = [
-  { value: 'EPC', label: 'EPC (Engineering, Procurement, Construction)' },
-  { value: 'O_M', label: 'O&M (Operations & Maintenance)' },
-  { value: 'FEASIBILITY_STUDY', label: 'Feasibility Study' },
-  { value: 'ENVIRONMENTAL_IMPACT', label: 'Environmental Impact Assessment' },
-  { value: 'LEGAL_ADVISORY', label: 'Legal Advisory' },
-  { value: 'FINANCIAL_ADVISORY', label: 'Financial Advisory' },
-];
-
-const CAPITAL_STRUCTURES = [
-  { value: 'DEBT', label: 'Debt' },
-  { value: 'EQUITY', label: 'Equity' },
-  { value: 'PROFIT_SHARING', label: 'Profit Sharing' },
-  { value: 'LEASING', label: 'Leasing' },
-  { value: 'GRANT', label: 'Grant' },
-];
-
-const PROJECT_STAGES = [
-  { value: 'CONCEPT', label: 'Concept' },
-  { value: 'PRE_FEASIBILITY', label: 'Pre-Feasibility' },
-  { value: 'FULL_FEASIBILITY', label: 'Full Feasibility' },
-  { value: 'REGULATORY_APPROVAL', label: 'Regulatory Approval' },
-  { value: 'PPA_READY', label: 'PPA Ready' },
-  { value: 'FINANCIAL_CLOSE', label: 'Financial Close' },
-  { value: 'CONSTRUCTION', label: 'Construction' },
-  { value: 'OPERATION', label: 'Operation' },
-];
-
-const RISK_LEVELS = [
-  { value: 'LOW', label: 'Low Risk (Proven tech, signed PPA)' },
-  { value: 'MEDIUM', label: 'Medium Risk (Proven tech, merchant risk)' },
-  { value: 'HIGH', label: 'High Risk (Emerging tech or frontier market)' },
-];
-
-const GOVERNANCE_PREFERENCES = [
-  { value: 'PASSIVE', label: 'Passive (No intervention)' },
-  { value: 'BOARD_SEAT', label: 'Board Seat' },
-  { value: 'ACTIVE_ROLE', label: 'Active Role' },
-];
-
-const DELIVERY_MODELS = [
-  { value: 'FIXED_PRICE', label: 'Fixed Price' },
-  { value: 'TIME_MATERIALS', label: 'Time & Materials' },
-  { value: 'COST_PLUS', label: 'Cost Plus' },
-  { value: 'BOOT', label: 'BOOT (Build-Own-Operate-Transfer)' },
-  { value: 'BOO', label: 'BOO (Build-Own-Operate)' },
-];
-
-const OWNERSHIP_STRUCTURES = [
-  { value: 'SOLE_PROPRIETOR', label: 'Sole Proprietor' },
-  { value: 'PARTNERSHIP', label: 'Partnership' },
-  { value: 'PRIVATE_LIMITED', label: 'Private Limited Company' },
-  { value: 'PUBLIC_LIMITED', label: 'Public Limited Company' },
-  { value: 'NON_PROFIT', label: 'Non-Profit / NGO' },
-  { value: 'GOVERNMENT', label: 'Government Entity' },
-  { value: 'JV', label: 'Joint Venture' },
-  { value: 'OTHER', label: 'Other' },
-];
 
 const inputClass = "w-full h-10 px-4 rounded-none border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm";
 const selectClass = "w-full h-10 px-4 pr-10 rounded-none border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-600/20 focus:border-green-600 transition-all text-slate-900 font-medium text-sm appearance-none";
@@ -236,11 +181,13 @@ const defaultCompany = {
   management_experience_summary: '',
 };
 
-function MultiSelect({ options, selected, onChange, placeholder }: {
+function MultiSelect({ options, selected, onChange, placeholder, freeText }: {
   options: { value: string; label: string }[];
   selected: string[];
   onChange: (vals: string[]) => void;
   placeholder?: string;
+  /** Allow values not present in `options` (type + Enter). */
+  freeText?: boolean;
 }) {
   const toggle = (val: string) => {
     if (selected.includes(val)) {
@@ -281,6 +228,19 @@ function MultiSelect({ options, selected, onChange, placeholder }: {
         </select>
         <Icons.chevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
       </div>
+      {freeText && (
+        <input
+          className={cn(inputClass, 'h-9 text-xs')}
+          placeholder="Or type a custom value and press Enter…"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const v = (e.target as HTMLInputElement).value.trim();
+              if (v && !selected.includes(v)) { onChange([...selected, v]); (e.target as HTMLInputElement).value = ''; }
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -472,6 +432,15 @@ interface Preferences {
   preferred_technology_types?: string[];
   regions_of_interest?: string[];
   min_ppa_duration_years?: number;
+  // Technical-partner metrics captured by the capability-profile editor
+  annual_delivery_capacity_mw?: number;
+  total_mw_delivered?: number;
+  average_delivery_time_months?: number;
+  bonding_capacity?: number;
+  project_type_experience?: string[];
+  company_experience_doc_url?: string;
+  portfolio_doc_url?: string;
+  specializations?: string[];
   min_grant_size?: number;
   max_grant_size?: number;
   grant_types?: string[];
@@ -1287,18 +1256,21 @@ interface Preferences {
                 <div className="space-y-2">
                   <FieldLabel field="Certifications" hint={PREFERENCE_HINTS.certifications} />
                   <MultiSelect
-                    options={[
-                      { value: 'PMP', label: 'PMP (Project Management Professional)' },
-                      { value: 'PRINCE2', label: 'PRINCE2' },
-                      { value: 'CFA', label: 'CFA Charterholder' },
-                      { value: 'ACCA', label: 'ACCA' },
-                      { value: 'ENVIRONMENTAL', label: 'Environmental Assessment Certification' },
-                      { value: 'LEGAL', label: 'Legal Practitioner Licence' },
-                      { value: 'ENGINEERING', label: 'Professional Engineering Licence' },
-                    ]}
+                    options={CERTIFICATIONS}
                     selected={preferences.certifications ?? []}
                     onChange={(vals) => setPreferences({...preferences, certifications: vals})}
                     placeholder="Select certifications..."
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <FieldLabel field="Specializations" />
+                  <MultiSelect
+                    options={[]}
+                    selected={preferences.specializations ?? []}
+                    onChange={(vals) => setPreferences({...preferences, specializations: vals})}
+                    placeholder="Add a specialization..."
+                    freeText
                   />
                 </div>
 
@@ -1310,6 +1282,17 @@ interface Preferences {
                   <div className="space-y-2">
                     <FieldLabel field="Project Rate Range" hint={PREFERENCE_HINTS.projectRateRange} />
                     <input type="text" placeholder="e.g. $20k - $80k" value={preferences.project_rate_range ?? ''} onChange={(e) => setPreferences({...preferences, project_rate_range: e.target.value})} className={inputClass} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <FieldLabel field="Company Experience Document URL" />
+                    <input type="text" placeholder="https://..." value={preferences.company_experience_doc_url ?? ''} onChange={(e) => setPreferences({...preferences, company_experience_doc_url: e.target.value})} className={inputClass} />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel field="Portfolio Document URL" />
+                    <input type="text" placeholder="https://..." value={preferences.portfolio_doc_url ?? ''} onChange={(e) => setPreferences({...preferences, portfolio_doc_url: e.target.value})} className={inputClass} />
                   </div>
                 </div>
               </div>
@@ -1430,6 +1413,39 @@ interface Preferences {
                   <input type="number" min={0} step="any" value={preferences.max_mw_capacity ?? ''} onChange={(e) => setPreferences({...preferences, max_mw_capacity: Number(e.target.value)})} className={inputClass} />
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <FieldLabel field="Annual Delivery Capacity (MW)" />
+                    <input type="number" min={0} step="any" value={preferences.annual_delivery_capacity_mw ?? ''} onChange={(e) => setPreferences({...preferences, annual_delivery_capacity_mw: Number(e.target.value)})} className={inputClass} />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel field="Total MW Delivered" />
+                    <input type="number" min={0} step="any" value={preferences.total_mw_delivered ?? ''} onChange={(e) => setPreferences({...preferences, total_mw_delivered: Number(e.target.value)})} className={inputClass} />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel field="Largest Project (MW)" hint={PREFERENCE_HINTS.largestProjectMw} />
+                    <input type="number" min={0} step="any" value={preferences.largest_project_mw ?? ''} onChange={(e) => setPreferences({...preferences, largest_project_mw: Number(e.target.value)})} className={inputClass} />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel field="Average Delivery Time (months)" />
+                    <input type="number" min={0} value={preferences.average_delivery_time_months ?? ''} onChange={(e) => setPreferences({...preferences, average_delivery_time_months: Number(e.target.value)})} className={inputClass} />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel field="Bonding Capacity (USD)" />
+                    <input type="number" min={0} value={preferences.bonding_capacity ?? ''} onChange={(e) => setPreferences({...preferences, bonding_capacity: Number(e.target.value)})} className={inputClass} />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <FieldLabel field="Project Type Experience" />
+                  <MultiSelect
+                    options={PROJECT_TYPES.map(t => ({ value: t, label: t }))}
+                    selected={preferences.project_type_experience ?? []}
+                    onChange={(vals) => setPreferences({...preferences, project_type_experience: vals})}
+                    placeholder="Select project types..."
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <FieldLabel field="Service Categories" hint={PREFERENCE_HINTS.serviceCategories} required />
                   <MultiSelect
@@ -1477,6 +1493,17 @@ interface Preferences {
                     placeholder="e.g. 20% upfront, milestones..."
                     value={preferences.payment_terms ?? ''}
                     onChange={(e) => setPreferences({...preferences, payment_terms: e.target.value})}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <FieldLabel field="Company Experience Document URL" />
+                  <input
+                    type="text"
+                    placeholder="https://..."
+                    value={preferences.company_experience_doc_url ?? ''}
+                    onChange={(e) => setPreferences({...preferences, company_experience_doc_url: e.target.value})}
                     className={inputClass}
                   />
                 </div>

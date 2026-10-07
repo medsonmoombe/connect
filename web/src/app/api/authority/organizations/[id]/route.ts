@@ -14,6 +14,9 @@ const REGULATOR_ORG_DECISION_STATUSES = ['verified', 'needs_update', 'rejected']
 type RegulatorOrgDecision = typeof REGULATOR_ORG_DECISION_STATUSES[number];
 
 async function requireMfa(userId: string | null | undefined) {
+  // When MFA is disabled platform-wide, regulators and platform admins must be
+  // able to make review decisions without a step-up cookie — mirrors isMfaRequired().
+  if (process.env.DISABLE_MFA === 'true') return true;
   if (!userId) return false;
   const cookieStore = await cookies();
   const value = cookieStore.get('mfa_verified')?.value;

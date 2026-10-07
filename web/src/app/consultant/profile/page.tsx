@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { DashboardSkeleton } from '@/components/ui/skeleton';
 import { Icons } from '@/components/ui/icons';
@@ -14,30 +13,15 @@ import { PageHero } from '@/components/ui/PageHero';
 import { useConsultantData } from '@/hooks/useConsultantData';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { firstErrorMessage } from '@/lib/section-errors';
+import { SERVICE_CATEGORIES as BASE_SERVICE_CATEGORIES, SECTORS, ZAMBIAN_PROVINCES } from '@/lib/profile-options';
 
-// ── Option sets (mirroring onboarding constants) ─────────────────────────────
+// ── Option sets (canonical sets + consultant-specific additions) ────────────
 const SERVICE_CATEGORIES = [
-  { value: 'FEASIBILITY_STUDY', label: 'Feasibility Study' },
-  { value: 'ENVIRONMENTAL_IMPACT', label: 'Environmental Impact Assessment' },
-  { value: 'LEGAL_ADVISORY', label: 'Legal Advisory' },
-  { value: 'FINANCIAL_ADVISORY', label: 'Financial Advisory' },
+  ...BASE_SERVICE_CATEGORIES,
   { value: 'TECHNICAL_ADVISORY', label: 'Technical Advisory' },
   { value: 'PROJECT_MANAGEMENT', label: 'Project Management' },
   { value: 'GRID_INTERCONNECTION', label: 'Grid Interconnection Studies' },
   { value: 'DUE_DILIGENCE', label: 'Due Diligence' },
-];
-const SECTORS = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-];
-const ZAMBIAN_PROVINCES = [
-  'Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka',
-  'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western',
 ];
 
 const inputClass =
@@ -214,15 +198,15 @@ export default function ConsultantProfilePage() {
     if (!user?.company_id) return;
     setSaving(true);
     try {
-      if (data.consultantProfileId) {
-        const { error } = await supabase.from('consultants').update(form).eq('id', data.consultantProfileId);
-        if (error) throw error;
-      } else {
-        const { data: created, error } = await supabase
-          .from('consultants').insert({ company_id: user.company_id, ...form }).select().single();
-        if (error) throw error;
-        if (created) setLoadedId(created.id);
-      }
+      // Validated server-side; the table is derived from the company role.
+      const res = await fetch('/api/profile/partner-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Failed to update profile');
+      if (json.data?.id) setLoadedId(json.data.id);
       await data.fetchEngagements();
       setDirty(false);
       toast.success('Consulting profile updated.');

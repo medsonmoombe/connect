@@ -449,7 +449,12 @@ export { ALLOWED_MIME_TYPES, MAX_FILE_SIZE } from '@/lib/upload-constants';
 export async function requireMfa(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
 
+  // When MFA is disabled platform-wide every user bypasses step-up, matching
+  // isMfaRequired() and the session endpoint's mfa_verified value.
+  if (process.env.DISABLE_MFA === 'true') return user;
+
   const needsMfa = user.is_platform_admin
+    || (user as any).is_authority_user
     || (user as any).org_member_role === 'OWNER'
     || (user as any).org_member_role === 'ADMIN'
     || user.role === 'ADMIN'

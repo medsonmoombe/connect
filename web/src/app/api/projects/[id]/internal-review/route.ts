@@ -2,8 +2,7 @@ import { NextRequest } from 'next/server';
 import { getAuthenticatedUser, forbidden, handleRouteError, badRequest, findProjectCreator, getIdempotencyResponse, saveIdempotencyResponse } from '@/lib/api-helpers';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { transitionProject, hasCompletedAnalysis, STATUS_LABELS, type ProjectStatus } from '@/lib/project-state-machine';
-import { createNotification, createNotifications, notificationBuilders } from '@/lib/notify';
-import { sendEmail } from '@/lib/email';
+import { createNotifications, notificationBuilders, notifyUser, notifyUsers } from '@/lib/notify';
 import {
   projectApprovedInternalEmail,
   projectReturnedEmail,
@@ -174,25 +173,31 @@ function mapTransitionError(req: NextRequest, userId: string | null, route: stri
 async function notifyCreatorApproved(args: { creator: any; projectName: string; projectId: string }) {
   const { creator, projectName, projectId } = args;
   if (!creator?.id) return;
-  await createNotification({
+  const tpl = projectApprovedInternalEmail({ projectName, recipientName: creator.full_name || 'there', projectUrl: `/projects/${projectId}` });
+  await notifyUser({
     userId: creator.id,
     payload: notificationBuilders.projectApprovedByInternal({ projectName, actionUrl: `/projects/${projectId}` }),
+    channel: 'both',
+    emailTo: creator.email,
+    emailTemplate: tpl,
+    emailLogType: 'project_approved_internal',
+    emailEntityId: projectId,
   });
-  if (!creator.email) return;
-  const tpl = projectApprovedInternalEmail({ projectName, recipientName: creator.full_name || 'there', projectUrl: `/projects/${projectId}` });
-  await sendEmail({ to: creator.email, subject: tpl.subject, html: tpl.html, logType: 'project_approved_internal', logEntityId: projectId });
 }
 
 async function notifyCreatorReturned(args: { creator: any; projectName: string; feedback: string; projectId: string }) {
   const { creator, projectName, feedback, projectId } = args;
   if (!creator?.id) return;
-  await createNotification({
+  const tpl = projectReturnedEmail({ projectName, recipientName: creator.full_name || 'here', feedback, projectUrl: `/projects/${projectId}` });
+  await notifyUser({
     userId: creator.id,
     payload: notificationBuilders.projectInternalRejected({ projectName, reason: feedback, actionUrl: `/projects/${projectId}` }),
+    channel: 'both',
+    emailTo: creator.email,
+    emailTemplate: tpl,
+    emailLogType: 'project_internal_rejected',
+    emailEntityId: projectId,
   });
-  if (!creator.email) return;
-  const tpl = projectReturnedEmail({ projectName, recipientName: creator.full_name || 'here', feedback, projectUrl: `/projects/${projectId}` });
-  await sendEmail({ to: creator.email, subject: tpl.subject, html: tpl.html, logType: 'project_internal_rejected', logEntityId: projectId });
 }
 
 async function notifyOtherOrgAdmins(args: {
@@ -219,11 +224,19 @@ async function notifyPlatformAdmins(args: { supabase: ReturnType<typeof getSupab
     .from('company_members').select('user_id').eq('company_id', platformOrg.id).is('deleted_at', null);
   if (!platformAdmins?.length) return;
   const adminIds = platformAdmins.map(m => m.user_id);
-  await createNotifications({ userIds: adminIds, payload: notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: '/admin/projects' }) });
   const { data: adminProfiles } = await supabase.from('user_profiles').select('id, email').in('id', adminIds);
+  const emailMap: Record<string, string> = {};
   for (const a of adminProfiles ?? []) {
-    if (!a.email) continue;
-    const tpl = adminProjectSubmittedEmail({ projectName, orgName, projectUrl: '/admin/projects' });
-    await sendEmail({ to: a.email, subject: tpl.subject, html: tpl.html, logType: 'admin_project_submitted', logEntityId: projectId });
+    if (a.email) emailMap[a.id] = a.email;
   }
+  const tpl = adminProjectSubmittedEmail({ projectName, orgName, projectUrl: '/admin/projects' });
+  await notifyUsers({
+    userIds: adminIds,
+    payload: notificationBuilders.projectSubmittedForReview({ projectName, actionUrl: '/admin/projects' }),
+    channel: 'both',
+    emailMap,
+    emailTemplate: tpl,
+    emailLogType: 'admin_project_submitted',
+    emailEntityId: projectId,
+  });
 }

@@ -22,6 +22,9 @@ const decisionSchema = z.object({
 });
 
 async function requireMfa(userId: string | null | undefined) {
+  // When MFA is disabled platform-wide, reviewers and platform admins must be
+  // able to approve without a step-up cookie — mirrors isMfaRequired().
+  if (process.env.DISABLE_MFA === 'true') return true;
   if (!userId) return false;
   const cookieStore = await cookies();
   const value = cookieStore.get('mfa_verified')?.value;

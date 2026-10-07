@@ -14,6 +14,17 @@ import { PageHero } from '@/components/ui/PageHero';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { COUNTRY_REGIONS, findCountry } from '@/lib/countries';
+import {
+  SECTORS,
+  SERVICE_CATEGORIES,
+  CAPITAL_STRUCTURES,
+  PROJECT_STAGES,
+  RISK_LEVELS,
+  GOVERNANCE_PREFERENCES,
+  DELIVERY_MODELS,
+  ZAMBIAN_PROVINCES,
+  LICENSE_TYPES,
+} from '@/lib/profile-options';
 import { SearchableCountrySelect } from '@/components/ui/SearchableCountrySelect';
 
 type OrgStatus = 'pending_verification' | 'verified' | 'rejected' | 'needs_update' | 'deactivated';
@@ -89,65 +100,6 @@ function getTabsForRole(role: string): MgmtTab[] {
   }
 }
 
-const SECTORS = [
-  { value: 'SOLAR', label: 'Solar' },
-  { value: 'WIND', label: 'Wind' },
-  { value: 'HYDRO', label: 'Hydro' },
-  { value: 'BIOMASS', label: 'Biomass' },
-  { value: 'GEOTHERMAL', label: 'Geothermal' },
-  { value: 'STORAGE', label: 'Storage' },
-  { value: 'GRID_INFRA', label: 'Grid Infrastructure' },
-];
-
-const SERVICE_CATEGORIES = [
-  { value: 'EPC', label: 'EPC (Engineering, Procurement, Construction)' },
-  { value: 'O_M', label: 'O&M (Operations & Maintenance)' },
-  { value: 'FEASIBILITY_STUDY', label: 'Feasibility Study' },
-  { value: 'ENVIRONMENTAL_IMPACT', label: 'Environmental Impact Assessment' },
-  { value: 'LEGAL_ADVISORY', label: 'Legal Advisory' },
-  { value: 'FINANCIAL_ADVISORY', label: 'Financial Advisory' },
-];
-
-const CAPITAL_STRUCTURES = [
-  { value: 'DEBT', label: 'Debt' },
-  { value: 'EQUITY', label: 'Equity' },
-  { value: 'PROFIT_SHARING', label: 'Profit Sharing' },
-  { value: 'LEASING', label: 'Leasing' },
-  { value: 'GRANT', label: 'Grant' },
-];
-
-const PROJECT_STAGES = [
-  { value: 'CONCEPT', label: 'Concept' },
-  { value: 'PRE_FEASIBILITY', label: 'Pre-Feasibility' },
-  { value: 'FULL_FEASIBILITY', label: 'Full Feasibility' },
-  { value: 'REGULATORY_APPROVAL', label: 'Regulatory Approval' },
-  { value: 'PPA_READY', label: 'PPA Ready' },
-  { value: 'FINANCIAL_CLOSE', label: 'Financial Close' },
-  { value: 'CONSTRUCTION', label: 'Construction' },
-  { value: 'OPERATION', label: 'Operation' },
-];
-
-const RISK_LEVELS = [
-  { value: 'LOW', label: 'Low Risk (Proven tech, signed PPA)' },
-  { value: 'MEDIUM', label: 'Medium Risk (Proven tech, merchant risk)' },
-  { value: 'HIGH', label: 'High Risk (Emerging tech or frontier market)' },
-];
-
-const GOVERNANCE_PREFERENCES = [
-  { value: 'PASSIVE', label: 'Passive (No intervention)' },
-  { value: 'BOARD_SEAT', label: 'Board Seat' },
-  { value: 'ACTIVE_ROLE', label: 'Active Role' },
-];
-
-const DELIVERY_MODELS = [
-  { value: 'FIXED_PRICE', label: 'Fixed Price' },
-  { value: 'TIME_MATERIALS', label: 'Time & Materials' },
-  { value: 'COST_PLUS', label: 'Cost Plus' },
-  { value: 'BOOT', label: 'BOOT (Build-Own-Operate-Transfer)' },
-  { value: 'BOO', label: 'BOO (Build-Own-Operate)' },
-];
-
-const ZAMBIAN_PROVINCES = COUNTRY_REGIONS['Zambia'];
 
 const inputClass = "w-full h-9 px-4 rounded-none border border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0b3b24]/10 focus:border-[#0b3b24] transition-colors text-slate-900 font-medium text-sm";
 const selectClass = "w-full h-9 px-4 pr-10 rounded-none border border-slate-200 bg-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0b3b24]/10 focus:border-[#0b3b24] transition-colors text-slate-900 font-medium text-sm appearance-none";
@@ -2163,7 +2115,7 @@ export default function AdminCompaniesPage() {
                           <div className="relative">
                             <select value={prefForm.license_type ?? ''} onChange={e => setPrefForm(f => ({ ...f, license_type: e.target.value }))} className={selectClass}>
                               <option value="">Select license type...</option>
-                              <option value="GENERATION">Generation License</option><option value="TRADING">Trading License</option><option value="DISTRIBUTION">Distribution License</option><option value="TRANSMISSION">Transmission License</option><option value="SUPPLIER">Supplier License</option>
+                              {LICENSE_TYPES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
                             </select>
                             <Icons.chevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                           </div>
